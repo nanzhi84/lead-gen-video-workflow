@@ -6,6 +6,7 @@ from packages.core.contracts import (
     Artifact,
     ArtifactKind,
     ArtifactRef,
+    MediaInfo,
     UploadSession,
     UploadStatus,
     utcnow,
@@ -107,7 +108,9 @@ class SqlAlchemyUploadRepository:
             session.refresh(row)
             return upload_row_to_contract(row)
 
-    def create_artifact_from_upload(self, upload: UploadSession) -> Artifact:
+    def create_artifact_from_upload(
+        self, upload: UploadSession, *, media_info: MediaInfo | None = None
+    ) -> Artifact:
         with self.session_factory() as session:
             row = ArtifactRow(
                 id=new_id("art"),
@@ -115,6 +118,7 @@ class SqlAlchemyUploadRepository:
                 uri=upload.object_uri,
                 size_bytes=upload.size_bytes,
                 sha256=upload.sha256,
+                media_info=media_info.model_dump(mode="json") if media_info else None,
                 payload_schema="UploadedFileArtifact.v1",
                 payload=upload.model_dump(mode="json"),
             )

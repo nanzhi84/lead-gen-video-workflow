@@ -26,7 +26,13 @@ def create_completed_voice_upload(client: TestClient) -> str:
     )
     assert admin_login.status_code == 200, admin_login.text
 
-    content = b"voice reference payload"
+    import tempfile
+    from pathlib import Path
+
+    from tests.fixtures.media import generate_test_audio
+
+    with tempfile.TemporaryDirectory() as fixture_dir:
+        content = generate_test_audio(Path(fixture_dir), duration_sec=1).read_bytes()
     digest = hashlib.sha256(content).hexdigest()
     prepared = client.post(
         "/api/uploads/prepare",

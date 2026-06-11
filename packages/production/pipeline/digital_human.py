@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import re
+import tempfile
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from packages.ai.gateway import ProviderCall, ProviderGateway
 from packages.ai.prompts import PromptRegistry
@@ -38,6 +41,7 @@ from packages.core.contracts.artifacts import (
     CaseContextArtifact,
     CreativeIntentArtifact,
     FontPlan,
+    LipSyncReportArtifact,
     MaterialCandidate,
     MaterialPackArtifact,
     NarrationUnit,
@@ -53,8 +57,19 @@ from packages.core.contracts.artifacts import (
 from packages.core.contracts.state_machines import assert_transition
 from packages.core.observability import record_node_run, record_workflow_run
 from packages.core.storage import Repository
+from packages.core.storage.object_store import get_object_store
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError, NodeOutput, WorkflowRuntimeAdapter, manifest_hash
+from packages.media.assets import local_object_path, store_file
+from packages.media.audio import synthesize_sandbox_tts
+from packages.media.video.ffmpeg import (
+    FfmpegCommandError,
+    FfmpegRunner,
+    extract_thumbnails,
+    ffmpeg_bin,
+    probe_media,
+    probe_video_frame_count,
+)
 from packages.production.pipeline.reuse import ReusePlan, ReuseSourceRun, compute_reuse_plan
 
 
@@ -118,7 +133,7 @@ def digital_human_template() -> WorkflowTemplate:
         elif spec.node_id == "PortraitTrackBuild":
             spec.output_artifact_kinds.append(ArtifactKind.video_portrait_track)
         elif spec.node_id == "LipSync":
-            spec.output_artifact_kinds.append(ArtifactKind.video_lipsync)
+            spec.output_artifact_kinds.extend([ArtifactKind.video_lipsync, ArtifactKind.lipsync_report])
         elif spec.node_id == "RenderFinalTimeline":
             spec.output_artifact_kinds.append(ArtifactKind.video_rendered)
         elif spec.node_id == "SubtitleAndBgmMix":
@@ -182,6 +197,123 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
         self.provider_gateway = provider_gateway
         self.prompt_registry = prompt_registry
         self.template = digital_human_template()
+        self._ensure_seed_media_assets()
+
+    def _ensure_seed_media_assets(self) -> None:
+        seed_dir = Path(".data/generated-media/seed")
+        seed_dir.mkdir(parents=True, exist_ok=True)
+        specs = {
+            "asset_portrait_demo": {
+                "filename": "portrait_demo_15s.mp4",
+                "content_type": "video/mp4",
+                "generator": lambda path: self._generate_seed_video(
+                    path, duration_sec=15, width=320, height=568, fps=30
+                ),
+            },
+            "asset_broll_demo": {
+                "filename": "broll_demo_4s.mp4",
+                "content_type": "video/mp4",
+                "generator": lambda path: self._generate_seed_video(
+                    path, duration_sec=4, width=320, height=568, fps=30
+                ),
+            },
+            "asset_bgm_demo": {
+                "filename": "bgm_demo_15s.wav",
+                "content_type": "audio/wav",
+                "generator": lambda path: self._generate_seed_audio(path, duration_sec=15),
+            },
+        }
+        for asset_id, spec in specs.items():
+            asset = self.repository.media_assets.get(asset_id)
+            if asset is None or asset.source_artifact_id:
+                continue
+            path = seed_dir / str(spec["filename"])
+            try:
+                if not path.exists():
+                    spec["generator"](path)
+                media_info = probe_media(path)
+                stored = store_file(get_object_store(), path, purpose="seed-media")
+            except FfmpegCommandError as exc:
+                raise NodeExecutionError(exc.error_code, "Demo seed media generation failed.") from exc
+            artifact = self.repository.create_artifact(
+                kind=ArtifactKind.uploaded_file,
+                payload_schema="UploadedFileArtifact.v1",
+                payload={
+                    "upload_session_id": None,
+                    "filename": path.name,
+                    "content_type": spec["content_type"],
+                    "size_bytes": path.stat().st_size,
+                    "object_uri": stored.ref.uri,
+                    "sha256": stored.sha256,
+                    "metadata": {"seed": "true", "asset_id": asset_id},
+                },
+                case_id=asset.case_id,
+                uri=stored.ref.uri,
+                sha256=stored.sha256,
+                media_info=media_info,
+            )
+            self.repository.media_assets[asset_id] = asset.model_copy(
+                update={
+                    "source_artifact_id": artifact.id,
+                    "annotation_status": "annotated",
+                    "usable": True,
+                    "updated_at": utcnow(),
+                }
+            )
+
+    def _generate_seed_video(
+        self,
+        output_path: Path,
+        *,
+        duration_sec: float,
+        width: int,
+        height: int,
+        fps: int,
+    ) -> None:
+        FfmpegRunner().run(
+            [
+                ffmpeg_bin(),
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                f"testsrc2=size={width}x{height}:rate={fps}",
+                "-t",
+                f"{duration_sec:.3f}",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-movflags",
+                "+faststart",
+                str(output_path),
+            ]
+        )
+
+    def _generate_seed_audio(self, output_path: Path, *, duration_sec: float) -> None:
+        FfmpegRunner().run(
+            [
+                ffmpeg_bin(),
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                f"sine=frequency=220:sample_rate=44100:duration={duration_sec:.3f}",
+                "-ac",
+                "2",
+                "-c:a",
+                "pcm_s16le",
+                str(output_path),
+            ]
+        )
 
     def start_run(
         self,
@@ -769,20 +901,29 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
                 invocation.error.message if invocation.error else "TTS provider failed.",
                 retryable=True,
             )
+        object_store = get_object_store()
+        try:
+            with tempfile.TemporaryDirectory(prefix="cutagent-tts-") as directory:
+                wav_path = Path(directory) / f"{run.id}_tts.wav"
+                synthesize_sandbox_tts(
+                    state.request.script,
+                    wav_path,
+                    speed=state.request.voice.speed,
+                    volume=state.request.voice.volume,
+                )
+                media_info = probe_media(wav_path)
+                stored = store_file(object_store, wav_path, purpose="generated-audio")
+        except FfmpegCommandError as exc:
+            raise NodeExecutionError(exc.error_code, "Sandbox TTS audio generation failed.") from exc
         artifact = self._artifact(
             run,
             node_run,
             ArtifactKind.audio_tts,
             None,
             "uri-only",
-            uri=str(result.output.get("audio_uri")),
-            sha256="dev-unpinned",
-            media_info=MediaInfo(
-                media_type="audio",
-                codec="sandbox",
-                format="wav",
-                duration_sec=float(result.output.get("duration_sec", 0) or 0),
-            ),
+            uri=stored.ref.uri,
+            sha256=stored.sha256,
+            media_info=media_info,
         )
         return NodeOutput(artifacts=[artifact], provider_invocation_ids=[invocation.id])
 
@@ -863,7 +1004,7 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
     ) -> NodeOutput:
         tts = state.require(ArtifactKind.audio_tts)
         duration = float(tts.media_info.duration_sec if tts.media_info and tts.media_info.duration_sec else 1)
-        parts = [part.strip() for part in state.request.script.replace("。", ".").split(".") if part.strip()]
+        parts = [part.strip() for part in re.split(r"[。！？.!?；;]+", state.request.script) if part.strip()]
         if not parts:
             parts = [state.request.script]
         if state.request.strictness.strict_timestamps:
@@ -871,17 +1012,25 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
                 ErrorCode.render_invalid_timeline,
                 "Estimated narration timestamps are not allowed in strict alignment mode.",
             )
-        unit_duration = duration / len(parts)
-        units = [
-            NarrationUnit(
-                unit_id=f"unit_{index + 1}",
-                text=text,
-                start=round(index * unit_duration, 3),
-                end=round((index + 1) * unit_duration, 3),
-                confidence=0.5,
+        weights = [max(1, len([char for char in part if not char.isspace()])) for part in parts]
+        total_weight = sum(weights)
+        units: list[NarrationUnit] = []
+        cursor = 0.0
+        for index, (text, weight) in enumerate(zip(parts, weights, strict=True)):
+            if index == len(parts) - 1:
+                end = duration
+            else:
+                end = cursor + duration * (weight / total_weight)
+            units.append(
+                NarrationUnit(
+                    unit_id=f"unit_{index + 1}",
+                    text=text,
+                    start=round(cursor, 3),
+                    end=round(end, 3),
+                    confidence=0.5,
+                )
             )
-            for index, text in enumerate(parts)
-        ]
+            cursor = end
         alignment = AlignmentArtifact(
             audio_artifact_id=tts.id,
             segments=[
@@ -929,18 +1078,352 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
                 "Portrait main track cannot cover the full audio.",
             )
         duration = max([float(unit.get("end", 0)) for unit in narration.get("units", [])] or [1])
+        asset_id = portraits[0] if portraits else None
+        source_artifact = self._source_artifact_for_asset(asset_id) if asset_id else None
+        source_duration = (
+            float(source_artifact.media_info.duration_sec or 0)
+            if source_artifact and source_artifact.media_info
+            else 0
+        )
+        if asset_id and source_duration + (1 / state.request.output.fps) < duration:
+            raise NodeExecutionError(
+                ErrorCode.material_insufficient_portrait,
+                "Portrait source window cannot cover the full audio.",
+            )
         payload = PortraitPlanArtifact(
             fps=state.request.output.fps,
             total_duration=duration,
-            asset_id=portraits[0] if portraits else None,
+            asset_id=asset_id,
             duration_sec=duration,
-            segments=[{"asset_id": portraits[0] if portraits else None, "start_sec": 0, "end_sec": duration}],
+            segments=[
+                {
+                    "asset_id": asset_id,
+                    "start_sec": 0,
+                    "end_sec": duration,
+                    "source_start": 0,
+                    "source_end": duration,
+                    "role": "main",
+                    "unit_ids": [unit.get("unit_id") for unit in narration.get("units", [])],
+                }
+            ],
         ).model_dump(mode="json")
         return NodeOutput(
             artifacts=[
                 self._artifact(run, node_run, ArtifactKind.plan_portrait, payload, "PortraitPlanArtifact.v1")
             ]
         )
+
+    def _source_artifact_for_asset(self, asset_id: str | None) -> Artifact:
+        if not asset_id:
+            raise NodeExecutionError(ErrorCode.artifact_missing, "Media asset is missing.")
+        asset = self.repository.media_assets.get(asset_id)
+        if asset is None or not asset.source_artifact_id:
+            raise NodeExecutionError(ErrorCode.artifact_missing, "Media source artifact is missing.")
+        artifact = self.repository.artifacts.get(asset.source_artifact_id)
+        if artifact is None or not artifact.uri:
+            raise NodeExecutionError(ErrorCode.artifact_missing, "Media source artifact is missing.")
+        return artifact
+
+    def _artifact_path(self, artifact: Artifact) -> Path:
+        if not artifact.uri:
+            raise NodeExecutionError(ErrorCode.artifact_missing, "Artifact URI is missing.")
+        try:
+            return local_object_path(get_object_store(), artifact.uri)
+        except ValueError as exc:
+            raise NodeExecutionError(ErrorCode.artifact_missing, "Artifact URI is not locally readable.") from exc
+
+    def _transcode_video_segment(
+        self,
+        source_path: Path,
+        output_path: Path,
+        *,
+        source_start: float,
+        duration: float,
+        width: int,
+        height: int,
+        fps: int,
+    ) -> None:
+        FfmpegRunner().run(
+            [
+                ffmpeg_bin(),
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-ss",
+                f"{source_start:.3f}",
+                "-t",
+                f"{duration:.3f}",
+                "-i",
+                str(source_path),
+                "-an",
+                "-vf",
+                (
+                    f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+                    f"crop={width}:{height},fps={fps},setsar=1"
+                ),
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-pix_fmt",
+                "yuv420p",
+                "-r",
+                str(fps),
+                "-movflags",
+                "+faststart",
+                str(output_path),
+            ]
+        )
+
+    def _concat_video_segments(self, segments: list[Path], output_path: Path) -> None:
+        concat_list = output_path.with_suffix(".txt")
+        concat_list.write_text(
+            "\n".join(f"file '{str(path).replace(chr(39), chr(39) + chr(92) + chr(39) + chr(39))}'" for path in segments),
+            encoding="utf-8",
+        )
+        FfmpegRunner().run(
+            [
+                ffmpeg_bin(),
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(concat_list),
+                "-c",
+                "copy",
+                "-movflags",
+                "+faststart",
+                str(output_path),
+            ]
+        )
+
+    def _render_video_timeline(
+        self,
+        *,
+        main_path: Path,
+        output_path: Path,
+        broll_segments: list[dict],
+        total_frames: int,
+        width: int,
+        height: int,
+        fps: int,
+    ) -> None:
+        args = [
+            ffmpeg_bin(),
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            str(main_path),
+        ]
+        overlay_inputs: list[tuple[dict, Path]] = []
+        for segment in broll_segments:
+            source_artifact = self._source_artifact_for_asset(segment.get("asset_id"))
+            source_path = self._artifact_path(source_artifact)
+            source_info = source_artifact.media_info or probe_media(source_path)
+            source_duration = float(source_info.duration_sec or 0)
+            source_start = float(segment.get("source_start", 0) or 0)
+            source_end = float(segment.get("source_end", 0) or 0)
+            if source_start < 0 or source_end <= source_start or source_end > source_duration + (1 / fps):
+                raise NodeExecutionError(ErrorCode.render_invalid_timeline, "B-roll source window is out of bounds.")
+            overlay_inputs.append((segment, source_path))
+            args.extend(["-i", str(source_path)])
+
+        filters = [
+            (
+                f"[0:v]fps={fps},scale={width}:{height}:force_original_aspect_ratio=increase,"
+                f"crop={width}:{height},trim=start_frame=0:end_frame={total_frames},"
+                "setpts=PTS-STARTPTS,setsar=1[base0]"
+            )
+        ]
+        previous_label = "base0"
+        total_duration = total_frames / fps
+        for index, (segment, _) in enumerate(overlay_inputs, start=1):
+            timeline_start = float(segment.get("start_sec", 0) or 0)
+            timeline_end = float(segment.get("end_sec", 0) or 0)
+            if timeline_start < 0 or timeline_end <= timeline_start or timeline_end > total_duration + (1 / fps):
+                raise NodeExecutionError(ErrorCode.render_invalid_timeline, "B-roll timeline window is out of bounds.")
+            source_start = float(segment.get("source_start", 0) or 0)
+            source_end = float(segment.get("source_end", 0) or 0)
+            overlay_label = f"ov{index}"
+            next_label = f"base{index}"
+            filters.append(
+                (
+                    f"[{index}:v]trim=start={source_start:.3f}:end={source_end:.3f},"
+                    "setpts=PTS-STARTPTS,"
+                    f"fps={fps},scale={width}:{height}:force_original_aspect_ratio=increase,"
+                    f"crop={width}:{height},setsar=1,"
+                    f"setpts=PTS-STARTPTS+{timeline_start:.3f}/TB[{overlay_label}]"
+                )
+            )
+            filters.append(
+                (
+                    f"[{previous_label}][{overlay_label}]overlay="
+                    f"enable='between(t,{timeline_start:.3f},{timeline_end:.3f})':"
+                    f"x=0:y=0:eof_action=pass[{next_label}]"
+                )
+            )
+            previous_label = next_label
+
+        args.extend(
+            [
+                "-filter_complex",
+                ";".join(filters),
+                "-map",
+                f"[{previous_label}]",
+                "-an",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-pix_fmt",
+                "yuv420p",
+                "-r",
+                str(fps),
+                "-movflags",
+                "+faststart",
+                str(output_path),
+            ]
+        )
+        FfmpegRunner(timeout_sec=60).run(args)
+
+    def _write_ass_subtitles(
+        self,
+        output_path: Path,
+        *,
+        narration: dict,
+        style: dict,
+        width: int,
+        height: int,
+    ) -> None:
+        subtitle = style.get("subtitle", {}) if isinstance(style.get("subtitle"), dict) else {}
+        font_size = int(subtitle.get("font_size") or 64)
+        margin_v = int(height * 0.12)
+        position = subtitle.get("position")
+        if isinstance(position, dict) and "y" in position:
+            margin_v = max(20, int(height * (1 - float(position["y"]))))
+        lines = [
+            "[Script Info]",
+            "ScriptType: v4.00+",
+            "WrapStyle: 0",
+            "ScaledBorderAndShadow: yes",
+            f"PlayResX: {width}",
+            f"PlayResY: {height}",
+            "",
+            "[V4+ Styles]",
+            (
+                "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, "
+                "BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, "
+                "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding"
+            ),
+            (
+                f"Style: Default,Arial,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H64000000,"
+                f"1,0,0,0,100,100,0,0,1,4,1,2,80,80,{margin_v},1"
+            ),
+            "",
+            "[Events]",
+            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+        ]
+        for unit in narration.get("units", []):
+            text = self._ass_escape(str(unit.get("text", "")))
+            if not text:
+                continue
+            lines.append(
+                "Dialogue: 0,"
+                f"{self._ass_time(float(unit.get('start', 0) or 0))},"
+                f"{self._ass_time(float(unit.get('end', 0) or 0))},"
+                f"Default,,0,0,0,,{text}"
+            )
+        output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def _render_final_media(
+        self,
+        *,
+        rendered_path: Path,
+        audio_path: Path,
+        output_path: Path,
+        subtitle_path: Path | None,
+        bgm_path: Path | None,
+        bgm_volume: float,
+        duration: float,
+        fps: int,
+    ) -> None:
+        args = [
+            ffmpeg_bin(),
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            str(rendered_path),
+            "-i",
+            str(audio_path),
+        ]
+        if bgm_path is not None:
+            args.extend(["-stream_loop", "-1", "-i", str(bgm_path)])
+        escaped_subtitle = str(subtitle_path).replace("\\", "\\\\").replace(":", "\\:") if subtitle_path else None
+        video_filters = "[0:v]"
+        if escaped_subtitle:
+            video_filters += f"subtitles={escaped_subtitle},"
+        video_filters += f"fps={fps},format=yuv420p[v]"
+        if bgm_path is None:
+            audio_filters = (
+                f"[1:a]aresample=48000,apad=pad_dur=1,atrim=0:{duration:.3f},"
+                "asetpts=PTS-STARTPTS[a]"
+            )
+        else:
+            audio_filters = (
+                f"[1:a]aresample=48000,volume=1.0,apad=pad_dur=1,atrim=0:{duration:.3f},"
+                "asetpts=PTS-STARTPTS[voice];"
+                f"[2:a]aresample=48000,volume={bgm_volume:.3f},atrim=0:{duration:.3f},"
+                "asetpts=PTS-STARTPTS[bgm];"
+                "[voice][bgm]amix=inputs=2:duration=first:dropout_transition=0[a]"
+            )
+        args.extend(
+            [
+                "-filter_complex",
+                f"{video_filters};{audio_filters}",
+                "-map",
+                "[v]",
+                "-map",
+                "[a]",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-pix_fmt",
+                "yuv420p",
+                "-r",
+                str(fps),
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
+                "-movflags",
+                "+faststart",
+                str(output_path),
+            ]
+        )
+        FfmpegRunner(timeout_sec=60).run(args)
+
+    @staticmethod
+    def _ass_time(seconds: float) -> str:
+        centiseconds = round(max(seconds, 0) * 100)
+        hours, remainder = divmod(centiseconds, 3600 * 100)
+        minutes, remainder = divmod(remainder, 60 * 100)
+        secs, cs = divmod(remainder, 100)
+        return f"{hours}:{minutes:02d}:{secs:02d}.{cs:02d}"
+
+    @staticmethod
+    def _ass_escape(text: str) -> str:
+        return text.replace("{", "").replace("}", "").replace("\n", r"\N")
 
     def _broll_planning(self, run: WorkflowRun, node_run: NodeRun, state: RunState) -> NodeOutput:
         material = state.require(ArtifactKind.plan_material_pack).payload or {}
@@ -969,17 +1452,44 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
                     )
                 ],
             )
-        segments = [
-            {"asset_id": asset_id, "start_sec": index * 3, "end_sec": index * 3 + 2}
-            for index, asset_id in enumerate(broll[: state.request.broll.max_inserts])
-        ]
+        segments = []
+        for index, asset_id in enumerate(broll[: state.request.broll.max_inserts]):
+            start_sec = index * 3
+            end_sec = start_sec + 2
+            segments.append(
+                {
+                    "asset_id": asset_id,
+                    "start_sec": start_sec,
+                    "end_sec": end_sec,
+                    "source_start": 0,
+                    "source_end": end_sec - start_sec,
+                    "reason": "seeded usable b-roll",
+                    "confidence": 1,
+                }
+            )
         return NodeOutput(
             artifacts=[
                 self._artifact(
                     run,
                     node_run,
                     ArtifactKind.plan_broll,
-                    BrollPlanArtifact(enabled=state.request.broll.enabled, segments=segments).model_dump(mode="json"),
+                    BrollPlanArtifact(
+                        enabled=state.request.broll.enabled,
+                        segments=segments,
+                        overlays=[
+                            {
+                                "overlay_id": f"broll_{index + 1}",
+                                "asset_id": segment["asset_id"],
+                                "timeline_start": segment["start_sec"],
+                                "timeline_end": segment["end_sec"],
+                                "source_start": segment["source_start"],
+                                "source_end": segment["source_end"],
+                                "reason": segment["reason"],
+                                "confidence": segment["confidence"],
+                            }
+                            for index, segment in enumerate(segments)
+                        ],
+                    ).model_dump(mode="json"),
                     "BrollPlanArtifact.v1",
                 )
             ]
@@ -1060,6 +1570,8 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
                     "asset_ref": self.repository.artifact_ref(portrait_artifact.id),
                     "start_sec": float(segment.get("start_sec", 0)),
                     "end_sec": float(segment.get("end_sec", duration)),
+                    "source_start_sec": float(segment.get("source_start", 0)),
+                    "source_end_sec": float(segment.get("source_end", segment.get("end_sec", duration))),
                 }
             )
         for index, segment in enumerate(broll.get("segments", [])):
@@ -1070,6 +1582,8 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
                     "asset_ref": self.repository.artifact_ref(broll_artifact.id),
                     "start_sec": float(segment.get("start_sec", 0)),
                     "end_sec": float(segment.get("end_sec", 0)),
+                    "source_start_sec": float(segment.get("source_start", 0)),
+                    "source_end_sec": float(segment.get("source_end", segment.get("end_sec", 0))),
                 }
             )
 
@@ -1099,6 +1613,8 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
                 asset_ref=segment["asset_ref"],
                 timeline_start_frame=to_frame(segment["start_sec"]),
                 timeline_end_frame=to_frame(segment["end_sec"]),
+                source_start_frame=to_frame(segment.get("source_start_sec", segment["start_sec"])),
+                source_end_frame=to_frame(segment.get("source_end_sec", segment["end_sec"])),
             )
             for segment in raw_segments
         ]
@@ -1146,24 +1662,59 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
     def _portrait_track_build(self, run: WorkflowRun, node_run: NodeRun, state: RunState) -> NodeOutput:
         portrait = state.require(ArtifactKind.plan_portrait).payload or {}
         duration = float(portrait.get("duration_sec", 0) or 0)
-        uri = f"sandbox://video/portrait-track/{run.id}.mp4"
+        segments = portrait.get("segments", [])
+        if not segments:
+            raise NodeExecutionError(ErrorCode.material_insufficient_portrait, "Portrait plan has no segments.")
+        fps = int(portrait.get("fps") or state.request.output.fps)
+        width = state.request.output.width
+        height = state.request.output.height
+        try:
+            with tempfile.TemporaryDirectory(prefix="cutagent-portrait-") as directory:
+                temp_dir = Path(directory)
+                segment_paths: list[Path] = []
+                for index, segment in enumerate(segments):
+                    source_artifact = self._source_artifact_for_asset(segment.get("asset_id"))
+                    source_path = self._artifact_path(source_artifact)
+                    source_info = source_artifact.media_info or probe_media(source_path)
+                    source_duration = float(source_info.duration_sec or 0)
+                    source_start = float(segment.get("source_start", 0) or 0)
+                    source_end = float(segment.get("source_end", segment.get("end_sec", 0)) or 0)
+                    if source_start < 0 or source_end <= source_start or source_end > source_duration + (1 / fps):
+                        raise NodeExecutionError(
+                            ErrorCode.render_invalid_timeline,
+                            "Portrait source window is out of bounds.",
+                        )
+                    output_path = temp_dir / f"portrait_segment_{index + 1}.mp4"
+                    self._transcode_video_segment(
+                        source_path,
+                        output_path,
+                        source_start=source_start,
+                        duration=source_end - source_start,
+                        width=width,
+                        height=height,
+                        fps=fps,
+                    )
+                    segment_paths.append(output_path)
+                concat_path = temp_dir / "portrait_track.mp4"
+                self._concat_video_segments(segment_paths, concat_path)
+                media_info = probe_media(concat_path)
+                if abs(float(media_info.duration_sec or 0) - duration) > (1 / fps):
+                    raise NodeExecutionError(
+                        ErrorCode.render_invalid_timeline,
+                        "Portrait track duration does not match the plan.",
+                    )
+                stored = store_file(get_object_store(), concat_path, purpose="generated-video")
+        except FfmpegCommandError as exc:
+            raise NodeExecutionError(exc.error_code, "Portrait track build failed.") from exc
         artifact = self._artifact(
             run,
             node_run,
             ArtifactKind.video_portrait_track,
             None,
             "uri-only",
-            uri=uri,
-            sha256="dev-unpinned",
-            media_info=MediaInfo(
-                media_type="video",
-                codec="sandbox",
-                format="mp4",
-                duration_sec=duration,
-                fps=state.request.output.fps,
-                width=state.request.output.width,
-                height=state.request.output.height,
-            ),
+            uri=stored.ref.uri,
+            sha256=stored.sha256,
+            media_info=media_info,
         )
         return NodeOutput(artifacts=[artifact])
 
@@ -1182,7 +1733,20 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
                 sha256=portrait.sha256,
                 media_info=portrait.media_info,
             )
-            return NodeOutput(status=NodeStatus.skipped, artifacts=[artifact])
+            report = self._artifact(
+                run,
+                node_run,
+                ArtifactKind.lipsync_report,
+                LipSyncReportArtifact(
+                    skipped=True,
+                    skipped_reason="request.disabled",
+                    input_video_artifact_id=portrait.id,
+                    input_audio_artifact_id=audio.id,
+                    output_video_artifact_id=artifact.id,
+                ).model_dump(mode="json"),
+                "LipSyncReportArtifact.v1",
+            )
+            return NodeOutput(status=NodeStatus.skipped, artifacts=[artifact, report])
         invocation, result = self.provider_gateway.invoke(
             ProviderCall(
                 case_id=run.case_id,
@@ -1205,43 +1769,78 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
             ArtifactKind.video_lipsync,
             None,
             "uri-only",
-            uri=str(result.output.get("video_uri")),
-            sha256="dev-unpinned",
-            media_info=MediaInfo(
-                media_type="video",
-                codec="sandbox",
-                format="mp4",
-                duration_sec=duration,
-                fps=state.request.output.fps,
-                width=state.request.output.width,
-                height=state.request.output.height,
-            ),
+            uri=portrait.uri,
+            sha256=portrait.sha256,
+            media_info=portrait.media_info,
         )
-        return NodeOutput(artifacts=[artifact], provider_invocation_ids=[invocation.id])
+        report = self._artifact(
+            run,
+            node_run,
+            ArtifactKind.lipsync_report,
+            LipSyncReportArtifact(
+                provider_invocation_id=invocation.id,
+                provider_profile_id=state.request.lipsync.provider_profile_id,
+                skipped=True,
+                skipped_reason="sandbox.pass_through",
+                input_video_artifact_id=portrait.id,
+                input_audio_artifact_id=audio.id,
+                output_video_artifact_id=artifact.id,
+                warnings=["sandbox_lipsync_passthrough"],
+            ).model_dump(mode="json"),
+            "LipSyncReportArtifact.v1",
+        )
+        return NodeOutput(artifacts=[artifact, report], provider_invocation_ids=[invocation.id])
 
     def _render_final_timeline(
         self, run: WorkflowRun, node_run: NodeRun, state: RunState
     ) -> NodeOutput:
         lipsync = state.require(ArtifactKind.video_lipsync)
         render_plan = state.require(ArtifactKind.plan_render).payload or {}
-        uri = f"sandbox://video/rendered/{run.id}.mp4"
+        timeline = state.require(ArtifactKind.plan_timeline).payload or {}
+        broll_plan = state.require(ArtifactKind.plan_broll).payload or {}
+        render_size = render_plan.get("render_size", [state.request.output.width, state.request.output.height])
+        width = int(render_size[0])
+        height = int(render_size[1])
+        fps = int(render_plan.get("fps") or state.request.output.fps)
+        total_frames = int(timeline.get("total_frames") or 0)
+        if total_frames <= 0:
+            raise NodeExecutionError(ErrorCode.render_invalid_timeline, "Render plan has no frames.")
+        try:
+            with tempfile.TemporaryDirectory(prefix="cutagent-render-") as directory:
+                output_path = Path(directory) / "rendered.mp4"
+                self._render_video_timeline(
+                    main_path=self._artifact_path(lipsync),
+                    output_path=output_path,
+                    broll_segments=list(broll_plan.get("segments", [])),
+                    total_frames=total_frames,
+                    width=width,
+                    height=height,
+                    fps=fps,
+                )
+                media_info = probe_media(output_path)
+                frame_count = probe_video_frame_count(output_path)
+                if frame_count != total_frames:
+                    raise NodeExecutionError(
+                        ErrorCode.render_invalid_timeline,
+                        "Rendered timeline frame count does not match the plan.",
+                    )
+                if media_info.width != width or media_info.height != height or round(media_info.fps or 0) != fps:
+                    raise NodeExecutionError(
+                        ErrorCode.render_invalid_timeline,
+                        "Rendered timeline media info does not match the plan.",
+                    )
+                stored = store_file(get_object_store(), output_path, purpose="generated-video")
+        except FfmpegCommandError as exc:
+            raise NodeExecutionError(exc.error_code, "Final timeline rendering failed.") from exc
         artifact = self._artifact(
             run,
             node_run,
             ArtifactKind.video_rendered,
             None,
             "uri-only",
-            uri=uri,
-            sha256="dev-unpinned",
-            media_info=MediaInfo(
-                media_type="video",
-                codec="sandbox",
-                format="mp4",
-                duration_sec=lipsync.media_info.duration_sec if lipsync.media_info else None,
-                fps=render_plan.get("fps"),
-                width=render_plan.get("render_size", [None, None])[0],
-                height=render_plan.get("render_size", [None, None])[1],
-            ),
+            uri=stored.ref.uri,
+            sha256=stored.sha256,
+            media_info=media_info,
         )
         return NodeOutput(artifacts=[artifact])
 
@@ -1249,39 +1848,78 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
         self, run: WorkflowRun, node_run: NodeRun, state: RunState
     ) -> NodeOutput:
         rendered = state.require(ArtifactKind.video_rendered)
-        final_uri = f"sandbox://video/final/{run.id}.mp4"
+        audio = state.require(ArtifactKind.audio_tts)
+        timeline = state.require(ArtifactKind.plan_timeline).payload or {}
+        style = state.require(ArtifactKind.plan_style).payload or {}
+        narration = state.require(ArtifactKind.narration_units).payload or {}
+        fps = int(timeline.get("fps") or state.request.output.fps)
+        total_frames = int(timeline.get("total_frames") or 0)
+        duration = total_frames / fps if total_frames else float(rendered.media_info.duration_sec or 0)
+        subtitle_artifact = None
+        try:
+            with tempfile.TemporaryDirectory(prefix="cutagent-final-") as directory:
+                temp_dir = Path(directory)
+                subtitle_path = temp_dir / "subtitle.ass" if state.request.subtitle.enabled else None
+                if subtitle_path is not None:
+                    self._write_ass_subtitles(
+                        subtitle_path,
+                        narration=narration,
+                        style=style,
+                        width=state.request.output.width,
+                        height=state.request.output.height,
+                    )
+                bgm_path = None
+                bgm_plan = style.get("bgm") if isinstance(style.get("bgm"), dict) else {}
+                bgm_asset_id = style.get("bgm_asset_id") or (bgm_plan or {}).get("asset_id")
+                if bgm_plan and bgm_plan.get("enabled") and bgm_asset_id:
+                    bgm_path = self._artifact_path(self._source_artifact_for_asset(bgm_asset_id))
+                output_path = temp_dir / "final.mp4"
+                self._render_final_media(
+                    rendered_path=self._artifact_path(rendered),
+                    audio_path=self._artifact_path(audio),
+                    output_path=output_path,
+                    subtitle_path=subtitle_path,
+                    bgm_path=bgm_path,
+                    bgm_volume=float((bgm_plan or {}).get("volume", state.request.bgm.volume)),
+                    duration=duration,
+                    fps=fps,
+                )
+                media_info = probe_media(output_path)
+                if probe_video_frame_count(output_path) != total_frames:
+                    raise NodeExecutionError(
+                        ErrorCode.render_invalid_timeline,
+                        "Final video frame count does not match the timeline.",
+                    )
+                final_stored = store_file(get_object_store(), output_path, purpose="generated-video")
+                if subtitle_path is not None:
+                    subtitle_stored = store_file(get_object_store(), subtitle_path, purpose="subtitles")
+                    subtitle_artifact = self._artifact(
+                        run,
+                        node_run,
+                        ArtifactKind.subtitle_ass,
+                        None,
+                        "uri-only",
+                        uri=subtitle_stored.ref.uri,
+                        sha256=subtitle_stored.sha256,
+                        media_info=probe_media(subtitle_path),
+                    )
+        except FfmpegCommandError as exc:
+            code = ErrorCode.render_subtitle_failed if state.request.subtitle.enabled else exc.error_code
+            raise NodeExecutionError(code, "Subtitle/BGM mix rendering failed.") from exc
         final = self._artifact(
             run,
             node_run,
             ArtifactKind.video_final,
             None,
             "uri-only",
-            uri=final_uri,
-            sha256="dev-unpinned",
-            media_info=MediaInfo(
-                media_type="video",
-                codec="sandbox",
-                format="mp4",
-                duration_sec=rendered.media_info.duration_sec if rendered.media_info else None,
-                fps=rendered.media_info.fps if rendered.media_info else None,
-                width=rendered.media_info.width if rendered.media_info else None,
-                height=rendered.media_info.height if rendered.media_info else None,
-            ),
+            uri=final_stored.ref.uri,
+            sha256=final_stored.sha256,
+            media_info=media_info,
         )
-        subtitle_uri = f"sandbox://subtitle/{run.id}.ass"
-        if not state.request.subtitle.enabled:
-            return NodeOutput(status=NodeStatus.skipped, artifacts=[final])
-        subtitle = self._artifact(
-            run,
-            node_run,
-            ArtifactKind.subtitle_ass,
-            None,
-            "uri-only",
-            uri=subtitle_uri,
-            sha256="dev-unpinned",
-            media_info=MediaInfo(media_type="subtitle", codec="ass", format="ass"),
-        )
-        return NodeOutput(artifacts=[final, subtitle])
+        artifacts = [final]
+        if subtitle_artifact is not None:
+            artifacts.append(subtitle_artifact)
+        return NodeOutput(artifacts=artifacts)
 
     def _export_finished_video(
         self, run: WorkflowRun, node_run: NodeRun, state: RunState
@@ -1309,16 +1947,26 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
             sha256=final.sha256,
             media_info=final.media_info,
         )
-        cover_uri = f"sandbox://cover/frame/{run.id}.png"
+        try:
+            with tempfile.TemporaryDirectory(prefix="cutagent-cover-") as directory:
+                thumbnails = extract_thumbnails(
+                    self._artifact_path(final),
+                    Path(directory),
+                    labels=("first", "mid"),
+                )
+                selected = thumbnails[-1]
+                cover_stored = store_file(get_object_store(), selected.path, purpose="covers")
+        except FfmpegCommandError as exc:
+            raise NodeExecutionError(exc.error_code, "Finished video cover extraction failed.") from exc
         cover_artifact = self._artifact(
             run,
             node_run,
             ArtifactKind.cover_image,
             None,
             "uri-only",
-            uri=cover_uri,
-            sha256="dev-unpinned",
-            media_info=MediaInfo(media_type="image", codec="sandbox", format="png"),
+            uri=cover_stored.ref.uri,
+            sha256=cover_stored.sha256,
+            media_info=selected.media_info,
         )
         finished = FinishedVideo(
             id=new_id("fv"),
@@ -1332,8 +1980,7 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
                 if ArtifactKind.subtitle_ass in state.artifacts
                 else None
             ),
-            duration_sec=float((timeline.payload or {}).get("total_frames", 0))
-            / float((timeline.payload or {}).get("fps", 30) or 30),
+            duration_sec=float(final.media_info.duration_sec if final.media_info and final.media_info.duration_sec else 0),
         )
         self.repository.finished_videos[finished.id] = finished
         video_version = VideoVersion(

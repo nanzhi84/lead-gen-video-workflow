@@ -6,6 +6,9 @@ from apps.api.main import repository
 from packages.ai.gateway.provider_gateway import ProviderRuntimeError, SandboxProvider
 from packages.core.contracts import ArtifactKind
 from packages.core.contracts import ErrorCode
+from packages.core.storage.object_store import get_object_store
+from packages.media.assets import local_object_path
+from packages.media.video.ffmpeg import probe_media, probe_stream_types, probe_video_frame_count
 
 
 client = TestClient(app)
@@ -181,6 +184,28 @@ def test_spec_20_2_4_bgm_missing_is_soft_degrade_and_reported_with_warning_code(
         assert "bgm.skipped_library_unannotated" in report["degradations"]
 
 
+def test_bgm_enabled_with_seed_asset_mixes_audio_into_final_video():
+    with fresh_client() as active_client:
+        login_admin_for(active_client)
+        response = active_client.post(
+            "/api/jobs/digital-human-video",
+            json=video_payload(title="BGM mixed", bgm={"enabled": True, "volume": 0.2}),
+        )
+        assert response.status_code == 201, response.text
+        run = response.json()["initial_run"]
+        assert run["status"] == "succeeded"
+        report = run_report(active_client, run["id"])["public_report"]
+        assert "bgm.skipped_library_unannotated" not in report["degradations"]
+        artifacts = {
+            artifact.kind: artifact
+            for artifact in active_client.app.state.repository.artifacts.values()
+            if artifact.run_id == run["id"]
+        }
+        final = artifacts[ArtifactKind.video_final]
+        assert final.uri
+        assert "audio" in probe_stream_types(local_object_path(get_object_store(), final.uri))
+
+
 def test_portrait_missing_is_hard_fail():
     login_admin()
     case = client.post("/api/cases", json={"name": "No portrait case"}).json()
@@ -348,6 +373,34 @@ def test_pipeline_writes_typed_artifact_payloads_with_frame_quantized_timeline()
     assert narration["strict"] is False
     assert all({"unit_id", "start", "end", "confidence"} <= set(unit) for unit in narration["units"])
 
+    tts = artifacts[ArtifactKind.audio_tts]
+    assert tts.uri and tts.uri.startswith("local://")
+    assert tts.sha256 and tts.sha256 != "dev-unpinned"
+    assert tts.media_info is not None
+    assert tts.media_info.media_type == "audio"
+    assert tts.media_info.sample_rate == 16000
+    assert tts.media_info.channels == 1
+    assert probe_media(local_object_path(get_object_store(), tts.uri)).duration_sec == tts.media_info.duration_sec
+
+    portrait_track = artifacts[ArtifactKind.video_portrait_track]
+    assert portrait_track.uri and portrait_track.uri.startswith("local://")
+    assert portrait_track.sha256 and portrait_track.sha256 != "dev-unpinned"
+    assert portrait_track.media_info is not None
+    assert portrait_track.media_info.media_type == "video"
+    assert portrait_track.media_info.width == 1080
+    assert portrait_track.media_info.height == 1920
+    assert abs(
+        (probe_media(local_object_path(get_object_store(), portrait_track.uri)).duration_sec or 0)
+        - (portrait_track.media_info.duration_sec or 0)
+    ) <= 1 / 30
+
+    lipsync = artifacts[ArtifactKind.video_lipsync]
+    assert lipsync.uri == portrait_track.uri
+    assert lipsync.sha256 == portrait_track.sha256
+    lipsync_report = artifacts[ArtifactKind.lipsync_report].payload
+    assert lipsync_report["skipped"] is True
+    assert lipsync_report["input_video_artifact_id"] == portrait_track.id
+
     timeline = artifacts[ArtifactKind.timeline_plan].payload
     assert timeline["fps"] == 30
     assert timeline["total_frames"] > 0
@@ -358,6 +411,44 @@ def test_pipeline_writes_typed_artifact_payloads_with_frame_quantized_timeline()
         "negative_duration": True,
         "out_of_bounds": True,
     }
+
+    rendered = artifacts[ArtifactKind.video_rendered]
+    assert rendered.uri and rendered.uri.startswith("local://")
+    assert rendered.sha256 and rendered.sha256 != "dev-unpinned"
+    assert rendered.media_info is not None
+    assert rendered.media_info.width == 1080
+    assert rendered.media_info.height == 1920
+    assert rendered.media_info.fps == 30
+    assert probe_video_frame_count(local_object_path(get_object_store(), rendered.uri)) == timeline["total_frames"]
+
+    final = artifacts[ArtifactKind.video_final]
+    assert final.uri and final.uri.startswith("local://")
+    assert final.sha256 and final.sha256 != "dev-unpinned"
+    assert final.media_info is not None
+    final_path = local_object_path(get_object_store(), final.uri)
+    assert {"video", "audio"} <= probe_stream_types(final_path)
+    assert probe_video_frame_count(final_path) == timeline["total_frames"]
+
+    subtitle = artifacts[ArtifactKind.subtitle_ass]
+    assert subtitle.uri and subtitle.uri.startswith("local://")
+    assert subtitle.sha256 and subtitle.sha256 != "dev-unpinned"
+    subtitle_text = local_object_path(get_object_store(), subtitle.uri).read_text(encoding="utf-8")
+    assert "[Events]" in subtitle_text
+    assert "Dialogue:" in subtitle_text
+
+    finished_artifact = artifacts[ArtifactKind.video_finished]
+    assert finished_artifact.uri == final.uri
+    assert finished_artifact.sha256 == final.sha256
+    assert finished_artifact.media_info == final.media_info
+    cover = artifacts[ArtifactKind.cover_image]
+    assert cover.uri and cover.uri.startswith("local://")
+    assert cover.sha256 and cover.sha256 != "dev-unpinned"
+    assert cover.media_info is not None
+    assert cover.media_info.media_type == "image"
+    finished_video = next(
+        video for video in repository().finished_videos.values() if video.run_id == run["id"]
+    )
+    assert finished_video.duration_sec == final.media_info.duration_sec
 
 
 def test_strict_alignment_rejects_estimated_narration_units():

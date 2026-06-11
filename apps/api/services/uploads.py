@@ -36,6 +36,8 @@ from packages.core.registration_codes import hash_registration_code
 from packages.core.storage.object_store import parse_local_uri
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
+from packages.media.assets import local_object_path
+from packages.media.video.ffmpeg import FfmpegCommandError, extract_thumbnails, probe_media
 
 def prepare_upload(payload: c.PrepareUploadRequest, request: Request) -> c.UploadSession:
     object_ref = object_store(request).prepare_upload(payload.filename, payload.kind.value)
@@ -95,9 +97,10 @@ def complete_upload(payload: c.CompleteUploadRequest, request: Request) -> c.Com
         raise NodeExecutionError(c.ErrorCode.upload_size_mismatch, "Upload size mismatch.")
     if upload.sha256 and payload.sha256 and upload.sha256 != payload.sha256:
         raise NodeExecutionError(c.ErrorCode.upload_sha256_mismatch, "Upload sha256 mismatch.")
+    media_info = _probe_upload_media(request, upload)
     if upload_repository(request) is not None:
         upload = upload_repository(request).patch_upload(upload.id, {"status": c.UploadStatus.completed})
-        artifact = upload_repository(request).create_artifact_from_upload(upload)
+        artifact = upload_repository(request).create_artifact_from_upload(upload, media_info=media_info)
         artifact_ref = upload_repository(request).artifact_ref(artifact.id)
     else:
         upload = repository(request).patch(repository(request).uploads, upload.id, {"status": c.UploadStatus.completed})
@@ -107,8 +110,10 @@ def complete_upload(payload: c.CompleteUploadRequest, request: Request) -> c.Com
             payload=upload.model_dump(mode="json"),
             uri=upload.object_uri,
             sha256=upload.sha256,
+            media_info=media_info,
         )
         artifact_ref = repository(request).artifact_ref(artifact.id)
+        _create_upload_thumbnails(request, artifact)
     media_asset = None
     publish_package = None
     if upload.kind in {
@@ -164,6 +169,43 @@ def complete_upload(payload: c.CompleteUploadRequest, request: Request) -> c.Com
         publish_package=publish_package,
         request_id=request_id(),
     )
+
+
+def _probe_upload_media(request: Request, upload: c.UploadSession) -> c.MediaInfo | None:
+    if not upload.object_uri or not upload.content_type.startswith(("video/", "audio/", "image/")):
+        return None
+    try:
+        return probe_media(local_object_path(object_store(request), upload.object_uri))
+    except FfmpegCommandError as exc:
+        # 上传场景的探针失败是输入问题，错误码归 upload 域而非 render 域。
+        raise NodeExecutionError(
+            c.ErrorCode.upload_unsupported_type,
+            "上传的媒体文件无法解析，请确认文件未损坏且为受支持的格式。",
+        ) from exc
+
+
+def _create_upload_thumbnails(request: Request, artifact: c.Artifact) -> None:
+    if artifact.uri is None or artifact.media_info is None or artifact.media_info.media_type != "video":
+        return
+    source_path = local_object_path(object_store(request), artifact.uri)
+    try:
+        thumbnails = extract_thumbnails(source_path, source_path.parent / f"{source_path.stem}_thumbs")
+    except FfmpegCommandError as exc:
+        raise NodeExecutionError(exc.error_code, "Uploaded media thumbnail extraction failed.") from exc
+    for thumbnail in thumbnails:
+        ref = object_store(request).prepare_upload(thumbnail.path.name, "thumbnails")
+        stored = object_store(request).put_bytes(ref, thumbnail.path.read_bytes())
+        repository(request).create_artifact(
+            kind=c.ArtifactKind.cover_image,
+            payload_schema="uri-only",
+            payload={
+                "source_artifact_id": artifact.id,
+                "thumbnail_label": thumbnail.label,
+            },
+            uri=stored.ref.uri,
+            sha256=stored.sha256,
+            media_info=thumbnail.media_info,
+        )
 
 
 def cancel_upload(upload_session_id: str, request: Request) -> c.UploadSession:

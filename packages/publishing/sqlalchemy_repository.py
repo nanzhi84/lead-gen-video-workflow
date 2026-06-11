@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from packages.core.contracts import (
@@ -10,6 +10,7 @@ from packages.core.contracts import (
     CreatePublishPackageRequest,
     ErrorCode,
     NodeError,
+    PatchPublishPackageRequest,
     PatchPublishItemRequest,
     PublishAttempt,
     PublishAttemptDetail,
@@ -191,6 +192,33 @@ class SqlAlchemyPublishingRepository:
             session.refresh(row)
             return publish_package_row_to_contract(row)
 
+    def patch_package(self, package_id: str, payload: PatchPublishPackageRequest) -> PublishPackage | None:
+        with self.session_factory() as session:
+            row = session.get(PublishPackageRow, package_id)
+            if row is None:
+                return None
+            if {"title", "description"} & payload.model_fields_set:
+                defaults = PublishDefaults.model_validate(row.platform_defaults)
+                defaults_updates = {}
+                if "title" in payload.model_fields_set and payload.title is not None:
+                    defaults_updates["title"] = payload.title
+                if "description" in payload.model_fields_set and payload.description is not None:
+                    defaults_updates["description"] = payload.description
+                if defaults_updates:
+                    row.platform_defaults = defaults.model_copy(update=defaults_updates).model_dump(mode="json")
+            if "cover_artifact_id" in payload.model_fields_set:
+                if payload.cover_artifact_id:
+                    artifact = session.get(ArtifactRow, payload.cover_artifact_id)
+                    if artifact is None:
+                        raise NodeExecutionError(ErrorCode.artifact_missing, "Cover artifact is required.")
+                    row.cover_artifact = artifact_ref_from_row(artifact).model_dump(mode="json")
+                else:
+                    row.cover_artifact = None
+            row.updated_at = utcnow()
+            session.commit()
+            session.refresh(row)
+            return publish_package_row_to_contract(row)
+
     def list_batches(self, *, limit: int = 50) -> list[PublishBatchVm]:
         with self.session_factory() as session:
             statement = select(PublishBatchRow).order_by(PublishBatchRow.updated_at.desc()).limit(limit)
@@ -201,6 +229,16 @@ class SqlAlchemyPublishingRepository:
         with self.session_factory() as session:
             row = session.get(PublishBatchRow, batch_id)
             return publish_batch_row_to_contract(session, row) if row else None
+
+    def list_attempts(self, batch_id: str, *, limit: int = 50) -> list[PublishAttempt]:
+        with self.session_factory() as session:
+            statement = (
+                select(PublishAttemptRow)
+                .where(PublishAttemptRow.batch_id == batch_id)
+                .order_by(PublishAttemptRow.created_at.desc(), PublishAttemptRow.id.asc())
+                .limit(limit)
+            )
+            return [publish_attempt_row_to_contract(row) for row in session.scalars(statement)]
 
     def create_batch(self, payload: CreatePublishBatchRequest) -> PublishBatchVm:
         if not payload.publish_package_ids or not payload.platform_targets:
@@ -237,6 +275,27 @@ class SqlAlchemyPublishingRepository:
             session.commit()
             session.refresh(batch)
             return publish_batch_row_to_contract(session, batch)
+
+    def delete_batch(self, batch_id: str) -> bool:
+        with self.session_factory() as session:
+            batch = session.get(PublishBatchRow, batch_id)
+            if batch is None:
+                return False
+            session.execute(delete(PublishAttemptRow).where(PublishAttemptRow.batch_id == batch_id))
+            session.execute(delete(PublishBatchItemRow).where(PublishBatchItemRow.batch_id == batch_id))
+            session.delete(batch)
+            session.commit()
+            return True
+
+    def delete_item(self, item_id: str) -> bool:
+        with self.session_factory() as session:
+            item = session.get(PublishBatchItemRow, item_id)
+            if item is None:
+                return False
+            session.execute(delete(PublishAttemptRow).where(PublishAttemptRow.item_id == item_id))
+            session.delete(item)
+            session.commit()
+            return True
 
     def submit_batch(self, batch_id: str, payload: SubmitPublishBatchRequest) -> PublishBatchVm | None:
         with self.session_factory() as session:

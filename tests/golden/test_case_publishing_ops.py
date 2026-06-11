@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+import hashlib
 
 from apps.api.app import create_app
 from apps.api.main import app
@@ -46,6 +47,35 @@ def create_publish_batch(active_client, finished_video_id: str):
     )
     assert batch.status_code == 201, batch.text
     return batch.json()
+
+
+def upload_cover_artifact(active_client) -> str:
+    content = b"cover image bytes"
+    digest = hashlib.sha256(content).hexdigest()
+    prepared = active_client.post(
+        "/api/uploads/prepare",
+        json={
+            "kind": "cover_template",
+            "case_id": "case_demo",
+            "filename": "cover.png",
+            "content_type": "image/png",
+            "size_bytes": len(content),
+            "sha256": digest,
+        },
+    )
+    assert prepared.status_code == 201, prepared.text
+    upload = prepared.json()
+    uploaded = active_client.put(
+        f"/api/uploads/{upload['id']}/file",
+        files={"file": ("cover.png", content, "image/png")},
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    completed = active_client.post(
+        "/api/uploads/complete",
+        json={"upload_session_id": upload["id"], "size_bytes": len(content), "sha256": digest},
+    )
+    assert completed.status_code == 200, completed.text
+    return completed.json()["artifact"]["artifact_id"]
 
 
 def test_case_reflection_memory_approval_and_publish_flow():
@@ -120,6 +150,76 @@ def test_spec_20_2_12_publish_failure_can_retry_publish_successfully():
         )
         assert retried.status_code == 200, retried.text
         assert retried.json()["status"] == "published"
+
+
+def test_publish_package_cover_can_be_uploaded_and_cleared():
+    with TestClient(create_app()) as active_client:
+        login_admin_for(active_client)
+        finished_video_id = create_finished_video(active_client, "Cover upload seed")
+        package = active_client.post(
+            "/api/publish/packages",
+            json={"source_finished_video_id": finished_video_id, "title": "Cover package", "description": ""},
+        )
+        assert package.status_code == 201, package.text
+        artifact_id = upload_cover_artifact(active_client)
+
+        patched = active_client.patch(
+            f"/api/publish/packages/{package.json()['id']}",
+            json={"cover_artifact_id": artifact_id},
+        )
+        assert patched.status_code == 200, patched.text
+        assert patched.json()["cover_artifact"]["artifact_id"] == artifact_id
+
+        cleared = active_client.patch(
+            f"/api/publish/packages/{package.json()['id']}",
+            json={"cover_artifact_id": None},
+        )
+        assert cleared.status_code == 200, cleared.text
+        assert cleared.json()["cover_artifact"] is None
+
+
+def test_publish_batch_can_be_deleted_from_recent_list():
+    with TestClient(create_app()) as active_client:
+        login_admin_for(active_client)
+        finished_video_id = create_finished_video(active_client, "Delete batch seed")
+        batch = create_publish_batch(active_client, finished_video_id)
+
+        deleted = active_client.delete(f"/api/publish/batches/{batch['id']}")
+        assert deleted.status_code == 200, deleted.text
+        assert deleted.json()["ok"] is True
+
+        detail = active_client.get(f"/api/publish/batches/{batch['id']}")
+        assert detail.status_code == 404
+
+
+def test_publish_batch_item_can_be_deleted_before_submit():
+    with TestClient(create_app()) as active_client:
+        login_admin_for(active_client)
+        finished_video_id = create_finished_video(active_client, "Delete item seed")
+        batch = create_publish_batch(active_client, finished_video_id)
+        item_id = batch["items"][0]["id"]
+
+        deleted = active_client.delete(f"/api/publish/items/{item_id}")
+        assert deleted.status_code == 200, deleted.text
+        assert deleted.json()["ok"] is True
+
+        detail = active_client.get(f"/api/publish/batches/{batch['id']}")
+        assert detail.status_code == 200, detail.text
+        assert all(item["id"] != item_id for item in detail.json()["items"])
+
+
+def test_publish_attempts_can_be_listed_by_batch():
+    with TestClient(create_app()) as active_client:
+        login_admin_for(active_client)
+        finished_video_id = create_finished_video(active_client, "Attempt list seed")
+        batch = create_publish_batch(active_client, finished_video_id)
+        submitted = active_client.post(f"/api/publish/batches/{batch['id']}/submit", json={"dry_run": True})
+        assert submitted.status_code == 202, submitted.text
+
+        attempts = active_client.get(f"/api/publish/batches/{batch['id']}/attempts")
+        assert attempts.status_code == 200, attempts.text
+        assert attempts.json()["items"][0]["status"] == "manual_review_ready"
+        assert attempts.json()["items"][0]["adapter_id"] == "sandbox.publish"
 
 
 def test_spec_20_2_16_case_reflection_after_five_published_videos_creates_memory_proposal():

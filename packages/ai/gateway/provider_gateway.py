@@ -66,7 +66,7 @@ class SandboxProvider:
             raise ProviderRuntimeError(ErrorCode.provider_timeout, "Sandbox provider timed out")
         if simulate == "remote_failed":
             raise ProviderRuntimeError(ErrorCode.provider_remote_failed, "Sandbox provider failed")
-        if call.capability_id == "tts":
+        if call.capability_id == "tts.speech":
             text = str(call.input.get("text", ""))
             duration = max(1.0, len(text) / 6.0)
             return ProviderResult(
@@ -74,7 +74,7 @@ class SandboxProvider:
                 input_tokens=len(text),
                 audio_seconds=duration,
             )
-        if call.capability_id == "llm":
+        if call.capability_id == "llm.chat":
             script = str(call.input.get("script", ""))
             return ProviderResult(
                 output={
@@ -88,17 +88,15 @@ class SandboxProvider:
                 input_tokens=len(script),
                 output_tokens=96,
             )
-        if call.capability_id == "lipsync":
+        if call.capability_id == "lipsync.video":
             return ProviderResult(
                 output={"video_uri": f"sandbox://video/lipsync/{uuid4().hex}.mp4", "report": "pass"},
                 video_seconds=float(call.input.get("duration_sec", 0) or 0),
             )
-        if call.capability_id == "annotation":
+        if call.capability_id == "vlm.annotation":
             return ProviderResult(output={"labels": ["sandbox"], "quality": "usable"})
-        if call.capability_id == "cover":
+        if call.capability_id == "image.generate":
             return ProviderResult(output={"image_uri": f"sandbox://cover/{uuid4().hex}.png"})
-        if call.capability_id == "publish":
-            return ProviderResult(output={"platform_record_id": f"sandbox_pub_{uuid4().hex[:8]}"})
         return ProviderResult(output={"ok": True, "capability": call.capability_id})
 
 
@@ -237,7 +235,10 @@ class ProviderGateway:
                 message=f"Provider {profile.provider_id} is not registered.",
                 retryable=False,
             )
-        if profile.secret_ref and profile.secret_ref not in self.repository.secrets:
+        if profile.secret_ref and profile.secret_ref not in self.repository.secrets and not any(
+            secret.secret_ref == profile.secret_ref and secret.status.value == "active"
+            for secret in self.repository.secrets.values()
+        ):
             return ProviderError(
                 code=ErrorCode.provider_auth_failed,
                 message="Provider secret is missing.",

@@ -186,36 +186,45 @@ class Repository:
             id="sandbox.tts.default",
             provider_id="sandbox",
             model_id="tts.local",
-            capability="tts",
+            capability="tts.speech",
             display_name="Sandbox TTS",
             environment="local",
+            concurrency_key="sandbox:tts.speech",
             options_schema_ref=ProviderOptionsSchemaRef(schema_id="provider.tts.options"),
         )
         self.provider_profiles["runninghub.heygem.default"] = ProviderProfile(
             id="runninghub.heygem.default",
             provider_id="sandbox",
             model_id="heygem.local",
-            capability="lipsync",
+            capability="lipsync.video",
             display_name="Sandbox HeyGem LipSync",
             environment="local",
+            concurrency_key="sandbox:lipsync.video",
             options_schema_ref=ProviderOptionsSchemaRef(schema_id="provider.lipsync.options"),
         )
         self.provider_profiles["sandbox.llm.default"] = ProviderProfile(
             id="sandbox.llm.default",
             provider_id="sandbox",
             model_id="llm.local",
-            capability="llm",
+            capability="llm.chat",
             display_name="Sandbox LLM",
             environment="local",
+            concurrency_key="sandbox:llm.chat",
             options_schema_ref=ProviderOptionsSchemaRef(schema_id="provider.llm.options"),
         )
         for profile in self.provider_profiles.values():
             cap = ProviderCapability(
                 id=f"cap_{profile.id.replace('.', '_')}",
+                capability=profile.capability,
                 provider_id=profile.provider_id,
-                capability_id=profile.capability,
-                input_schema_ref=ProviderOptionsSchemaRef(schema_id=f"{profile.capability}.input"),
-                output_schema_ref=ProviderOptionsSchemaRef(schema_id=f"{profile.capability}.output"),
+                model_id=profile.model_id,
+                display_name=profile.display_name,
+                input_schema_id=f"{profile.capability}.input",
+                output_schema_id=f"{profile.capability}.output",
+                options_schema_id=profile.options_schema_ref.schema_id,
+                supports_async_job=profile.capability in {"lipsync.video"},
+                supports_cancel=profile.capability in {"lipsync.video"},
+                default_timeout_sec=profile.timeout_sec,
             )
             self.provider_capabilities[cap.id] = cap
         template = PromptTemplate(
@@ -286,6 +295,7 @@ class Repository:
         return ArtifactRef(
             artifact_id=artifact.id,
             kind=artifact.kind,
+            uri=artifact.uri or f"artifact://{artifact.id}",
             schema_version=artifact.schema_version,
             sha256=artifact.sha256,
         )

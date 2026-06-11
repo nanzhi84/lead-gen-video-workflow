@@ -6,8 +6,9 @@ from packages.ai.gateway import ProviderCall, ProviderGateway, get_provider_gate
 from packages.ai.prompts import PromptRegistry, get_prompt_registry
 from packages.core.contracts import (
     Artifact,
+    ArtifactRef,
     ArtifactKind,
-    DegradationCode,
+    DegradationNotice,
     DigitalHumanVideoRequest,
     ErrorCode,
     FinishedVideo,
@@ -27,6 +28,16 @@ from packages.core.contracts import (
     NodeSpec,
     WorkflowEdge,
     utcnow,
+)
+from packages.core.contracts.artifacts import (
+    AlignmentArtifact,
+    AlignmentSegment,
+    NarrationUnit,
+    NarrationUnitsArtifact,
+    RenderPlanArtifact,
+    TimelinePlanArtifact,
+    TimelineTrackSegment,
+    TimelineValidationReport,
 )
 from packages.core.contracts.state_machines import assert_transition
 from packages.core.storage import Repository, get_repository
@@ -118,12 +129,27 @@ class RunState:
     artifacts: dict[ArtifactKind, Artifact] = field(default_factory=dict)
     provider_invocation_ids: list[str] = field(default_factory=list)
     warnings: list[WarningCode] = field(default_factory=list)
-    degradations: list[DegradationCode] = field(default_factory=list)
+    degradations: list[DegradationNotice] = field(default_factory=list)
 
     def require(self, kind: ArtifactKind) -> Artifact:
         if kind not in self.artifacts:
             raise NodeExecutionError(ErrorCode.artifact_missing, f"Missing artifact {kind.value}.")
         return self.artifacts[kind]
+
+
+def degradation_notice(
+    code: WarningCode,
+    message: str,
+    *,
+    node_id: str | None = None,
+    affects_true_yield: bool = False,
+) -> DegradationNotice:
+    return DegradationNotice(
+        code=code,
+        message=message,
+        node_id=node_id,
+        affects_true_yield=affects_true_yield,
+    )
 
 
 class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
@@ -155,9 +181,10 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
             workflow_template_id=self.template.workflow_template_id,
             workflow_version=self.template.version,
             status=RunStatus.created,
+            requested_by=job.created_by,
             run_attempt=attempt,
             resume_from_run_id=from_run_id if mode == "resume" else None,
-            retry_from_run_id=from_run_id if mode == "retry" else None,
+            retry_of_run_id=from_run_id if mode == "retry" else None,
         )
         assert_transition("run", run.status, RunStatus.admitted)
         run = run.model_copy(update={"status": RunStatus.admitted, "updated_at": utcnow()})
@@ -169,7 +196,7 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
             next_job_status = JobStatus.queued
         assert_transition("job", next_job_status, JobStatus.running)
         self.repository.jobs[job_id] = job.model_copy(
-            update={"current_run_id": run.id, "status": JobStatus.running, "updated_at": utcnow()}
+            update={"active_run_id": run.id, "status": JobStatus.running, "updated_at": utcnow()}
         )
         self.repository.create_event(
             "workflow.run.created",
@@ -263,6 +290,7 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
                         "provider_invocation_ids": output.provider_invocation_ids,
                         "warnings": output.warnings,
                         "degradations": output.degradations,
+                        "degradation_reason": "; ".join(item.message for item in output.degradations) or None,
                         "finished_at": utcnow(),
                         "updated_at": utcnow(),
                     }
@@ -350,7 +378,7 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
             or node_id == "LipSync"
             and not state.request.lipsync.enabled
             or node_id == "SubtitleAndBgmMix"
-            and not state.request.subtitles.enabled
+            and not state.request.subtitle.enabled
         )
 
     def _request(self, job: Job) -> DigitalHumanVideoRequest:
@@ -415,7 +443,7 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
             raise NodeExecutionError(ErrorCode.validation_missing_voice, "Voice is missing or disabled.")
         if request.lipsync.enabled:
             profile = self.repository.provider_profiles.get(request.lipsync.provider_profile_id)
-            if profile is None or profile.capability != "lipsync":
+            if profile is None or profile.capability != "lipsync.video":
                 raise NodeExecutionError(
                     ErrorCode.provider_unsupported_option,
                     "LipSync provider profile is missing or incompatible.",
@@ -492,7 +520,7 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
                 run_id=run.id,
                 node_run_id=node_run.id,
                 provider_profile_id="sandbox.llm.default",
-                capability_id="llm",
+                capability_id="llm.chat",
                 prompt_version_id=prompt_invocation.prompt_version_id,
                 input={"prompt": rendered, "script": state.request.script},
             )
@@ -528,7 +556,7 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
                 run_id=run.id,
                 node_run_id=node_run.id,
                 provider_profile_id=provider_profile_id,
-                capability_id="tts",
+                capability_id="tts.speech",
                 input={"text": state.request.script, "voice_id": state.request.voice.voice_id or "voice_sandbox"},
             )
         )
@@ -559,7 +587,11 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
             if asset.usable
             and asset.kind == "portrait"
             and (asset.case_id in {None, request.case_id})
-            and (not request.portrait.asset_ids or asset.id in request.portrait.asset_ids)
+            and (
+                request.portrait.template_mode == "agent"
+                or asset.id == request.portrait.specific_template_id
+                or asset.id in request.portrait.template_sequence_ids
+            )
         ]
         broll = [
             asset.id
@@ -567,7 +599,7 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
             if asset.usable
             and asset.kind == "broll"
             and (asset.case_id in {None, request.case_id})
-            and (not request.broll.asset_ids or asset.id in request.broll.asset_ids)
+            and (request.broll.case_id is None or asset.case_id == request.broll.case_id)
         ]
         bgm = [
             asset.id
@@ -611,16 +643,56 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
         parts = [part.strip() for part in state.request.script.replace("。", ".").split(".") if part.strip()]
         if not parts:
             parts = [state.request.script]
+        if state.request.strictness.strict_timestamps:
+            raise NodeExecutionError(
+                ErrorCode.render_invalid_timeline,
+                "Estimated narration timestamps are not allowed in strict alignment mode.",
+            )
         unit_duration = duration / len(parts)
         units = [
-            {"index": index, "text": text, "start_sec": round(index * unit_duration, 3), "end_sec": round((index + 1) * unit_duration, 3)}
+            NarrationUnit(
+                unit_id=f"unit_{index + 1}",
+                text=text,
+                start=round(index * unit_duration, 3),
+                end=round((index + 1) * unit_duration, 3),
+                confidence=0.5,
+            )
             for index, text in enumerate(parts)
         ]
-        alignment = {"duration_sec": duration, "source": "tts", "units": units}
+        alignment = AlignmentArtifact(
+            audio_artifact_id=tts.id,
+            segments=[
+                AlignmentSegment(
+                    text=unit.text,
+                    start_sec=unit.start,
+                    end_sec=unit.end,
+                    word_confidence=unit.confidence,
+                )
+                for unit in units
+            ],
+        )
+        narration = NarrationUnitsArtifact(
+            source="estimated",
+            units=units,
+            strict=False,
+            warnings=[WarningCode.timestamp_estimated.value],
+        )
         return NodeOutput(
             artifacts=[
-                self._artifact(run, node_run, ArtifactKind.audio_alignment, alignment, "AlignmentArtifact.v1"),
-                self._artifact(run, node_run, ArtifactKind.narration_units, {"units": units}, "NarrationUnitsArtifact.v1"),
+                self._artifact(
+                    run,
+                    node_run,
+                    ArtifactKind.audio_alignment,
+                    alignment.model_dump(mode="json"),
+                    "AlignmentArtifact.v1",
+                ),
+                self._artifact(
+                    run,
+                    node_run,
+                    ArtifactKind.narration_units,
+                    narration.model_dump(mode="json"),
+                    "NarrationUnitsArtifact.v1",
+                ),
             ]
         )
 
@@ -628,12 +700,12 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
         material = state.require(ArtifactKind.plan_material_pack).payload or {}
         narration = state.require(ArtifactKind.narration_units).payload or {}
         portraits = list(material.get("portrait_candidates", []))
-        if state.request.portrait.required and not portraits:
+        if state.request.strictness.portrait_insufficient_policy == "hard_fail" and not portraits:
             raise NodeExecutionError(
                 ErrorCode.material_insufficient_portrait,
                 "Portrait main track cannot cover the full audio.",
             )
-        duration = max([float(unit.get("end_sec", 0)) for unit in narration.get("units", [])] or [1])
+        duration = max([float(unit.get("end", 0)) for unit in narration.get("units", [])] or [1])
         payload = {
             "asset_id": portraits[0] if portraits else None,
             "segments": [{"asset_id": portraits[0] if portraits else None, "start_sec": 0, "end_sec": duration}],
@@ -653,13 +725,20 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
                 run,
                 node_run,
                 ArtifactKind.plan_broll,
-                {"segments": [], "skipped_reason": DegradationCode.broll_skipped_no_material.value},
+                {"segments": [], "skipped_reason": WarningCode.broll_skipped_no_material.value},
                 "BrollPlanArtifact.v1",
             )
             return NodeOutput(
                 status=NodeStatus.degraded,
                 artifacts=[artifact],
-                degradations=[DegradationCode.broll_skipped_no_material],
+                degradations=[
+                    degradation_notice(
+                        WarningCode.broll_skipped_no_material,
+                        "No b-roll material available.",
+                        node_id=node_run.node_id,
+                        affects_true_yield=True,
+                    )
+                ],
             )
         segments = [
             {"asset_id": asset_id, "start_sec": index * 3, "end_sec": index * 3 + 2}
@@ -681,11 +760,18 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
         material = state.require(ArtifactKind.plan_material_pack).payload or {}
         bgm_candidates = list(material.get("bgm_candidates", []))
         font_candidates = list(material.get("font_candidates", []))
-        degradations: list[DegradationCode] = []
+        degradations: list[DegradationNotice] = []
         warnings: list[WarningCode] = []
-        bgm_asset_id = state.request.bgm.asset_id or (bgm_candidates[0] if bgm_candidates else None)
+        bgm_asset_id = state.request.bgm.bgm_id or (bgm_candidates[0] if bgm_candidates else None)
         if state.request.bgm.enabled and not bgm_asset_id:
-            degradations.append(DegradationCode.bgm_skipped_library_unannotated)
+            degradations.append(
+                degradation_notice(
+                    WarningCode.bgm_skipped_library_unannotated,
+                    "BGM library is not annotated.",
+                    node_id=node_run.node_id,
+                    affects_true_yield=False,
+                )
+            )
             warnings.append(WarningCode.bgm_skipped_library_unannotated)
         font_asset_id = font_candidates[0] if font_candidates else "case_default_font"
         if not font_candidates:
@@ -697,7 +783,7 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
             {
                 "font_asset_id": font_asset_id,
                 "bgm_asset_id": bgm_asset_id,
-                "subtitle_enabled": state.request.subtitles.enabled,
+                "subtitle_enabled": state.request.subtitle.enabled,
             },
             "StylePlanArtifact.v1",
         )
@@ -709,25 +795,108 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
         )
 
     def _timeline_planning(self, run: WorkflowRun, node_run: NodeRun, state: RunState) -> NodeOutput:
-        portrait = state.require(ArtifactKind.plan_portrait).payload or {}
-        broll = state.require(ArtifactKind.plan_broll).payload or {}
+        portrait_artifact = state.require(ArtifactKind.plan_portrait)
+        broll_artifact = state.require(ArtifactKind.plan_broll)
+        portrait = portrait_artifact.payload or {}
+        broll = broll_artifact.payload or {}
         duration = float(portrait.get("duration_sec", 0))
         if duration <= 0:
             raise NodeExecutionError(ErrorCode.render_invalid_timeline, "Timeline duration is invalid.")
-        for segment in broll.get("segments", []):
-            if float(segment["start_sec"]) < 0 or float(segment["end_sec"]) <= float(segment["start_sec"]):
-                raise NodeExecutionError(ErrorCode.render_invalid_timeline, "B-roll segment is invalid.")
-        timeline = {
-            "fps": 30,
-            "duration_sec": duration,
-            "tracks": {"portrait": portrait.get("segments", []), "broll": broll.get("segments", [])},
-            "validation": {"overlap": False, "negative_duration": False, "out_of_bounds": False},
-        }
-        render_plan = {"width": state.request.output.width, "height": state.request.output.height, "fps": 30}
+        fps = 30
+        total_frames = max(1, round(duration * fps))
+
+        def to_frame(seconds: float) -> int:
+            return round(seconds * fps)
+
+        raw_segments: list[dict] = []
+        for index, segment in enumerate(portrait.get("segments", [])):
+            raw_segments.append(
+                {
+                    "track_id": "portrait",
+                    "segment_id": f"portrait_{index + 1}",
+                    "asset_ref": self.repository.artifact_ref(portrait_artifact.id),
+                    "start_sec": float(segment.get("start_sec", 0)),
+                    "end_sec": float(segment.get("end_sec", duration)),
+                }
+            )
+        for index, segment in enumerate(broll.get("segments", [])):
+            raw_segments.append(
+                {
+                    "track_id": "broll",
+                    "segment_id": f"broll_{index + 1}",
+                    "asset_ref": self.repository.artifact_ref(broll_artifact.id),
+                    "start_sec": float(segment.get("start_sec", 0)),
+                    "end_sec": float(segment.get("end_sec", 0)),
+                }
+            )
+
+        negative_duration = any(segment["end_sec"] <= segment["start_sec"] for segment in raw_segments)
+        out_of_bounds = any(
+            segment["start_sec"] < 0 or to_frame(segment["end_sec"]) > total_frames
+            for segment in raw_segments
+        )
+        overlap = False
+        by_track: dict[str, list[dict]] = {}
+        for segment in raw_segments:
+            by_track.setdefault(segment["track_id"], []).append(segment)
+        for segments in by_track.values():
+            ordered = sorted(segments, key=lambda item: item["start_sec"])
+            previous_end = None
+            for segment in ordered:
+                if previous_end is not None and segment["start_sec"] < previous_end:
+                    overlap = True
+                previous_end = max(previous_end or segment["end_sec"], segment["end_sec"])
+        if negative_duration or out_of_bounds or overlap:
+            raise NodeExecutionError(ErrorCode.render_invalid_timeline, "Timeline validation failed.")
+
+        tracks = [
+            TimelineTrackSegment(
+                track_id=segment["track_id"],
+                segment_id=segment["segment_id"],
+                asset_ref=segment["asset_ref"],
+                timeline_start_frame=to_frame(segment["start_sec"]),
+                timeline_end_frame=to_frame(segment["end_sec"]),
+            )
+            for segment in raw_segments
+        ]
+        validation = TimelineValidationReport(
+            valid=True,
+            checks={
+                "overlap": not overlap,
+                "negative_duration": not negative_duration,
+                "out_of_bounds": not out_of_bounds,
+            },
+        )
+        timeline = TimelinePlanArtifact(
+            fps=fps,
+            total_frames=total_frames,
+            tracks=tracks,
+            validation=validation,
+        )
+        render_plan = RenderPlanArtifact(
+            timeline_artifact_id="pending",
+            render_size=(state.request.output.width, state.request.output.height),
+            fps=fps,
+            tracks=tracks,
+        )
+        timeline_artifact = self._artifact(
+            run,
+            node_run,
+            ArtifactKind.plan_timeline,
+            timeline.model_dump(mode="json"),
+            "TimelinePlanArtifact.v1",
+        )
+        render_plan = render_plan.model_copy(update={"timeline_artifact_id": timeline_artifact.id})
         return NodeOutput(
             artifacts=[
-                self._artifact(run, node_run, ArtifactKind.plan_timeline, timeline, "TimelinePlanArtifact.v1"),
-                self._artifact(run, node_run, ArtifactKind.plan_render, render_plan, "RenderPlanArtifact.v1"),
+                timeline_artifact,
+                self._artifact(
+                    run,
+                    node_run,
+                    ArtifactKind.plan_render,
+                    render_plan.model_dump(mode="json"),
+                    "RenderPlanArtifact.v1",
+                ),
             ]
         )
 
@@ -763,7 +932,7 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
                 run_id=run.id,
                 node_run_id=node_run.id,
                 provider_profile_id=state.request.lipsync.provider_profile_id,
-                capability_id="lipsync",
+                capability_id="lipsync.video",
                 input={"portrait_uri": portrait.uri or "", "audio_uri": audio.uri or "", "duration_sec": duration},
             )
         )
@@ -815,7 +984,7 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
                 "video_uri": f"sandbox://video/final/{run.id}.mp4",
                 "source_rendered_artifact_id": rendered.id,
                 "bgm_asset_id": style.get("bgm_asset_id"),
-                "subtitles_enabled": state.request.subtitles.enabled,
+                "subtitle_enabled": state.request.subtitle.enabled,
             },
             "FinalVideoArtifact.v1",
             uri=f"sandbox://video/final/{run.id}.mp4",
@@ -828,7 +997,7 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
             "SubtitleAssArtifact.v1",
             uri=f"sandbox://subtitle/{run.id}.ass",
         )
-        if not state.request.subtitles.enabled:
+        if not state.request.subtitle.enabled:
             return NodeOutput(status=NodeStatus.skipped, artifacts=[final, subtitle])
         return NodeOutput(artifacts=[final, subtitle])
 
@@ -872,7 +1041,8 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
             video_artifact=self.repository.artifact_ref(video_artifact.id),
             cover_artifact=self.repository.artifact_ref(cover_artifact.id),
             subtitle_artifact=self.repository.artifact_ref(state.require(ArtifactKind.subtitle_ass).id),
-            duration_sec=float((timeline.payload or {}).get("duration_sec", 0)),
+            duration_sec=float((timeline.payload or {}).get("total_frames", 0))
+            / float((timeline.payload or {}).get("fps", 30) or 30),
         )
         self.repository.finished_videos[finished.id] = finished
         video_version = VideoVersion(
@@ -917,7 +1087,7 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
             summary="Run failed." if failed else "Run completed.",
             node_statuses={node.node_id: node.status for node in node_runs},
             warnings=state.warnings,
-            degradations=state.degradations,
+            degradations=[notice.code for notice in state.degradations],
         )
         debug = RunDebugReportArtifact(
             **public.model_dump(),

@@ -1074,7 +1074,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/DigitalHumanVideoRequest-Input"
+                "$ref": "#/components/schemas/DigitalHumanVideoRequest"
               }
             }
           },
@@ -5358,7 +5358,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Budget"
+                  "$ref": "#/components/schemas/Budget-Output"
                 }
               }
             }
@@ -5407,7 +5407,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Budget"
+                  "$ref": "#/components/schemas/Budget-Output"
                 }
               }
             }
@@ -5863,15 +5863,15 @@
             "type": "string",
             "title": "Email"
           },
-          "password": {
-            "type": "string",
-            "title": "Password"
-          },
           "display_name": {
             "type": "string",
             "title": "Display Name"
           },
-          "registration_code": {
+          "role": {
+            "$ref": "#/components/schemas/UserRole",
+            "default": "viewer"
+          },
+          "password": {
             "anyOf": [
               {
                 "type": "string"
@@ -5880,18 +5880,13 @@
                 "type": "null"
               }
             ],
-            "title": "Registration Code"
-          },
-          "role": {
-            "$ref": "#/components/schemas/UserRole",
-            "default": "viewer"
+            "title": "Password"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "email",
-          "password",
           "display_name"
         ],
         "title": "AdminCreateUserRequest"
@@ -5919,16 +5914,20 @@
               }
             ]
           },
-          "disabled": {
+          "status": {
             "anyOf": [
               {
-                "type": "boolean"
+                "type": "string",
+                "enum": [
+                  "active",
+                  "disabled"
+                ]
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Disabled"
+            "title": "Status"
           }
         },
         "additionalProperties": false,
@@ -5966,6 +5965,12 @@
       },
       "AnnotationBatchRequest": {
         "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "annotation_batch_request.v1",
+            "title": "Schema Version",
+            "default": "annotation_batch_request.v1"
+          },
           "asset_ids": {
             "items": {
               "type": "string"
@@ -6117,6 +6122,22 @@
             "format": "date-time",
             "title": "Updated At"
           },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
+          },
           "schema_version": {
             "type": "string",
             "title": "Schema Version",
@@ -6197,21 +6218,31 @@
         "type": "string",
         "enum": [
           "uploaded.file",
-          "validated.production_spec",
+          "spec.validated_production",
           "case.context",
+          "case.performance_analysis",
+          "case.reflection",
+          "script.strategy",
           "creative.intent",
           "audio.tts",
           "audio.alignment.raw",
           "audio.alignment",
           "narration.units",
           "plan.material_pack",
+          "plan.material_pack",
+          "plan.portrait",
           "plan.portrait",
           "plan.broll",
+          "plan.broll",
+          "plan.style",
           "plan.style",
           "plan.timeline",
+          "plan.timeline",
+          "plan.render",
           "plan.render",
           "video.portrait_track",
           "video.lipsync",
+          "lipsync.report",
           "video.rendered",
           "video.final",
           "video.finished",
@@ -6219,10 +6250,15 @@
           "cover.image",
           "publish.package",
           "run.report.public",
+          "run.report.public",
           "run.report.debug",
-          "case.reflection",
-          "editor.handoff",
-          "jianying.draft",
+          "run.report.debug",
+          "editor.handoff_package",
+          "editor.handoff_package",
+          "editor.jianying_draft_package",
+          "editor.jianying_draft_package",
+          "provider.raw_request",
+          "provider.raw_response",
           "import.mapping"
         ],
         "title": "ArtifactKind"
@@ -6235,6 +6271,10 @@
           },
           "kind": {
             "$ref": "#/components/schemas/ArtifactKind"
+          },
+          "uri": {
+            "type": "string",
+            "title": "Uri"
           },
           "schema_version": {
             "type": "string",
@@ -6257,7 +6297,8 @@
         "type": "object",
         "required": [
           "artifact_id",
-          "kind"
+          "kind",
+          "uri"
         ],
         "title": "ArtifactRef"
       },
@@ -6276,6 +6317,22 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
           },
           "schema_version": {
             "type": "string",
@@ -6367,6 +6424,22 @@
             "format": "date-time",
             "title": "Updated At"
           },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
+          },
           "schema_version": {
             "type": "string",
             "title": "Schema Version",
@@ -6384,10 +6457,14 @@
             "$ref": "#/components/schemas/UserRole",
             "default": "viewer"
           },
-          "disabled": {
-            "type": "boolean",
-            "title": "Disabled",
-            "default": false
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "disabled"
+            ],
+            "title": "Status",
+            "default": "active"
           }
         },
         "additionalProperties": false,
@@ -6404,9 +6481,9 @@
           "enabled": {
             "type": "boolean",
             "title": "Enabled",
-            "default": false
+            "default": true
           },
-          "asset_id": {
+          "bgm_id": {
             "anyOf": [
               {
                 "type": "string"
@@ -6415,14 +6492,19 @@
                 "type": "null"
               }
             ],
-            "title": "Asset Id"
+            "title": "Bgm Id"
           },
           "volume": {
             "type": "number",
             "maximum": 1.0,
             "minimum": 0.0,
             "title": "Volume",
-            "default": 0.2
+            "default": 0.25
+          },
+          "auto_mix": {
+            "type": "boolean",
+            "title": "Auto Mix",
+            "default": true
           }
         },
         "additionalProperties": false,
@@ -6435,7 +6517,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "format": "binary"
+                "contentMediaType": "application/octet-stream"
               },
               {
                 "type": "null"
@@ -6452,28 +6534,38 @@
           "enabled": {
             "type": "boolean",
             "title": "Enabled",
-            "default": false
+            "default": true
+          },
+          "case_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id"
           },
           "max_inserts": {
             "type": "integer",
-            "maximum": 30.0,
+            "maximum": 20.0,
             "minimum": 0.0,
             "title": "Max Inserts",
-            "default": 3
+            "default": 4
           },
-          "asset_ids": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Asset Ids"
+          "min_segment_duration": {
+            "type": "number",
+            "minimum": 0.5,
+            "title": "Min Segment Duration",
+            "default": 3.0
           }
         },
         "additionalProperties": false,
         "type": "object",
         "title": "BrollOptions"
       },
-      "Budget": {
+      "Budget-Input": {
         "properties": {
           "id": {
             "type": "string",
@@ -6488,6 +6580,22 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
           },
           "schema_version": {
             "type": "string",
@@ -6510,7 +6618,84 @@
             "title": "Scope Id"
           },
           "limit": {
-            "$ref": "#/components/schemas/Money"
+            "$ref": "#/components/schemas/Money-Input"
+          },
+          "alert_threshold": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Alert Threshold",
+            "default": 0.8
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "scope_type",
+          "limit"
+        ],
+        "title": "Budget"
+      },
+      "Budget-Output": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
+          },
+          "schema_version": {
+            "type": "string",
+            "title": "Schema Version",
+            "default": "v1"
+          },
+          "scope_type": {
+            "type": "string",
+            "title": "Scope Type"
+          },
+          "scope_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Id"
+          },
+          "limit": {
+            "$ref": "#/components/schemas/Money-Output"
           },
           "alert_threshold": {
             "type": "number",
@@ -6572,6 +6757,22 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
           },
           "schema_version": {
             "type": "string",
@@ -6648,6 +6849,12 @@
       },
       "CaseAgentRunRequest": {
         "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "case_agent_run_request.v1",
+            "title": "Schema Version",
+            "default": "case_agent_run_request.v1"
+          },
           "case_id": {
             "type": "string",
             "title": "Case Id"
@@ -6692,6 +6899,22 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
           },
           "schema_version": {
             "type": "string",
@@ -6753,6 +6976,22 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
           },
           "schema_version": {
             "type": "string",
@@ -6848,6 +7087,22 @@
             "format": "date-time",
             "title": "Updated At"
           },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
+          },
           "schema_version": {
             "type": "string",
             "title": "Schema Version",
@@ -6940,6 +7195,22 @@
             "format": "date-time",
             "title": "Updated At"
           },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
+          },
           "schema_version": {
             "type": "string",
             "title": "Schema Version",
@@ -6990,6 +7261,22 @@
             "format": "date-time",
             "title": "Updated At"
           },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
+          },
           "schema_version": {
             "type": "string",
             "title": "Schema Version",
@@ -7003,9 +7290,11 @@
             "type": "string",
             "enum": [
               "proposed",
+              "approved",
               "active",
+              "deprecated",
               "rejected",
-              "deprecated"
+              "superseded"
             ],
             "title": "Status",
             "default": "proposed"
@@ -7104,9 +7393,9 @@
       },
       "ChangePasswordRequest": {
         "properties": {
-          "current_password": {
+          "old_password": {
             "type": "string",
-            "title": "Current Password"
+            "title": "Old Password"
           },
           "new_password": {
             "type": "string",
@@ -7117,7 +7406,7 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "current_password",
+          "old_password",
           "new_password"
         ],
         "title": "ChangePasswordRequest"
@@ -7159,7 +7448,14 @@
             "title": "Upload Session Id"
           },
           "size_bytes": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Size Bytes"
           },
           "sha256": {
@@ -7172,13 +7468,19 @@
               }
             ],
             "title": "Sha256"
+          },
+          "metadata": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Metadata"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "upload_session_id",
-          "size_bytes"
+          "upload_session_id"
         ],
         "title": "CompleteUploadRequest"
       },
@@ -7188,9 +7490,22 @@
             "$ref": "#/components/schemas/UploadSession"
           },
           "artifact": {
+            "$ref": "#/components/schemas/ArtifactRef"
+          },
+          "media_asset": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ArtifactRef"
+                "$ref": "#/components/schemas/MediaAssetRecord"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "publish_package": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublishPackage"
               },
               {
                 "type": "null"
@@ -7206,6 +7521,7 @@
         "type": "object",
         "required": [
           "upload_session",
+          "artifact",
           "request_id"
         ],
         "title": "CompleteUploadResponse"
@@ -7225,6 +7541,22 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
           },
           "schema_version": {
             "type": "string",
@@ -7247,12 +7579,12 @@
             "title": "Group By"
           },
           "estimated_cost": {
-            "$ref": "#/components/schemas/Money"
+            "$ref": "#/components/schemas/Money-Output"
           },
           "actual_cost": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Money"
+                "$ref": "#/components/schemas/Money-Output"
               },
               {
                 "type": "null"
@@ -7279,14 +7611,14 @@
           "mode": {
             "type": "string",
             "enum": [
-              "ai",
+              "none",
               "frame",
-              "upload"
+              "ai"
             ],
             "title": "Mode",
             "default": "frame"
           },
-          "upload_artifact_id": {
+          "template_id": {
             "anyOf": [
               {
                 "type": "string"
@@ -7295,7 +7627,7 @@
                 "type": "null"
               }
             ],
-            "title": "Upload Artifact Id"
+            "title": "Template Id"
           }
         },
         "additionalProperties": false,
@@ -7522,9 +7854,10 @@
             "enum": [
               "portrait",
               "broll",
+              "voice_reference",
               "bgm",
               "font",
-              "voice",
+              "cover_template",
               "video",
               "image",
               "other"
@@ -7736,6 +8069,30 @@
             ],
             "title": "Secret Ref"
           },
+          "concurrency_key": {
+            "type": "string",
+            "title": "Concurrency Key",
+            "default": "default"
+          },
+          "timeout_sec": {
+            "type": "integer",
+            "title": "Timeout Sec",
+            "default": 30
+          },
+          "retry_policy": {
+            "$ref": "#/components/schemas/RetryPolicy"
+          },
+          "cost_policy_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Policy Id"
+          },
           "options_schema_ref": {
             "$ref": "#/components/schemas/ProviderOptionsSchemaRef"
           },
@@ -7745,6 +8102,11 @@
             },
             "type": "object",
             "title": "Default Options"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version",
+            "default": "v1"
           }
         },
         "additionalProperties": false,
@@ -7966,9 +8328,9 @@
             "type": "string",
             "title": "Name"
           },
-          "value": {
+          "plaintext_secret": {
             "type": "string",
-            "title": "Value"
+            "title": "Plaintext Secret"
           }
         },
         "additionalProperties": false,
@@ -7977,7 +8339,7 @@
           "provider_id",
           "environment",
           "name",
-          "value"
+          "plaintext_secret"
         ],
         "title": "CreateSecretRequest"
       },
@@ -8032,6 +8394,22 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
           },
           "schema_version": {
             "type": "string",
@@ -8118,6 +8496,22 @@
             "format": "date-time",
             "title": "Updated At"
           },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
+          },
           "schema_version": {
             "type": "string",
             "title": "Schema Version",
@@ -8162,10 +8556,51 @@
         "enum": [
           "broll.skipped_no_material",
           "bgm.skipped_library_unannotated",
-          "font.default_used",
+          "font_default_used",
           "cover.frame_fallback"
         ],
         "title": "DegradationCode"
+      },
+      "DegradationNotice": {
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/WarningCode"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Id"
+          },
+          "affects_true_yield": {
+            "type": "boolean",
+            "title": "Affects True Yield",
+            "default": false
+          },
+          "details": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "type": "object",
+            "title": "Details"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "DegradationNotice"
       },
       "DesignVoiceRequest": {
         "properties": {
@@ -8197,8 +8632,14 @@
         ],
         "title": "DesignVoiceRequest"
       },
-      "DigitalHumanVideoRequest-Input": {
+      "DigitalHumanVideoRequest": {
         "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "digital_human_video_request.v1",
+            "title": "Schema Version",
+            "default": "digital_human_video_request.v1"
+          },
           "case_id": {
             "type": "string",
             "title": "Case Id"
@@ -8261,95 +8702,7 @@
           "lipsync": {
             "$ref": "#/components/schemas/LipSyncOptions"
           },
-          "subtitles": {
-            "$ref": "#/components/schemas/SubtitleOptions"
-          },
-          "bgm": {
-            "$ref": "#/components/schemas/BgmOptions"
-          },
-          "cover": {
-            "$ref": "#/components/schemas/CoverOptions"
-          },
-          "output": {
-            "$ref": "#/components/schemas/OutputOptions"
-          },
-          "strictness": {
-            "$ref": "#/components/schemas/StrictnessOptions"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "case_id",
-          "script"
-        ],
-        "title": "DigitalHumanVideoRequest"
-      },
-      "DigitalHumanVideoRequest-Output": {
-        "properties": {
-          "case_id": {
-            "type": "string",
-            "title": "Case Id"
-          },
-          "script": {
-            "type": "string",
-            "title": "Script"
-          },
-          "title": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Title"
-          },
-          "publish_content": {
-            "type": "string",
-            "title": "Publish Content",
-            "default": ""
-          },
-          "script_version_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Script Version Id"
-          },
-          "creative_intent_ref": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ArtifactRef"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "workflow_template_id": {
-            "type": "string",
-            "title": "Workflow Template Id",
-            "default": "digital_human_v2"
-          },
-          "voice": {
-            "$ref": "#/components/schemas/VoiceOptions"
-          },
-          "portrait": {
-            "$ref": "#/components/schemas/PortraitOptions"
-          },
-          "broll": {
-            "$ref": "#/components/schemas/BrollOptions"
-          },
-          "lipsync": {
-            "$ref": "#/components/schemas/LipSyncOptions"
-          },
-          "subtitles": {
+          "subtitle": {
             "$ref": "#/components/schemas/SubtitleOptions"
           },
           "bgm": {
@@ -8447,7 +8800,8 @@
           "render.failed",
           "render.subtitle_failed",
           "publish.failed",
-          "import.failed"
+          "import.failed",
+          "idempotency.conflict"
         ],
         "title": "ErrorCode"
       },
@@ -8496,6 +8850,22 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
           },
           "schema_version": {
             "type": "string",
@@ -8840,6 +9210,22 @@
             "format": "date-time",
             "title": "Updated At"
           },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
+          },
           "schema_version": {
             "type": "string",
             "title": "Schema Version",
@@ -8850,7 +9236,7 @@
           },
           "status": {
             "$ref": "#/components/schemas/JobStatus",
-            "default": "created"
+            "default": "draft"
           },
           "case_id": {
             "anyOf": [
@@ -8863,21 +9249,14 @@
             ],
             "title": "Case Id"
           },
-          "created_by_user_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Created By User Id"
+          "request_schema": {
+            "type": "string",
+            "title": "Request Schema"
           },
           "request": {
-            "anyOf": [
+            "oneOf": [
               {
-                "$ref": "#/components/schemas/DigitalHumanVideoRequest-Output"
+                "$ref": "#/components/schemas/DigitalHumanVideoRequest"
               },
               {
                 "$ref": "#/components/schemas/CaseAgentRunRequest"
@@ -8889,9 +9268,18 @@
                 "$ref": "#/components/schemas/AnnotationBatchRequest"
               }
             ],
-            "title": "Request"
+            "title": "Request",
+            "discriminator": {
+              "propertyName": "schema_version",
+              "mapping": {
+                "annotation_batch_request.v1": "#/components/schemas/AnnotationBatchRequest",
+                "case_agent_run_request.v1": "#/components/schemas/CaseAgentRunRequest",
+                "digital_human_video_request.v1": "#/components/schemas/DigitalHumanVideoRequest",
+                "publish_batch_request.v1": "#/components/schemas/PublishBatchRequest"
+              }
+            }
           },
-          "current_run_id": {
+          "active_run_id": {
             "anyOf": [
               {
                 "type": "string"
@@ -8900,7 +9288,18 @@
                 "type": "null"
               }
             ],
-            "title": "Current Run Id"
+            "title": "Active Run Id"
+          },
+          "latest_finished_video_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Finished Video Id"
           }
         },
         "additionalProperties": false,
@@ -8908,6 +9307,7 @@
         "required": [
           "id",
           "type",
+          "request_schema",
           "request"
         ],
         "title": "Job"
@@ -8952,14 +9352,13 @@
       "JobStatus": {
         "type": "string",
         "enum": [
-          "created",
+          "draft",
           "queued",
           "running",
-          "waiting_approval",
           "succeeded",
           "failed",
           "cancelled",
-          "partially_succeeded"
+          "archived"
         ],
         "title": "JobStatus"
       },
@@ -8997,12 +9396,30 @@
             ],
             "title": "Ref Image Artifact Id"
           },
-          "options": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/JsonValue"
-            },
-            "type": "object",
-            "title": "Options"
+          "video_extension": {
+            "type": "boolean",
+            "title": "Video Extension",
+            "default": false
+          },
+          "query_face_threshold": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Query Face Threshold"
+          },
+          "timeout_minutes": {
+            "type": "integer",
+            "maximum": 120.0,
+            "minimum": 5.0,
+            "title": "Timeout Minutes",
+            "default": 30
           }
         },
         "additionalProperties": false,
@@ -9121,6 +9538,22 @@
             "format": "date-time",
             "title": "Updated At"
           },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
+          },
           "schema_version": {
             "type": "string",
             "title": "Schema Version",
@@ -9148,6 +9581,8 @@
               "broll",
               "bgm",
               "font",
+              "cover_template",
+              "voice_reference",
               "voice",
               "video",
               "image",
@@ -9214,6 +9649,22 @@
             "format": "date-time",
             "title": "Updated At"
           },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
+          },
           "schema_version": {
             "type": "string",
             "title": "Schema Version",
@@ -9227,9 +9678,11 @@
             "type": "string",
             "enum": [
               "proposed",
+              "approved",
               "active",
+              "deprecated",
               "rejected",
-              "deprecated"
+              "superseded"
             ],
             "title": "Status",
             "default": "proposed"
@@ -9301,21 +9754,79 @@
         ],
         "title": "MetricsImportRequest"
       },
-      "Money": {
+      "Money-Input": {
         "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              }
+            ],
+            "title": "Amount"
+          },
           "currency": {
             "type": "string",
-            "title": "Currency",
-            "default": "CNY"
+            "maxLength": 3,
+            "minLength": 3,
+            "pattern": "^[A-Z]{3}$",
+            "title": "Currency"
           },
-          "amount": {
-            "type": "number",
-            "title": "Amount",
-            "default": 0
+          "amount_micro": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount Micro"
           }
         },
         "additionalProperties": false,
         "type": "object",
+        "required": [
+          "amount",
+          "currency"
+        ],
+        "title": "Money"
+      },
+      "Money-Output": {
+        "properties": {
+          "amount": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount"
+          },
+          "currency": {
+            "type": "string",
+            "maxLength": 3,
+            "minLength": 3,
+            "pattern": "^[A-Z]{3}$",
+            "title": "Currency"
+          },
+          "amount_micro": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount Micro"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "amount",
+          "currency"
+        ],
         "title": "Money"
       },
       "NodeError": {
@@ -9419,6 +9930,22 @@
             "format": "date-time",
             "title": "Updated At"
           },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
+          },
           "schema_version": {
             "type": "string",
             "title": "Schema Version",
@@ -9439,15 +9966,13 @@
           "status": {
             "$ref": "#/components/schemas/NodeStatus"
           },
+          "attempt": {
+            "type": "integer",
+            "title": "Attempt",
+            "default": 1
+          },
           "input_manifest_hash": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "string",
             "title": "Input Manifest Hash"
           },
           "output_artifact_ids": {
@@ -9474,6 +9999,28 @@
               }
             ]
           },
+          "skipped_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skipped Reason"
+          },
+          "degradation_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Degradation Reason"
+          },
           "warnings": {
             "items": {
               "$ref": "#/components/schemas/WarningCode"
@@ -9483,7 +10030,7 @@
           },
           "degradations": {
             "items": {
-              "$ref": "#/components/schemas/DegradationCode"
+              "$ref": "#/components/schemas/DegradationNotice"
             },
             "type": "array",
             "title": "Degradations"
@@ -9520,7 +10067,8 @@
           "run_id",
           "node_id",
           "node_version",
-          "status"
+          "status",
+          "input_manifest_hash"
         ],
         "title": "NodeRun"
       },
@@ -9571,6 +10119,22 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
           },
           "schema_version": {
             "type": "string",
@@ -9650,6 +10214,26 @@
       },
       "OutputOptions": {
         "properties": {
+          "export_jianying_draft": {
+            "type": "boolean",
+            "title": "Export Jianying Draft",
+            "default": true
+          },
+          "export_editor_handoff": {
+            "type": "boolean",
+            "title": "Export Editor Handoff",
+            "default": true
+          },
+          "upload_to_oss": {
+            "type": "boolean",
+            "title": "Upload To Oss",
+            "default": true
+          },
+          "keep_local_originals": {
+            "type": "boolean",
+            "title": "Keep Local Originals",
+            "default": false
+          },
           "width": {
             "type": "integer",
             "title": "Width",
@@ -9768,7 +10352,7 @@
         "properties": {
           "items": {
             "items": {
-              "$ref": "#/components/schemas/Budget"
+              "$ref": "#/components/schemas/Budget-Output"
             },
             "type": "array",
             "title": "Items"
@@ -10799,7 +11383,7 @@
           "limit": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Money"
+                "$ref": "#/components/schemas/Money-Input"
               },
               {
                 "type": "null"
@@ -11009,6 +11593,49 @@
             ],
             "title": "Secret Ref"
           },
+          "concurrency_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concurrency Key"
+          },
+          "timeout_sec": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeout Sec"
+          },
+          "retry_policy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RetryPolicy"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cost_policy_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Policy Id"
+          },
           "default_options": {
             "anyOf": [
               {
@@ -11190,6 +11817,22 @@
             "format": "date-time",
             "title": "Updated At"
           },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
+          },
           "schema_version": {
             "type": "string",
             "title": "Schema Version",
@@ -11230,17 +11873,43 @@
       },
       "PortraitOptions": {
         "properties": {
-          "required": {
-            "type": "boolean",
-            "title": "Required",
-            "default": true
+          "template_mode": {
+            "type": "string",
+            "enum": [
+              "agent",
+              "specific",
+              "sequence"
+            ],
+            "title": "Template Mode",
+            "default": "agent"
           },
-          "asset_ids": {
+          "specific_template_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Specific Template Id"
+          },
+          "template_sequence_ids": {
             "items": {
               "type": "string"
             },
             "type": "array",
-            "title": "Asset Ids"
+            "title": "Template Sequence Ids"
+          },
+          "rhythm_preset": {
+            "type": "string",
+            "enum": [
+              "steady",
+              "balanced",
+              "fast"
+            ],
+            "title": "Rhythm Preset",
+            "default": "balanced"
           }
         },
         "additionalProperties": false,
@@ -11249,13 +11918,27 @@
       },
       "PrepareUploadRequest": {
         "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/UploadKind"
+          },
+          "case_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id"
+          },
           "filename": {
             "type": "string",
             "title": "Filename"
           },
-          "mime_type": {
+          "content_type": {
             "type": "string",
-            "title": "Mime Type"
+            "title": "Content Type"
           },
           "size_bytes": {
             "type": "integer",
@@ -11273,24 +11956,18 @@
             ],
             "title": "Sha256"
           },
-          "purpose": {
-            "type": "string",
-            "enum": [
-              "media",
-              "voice",
-              "finished_video",
-              "import",
-              "cover"
-            ],
-            "title": "Purpose",
-            "default": "media"
+          "multipart": {
+            "type": "boolean",
+            "title": "Multipart",
+            "default": false
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
+          "kind",
           "filename",
-          "mime_type",
+          "content_type",
           "size_bytes"
         ],
         "title": "PrepareUploadRequest"
@@ -11310,6 +11987,22 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
           },
           "schema_version": {
             "type": "string",
@@ -11401,6 +12094,22 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
           },
           "schema_version": {
             "type": "string",
@@ -11506,6 +12215,22 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
           },
           "schema_version": {
             "type": "string",
@@ -11644,6 +12369,22 @@
             "format": "date-time",
             "title": "Updated At"
           },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
+          },
           "schema_version": {
             "type": "string",
             "title": "Schema Version",
@@ -11723,6 +12464,22 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
           },
           "schema_version": {
             "type": "string",
@@ -11838,7 +12595,7 @@
           "balance": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Money"
+                "$ref": "#/components/schemas/Money-Output"
               },
               {
                 "type": "null"
@@ -11930,34 +12687,104 @@
             "format": "date-time",
             "title": "Updated At"
           },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
+          },
           "schema_version": {
             "type": "string",
             "title": "Schema Version",
             "default": "v1"
           },
+          "capability": {
+            "type": "string",
+            "title": "Capability"
+          },
           "provider_id": {
             "type": "string",
             "title": "Provider Id"
           },
-          "capability_id": {
+          "model_id": {
             "type": "string",
-            "title": "Capability Id"
+            "title": "Model Id"
           },
-          "input_schema_ref": {
-            "$ref": "#/components/schemas/ProviderOptionsSchemaRef"
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
           },
-          "output_schema_ref": {
-            "$ref": "#/components/schemas/ProviderOptionsSchemaRef"
+          "input_schema_id": {
+            "type": "string",
+            "title": "Input Schema Id"
+          },
+          "output_schema_id": {
+            "type": "string",
+            "title": "Output Schema Id"
+          },
+          "options_schema_id": {
+            "type": "string",
+            "title": "Options Schema Id"
+          },
+          "supports_async_job": {
+            "type": "boolean",
+            "title": "Supports Async Job"
+          },
+          "supports_cancel": {
+            "type": "boolean",
+            "title": "Supports Cancel"
+          },
+          "max_payload_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Payload Bytes"
+          },
+          "max_duration_sec": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Duration Sec"
+          },
+          "default_timeout_sec": {
+            "type": "integer",
+            "title": "Default Timeout Sec"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "id",
+          "capability",
           "provider_id",
-          "capability_id",
-          "input_schema_ref",
-          "output_schema_ref"
+          "model_id",
+          "display_name",
+          "input_schema_id",
+          "output_schema_id",
+          "options_schema_id",
+          "supports_async_job",
+          "supports_cancel",
+          "default_timeout_sec"
         ],
         "title": "ProviderCapability"
       },
@@ -12045,6 +12872,20 @@
             "type": "string",
             "title": "Schema Version",
             "default": "v1"
+          },
+          "dialect": {
+            "type": "string",
+            "enum": [
+              "json_schema_2020_12",
+              "pydantic"
+            ],
+            "title": "Dialect",
+            "default": "pydantic"
+          },
+          "sha256": {
+            "type": "string",
+            "title": "Sha256",
+            "default": "dev-unpinned"
           }
         },
         "additionalProperties": false,
@@ -12069,6 +12910,22 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
           },
           "schema_version": {
             "type": "string",
@@ -12120,6 +12977,22 @@
             "format": "date-time",
             "title": "Updated At"
           },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
+          },
           "schema_version": {
             "type": "string",
             "title": "Schema Version",
@@ -12152,7 +13025,7 @@
             "title": "Unit"
           },
           "unit_price": {
-            "$ref": "#/components/schemas/Money"
+            "$ref": "#/components/schemas/Money-Input"
           },
           "active_from": {
             "type": "string",
@@ -12201,6 +13074,22 @@
             "format": "date-time",
             "title": "Updated At"
           },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version",
+            "default": "v1"
+          },
           "schema_version": {
             "type": "string",
             "title": "Schema Version",
@@ -12243,6 +13132,35 @@
             ],
             "title": "Secret Ref"
           },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "concurrency_key": {
+            "type": "string",
+            "title": "Concurrency Key",
+            "default": "default"
+          },
+          "timeout_sec": {
+            "type": "integer",
+            "title": "Timeout Sec",
+            "default": 30
+          },
+          "retry_policy": {
+            "$ref": "#/components/schemas/RetryPolicy"
+          },
+          "cost_policy_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Policy Id"
+          },
           "options_schema_ref": {
             "$ref": "#/components/schemas/ProviderOptionsSchemaRef"
           },
@@ -12252,11 +13170,6 @@
             },
             "type": "object",
             "title": "Default Options"
-          },
-          "enabled": {
-            "type": "boolean",
-            "title": "Enabled",
-            "default": true
           }
         },
         "additionalProperties": false,
@@ -12279,12 +13192,12 @@
             "title": "Invocations"
           },
           "estimated_cost": {
-            "$ref": "#/components/schemas/Money"
+            "$ref": "#/components/schemas/Money-Output"
           },
           "actual_cost": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Money"
+                "$ref": "#/components/schemas/Money-Output"
               },
               {
                 "type": "null"
@@ -12321,47 +13234,107 @@
             "format": "date-time",
             "title": "Updated At"
           },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
+          },
           "schema_version": {
             "type": "string",
             "title": "Schema Version",
             "default": "v1"
           },
+          "batch_id": {
+            "type": "string",
+            "title": "Batch Id"
+          },
           "item_id": {
             "type": "string",
             "title": "Item Id"
           },
-          "platform": {
-            "type": "string",
-            "title": "Platform"
+          "platforms": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Platforms"
+          },
+          "manual_review": {
+            "type": "boolean",
+            "title": "Manual Review",
+            "default": false
           },
           "status": {
+            "$ref": "#/components/schemas/PublishAttemptStatus",
+            "default": "created"
+          },
+          "adapter_id": {
             "type": "string",
-            "enum": [
-              "queued",
-              "running",
-              "succeeded",
-              "failed"
+            "title": "Adapter Id"
+          },
+          "external_task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Status",
-            "default": "queued"
+            "title": "External Task Id"
+          },
+          "results": {
+            "items": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Results"
           },
           "error": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ProviderError"
+                "$ref": "#/components/schemas/NodeError"
               },
               {
                 "type": "null"
               }
             ]
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "id",
+          "batch_id",
           "item_id",
-          "platform"
+          "platforms",
+          "adapter_id"
         ],
         "title": "PublishAttempt"
       },
@@ -12388,6 +13361,17 @@
         ],
         "title": "PublishAttemptDetail"
       },
+      "PublishAttemptStatus": {
+        "type": "string",
+        "enum": [
+          "created",
+          "manual_review_ready",
+          "scheduled",
+          "published",
+          "failed"
+        ],
+        "title": "PublishAttemptStatus"
+      },
       "PublishBatchItemVm": {
         "properties": {
           "id": {
@@ -12403,6 +13387,22 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
           },
           "schema_version": {
             "type": "string",
@@ -12432,15 +13432,8 @@
             "default": true
           },
           "status": {
-            "type": "string",
-            "enum": [
-              "draft",
-              "submitted",
-              "published",
-              "failed"
-            ],
-            "title": "Status",
-            "default": "draft"
+            "$ref": "#/components/schemas/PublishItemStatus",
+            "default": "uploaded"
           }
         },
         "additionalProperties": false,
@@ -12455,6 +13448,12 @@
       },
       "PublishBatchRequest": {
         "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "publish_batch_request.v1",
+            "title": "Schema Version",
+            "default": "publish_batch_request.v1"
+          },
           "publish_package_ids": {
             "items": {
               "type": "string"
@@ -12478,6 +13477,18 @@
         ],
         "title": "PublishBatchRequest"
       },
+      "PublishBatchStatus": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "processing",
+          "review_ready",
+          "publishing",
+          "completed",
+          "partial_failed"
+        ],
+        "title": "PublishBatchStatus"
+      },
       "PublishBatchVm": {
         "properties": {
           "id": {
@@ -12494,21 +13505,29 @@
             "format": "date-time",
             "title": "Updated At"
           },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
+          },
           "schema_version": {
             "type": "string",
             "title": "Schema Version",
             "default": "v1"
           },
           "status": {
-            "type": "string",
-            "enum": [
-              "draft",
-              "submitted",
-              "partially_failed",
-              "published",
-              "failed"
-            ],
-            "title": "Status",
+            "$ref": "#/components/schemas/PublishBatchStatus",
             "default": "draft"
           },
           "items": {
@@ -12552,6 +13571,24 @@
         ],
         "title": "PublishDefaults"
       },
+      "PublishItemStatus": {
+        "type": "string",
+        "enum": [
+          "uploaded",
+          "normalizing",
+          "asr_running",
+          "copy_running",
+          "cover_running",
+          "review_ready",
+          "manual_review_ready",
+          "publishing",
+          "published",
+          "generation_failed",
+          "publish_failed",
+          "excluded"
+        ],
+        "title": "PublishItemStatus"
+      },
       "PublishPackage": {
         "properties": {
           "id": {
@@ -12567,6 +13604,22 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
           },
           "schema_version": {
             "type": "string",
@@ -12661,6 +13714,22 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
           },
           "schema_version": {
             "type": "string",
@@ -12832,6 +13901,22 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
           },
           "schema_version": {
             "type": "string",
@@ -13048,6 +14133,39 @@
         "type": "object",
         "title": "ResumeRunRequest"
       },
+      "RetryPolicy": {
+        "properties": {
+          "max_attempts": {
+            "type": "integer",
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Max Attempts",
+            "default": 1
+          },
+          "backoff_seconds": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Backoff Seconds",
+            "default": 0
+          },
+          "backoff_multiplier": {
+            "type": "number",
+            "minimum": 1.0,
+            "title": "Backoff Multiplier",
+            "default": 2.0
+          },
+          "retryable_error_codes": {
+            "items": {
+              "$ref": "#/components/schemas/ErrorCode"
+            },
+            "type": "array",
+            "title": "Retryable Error Codes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "RetryPolicy"
+      },
       "RetryRunRequest": {
         "properties": {
           "reason": {
@@ -13087,9 +14205,9 @@
       },
       "RotateSecretRequest": {
         "properties": {
-          "value": {
+          "plaintext_secret": {
             "type": "string",
-            "title": "Value"
+            "title": "Plaintext Secret"
           },
           "reason": {
             "type": "string",
@@ -13099,7 +14217,7 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "value",
+          "plaintext_secret",
           "reason"
         ],
         "title": "RotateSecretRequest"
@@ -13331,14 +14449,12 @@
         "type": "string",
         "enum": [
           "created",
-          "queued",
+          "admitted",
           "running",
           "cancelling",
-          "cancelled",
           "succeeded",
           "failed",
-          "degraded",
-          "waiting_approval"
+          "cancelled"
         ],
         "title": "RunStatus"
       },
@@ -13357,6 +14473,22 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
           },
           "schema_version": {
             "type": "string",
@@ -13418,6 +14550,22 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
           },
           "schema_version": {
             "type": "string",
@@ -13485,6 +14633,22 @@
             "format": "date-time",
             "title": "Updated At"
           },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
+          },
           "schema_version": {
             "type": "string",
             "title": "Schema Version",
@@ -13502,14 +14666,55 @@
             "type": "string",
             "title": "Name"
           },
-          "status": {
-            "type": "string",
-            "enum": [
-              "active",
-              "disabled"
+          "secret_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Status",
+            "title": "Secret Ref"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SecretStatus",
             "default": "active"
+          },
+          "rotated_from_secret_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rotated From Secret Id"
+          },
+          "rotated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rotated At"
+          },
+          "disabled_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disabled At"
           },
           "masked_value": {
             "type": "string",
@@ -13527,10 +14732,23 @@
         ],
         "title": "SecretPreview"
       },
+      "SecretStatus": {
+        "type": "string",
+        "enum": [
+          "active",
+          "disabled",
+          "rotated"
+        ],
+        "title": "SecretStatus"
+      },
       "SessionInfo": {
         "properties": {
           "user": {
             "$ref": "#/components/schemas/AuthUser"
+          },
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
           },
           "expires_at": {
             "type": "string",
@@ -13546,6 +14764,7 @@
         "type": "object",
         "required": [
           "user",
+          "session_id",
           "expires_at",
           "request_id"
         ],
@@ -13627,10 +14846,28 @@
       },
       "StrictnessOptions": {
         "properties": {
-          "strict_alignment": {
+          "strict_timestamps": {
             "type": "boolean",
-            "title": "Strict Alignment",
-            "default": false
+            "title": "Strict Timestamps",
+            "default": true
+          },
+          "portrait_insufficient_policy": {
+            "type": "string",
+            "const": "hard_fail",
+            "title": "Portrait Insufficient Policy",
+            "default": "hard_fail"
+          },
+          "broll_insufficient_policy": {
+            "type": "string",
+            "const": "soft_degrade",
+            "title": "Broll Insufficient Policy",
+            "default": "soft_degrade"
+          },
+          "bgm_unavailable_policy": {
+            "type": "string",
+            "const": "soft_degrade",
+            "title": "Bgm Unavailable Policy",
+            "default": "soft_degrade"
           },
           "strict_cost_pricing": {
             "type": "boolean",
@@ -13661,12 +14898,46 @@
             "title": "Enabled",
             "default": true
           },
-          "style": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/JsonValue"
-            },
-            "type": "object",
-            "title": "Style"
+          "style_preset": {
+            "type": "string",
+            "title": "Style Preset",
+            "default": "douyin"
+          },
+          "font_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Font Id"
+          },
+          "font_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Font Size"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position"
           }
         },
         "additionalProperties": false,
@@ -13740,6 +15011,19 @@
         "type": "object",
         "title": "UpdateRegistrationCodeRequest"
       },
+      "UploadKind": {
+        "type": "string",
+        "enum": [
+          "portrait",
+          "broll",
+          "voice_reference",
+          "bgm",
+          "font",
+          "cover_template",
+          "publish_video"
+        ],
+        "title": "UploadKind"
+      },
       "UploadSession": {
         "properties": {
           "id": {
@@ -13756,18 +15040,48 @@
             "format": "date-time",
             "title": "Updated At"
           },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
+          },
           "schema_version": {
             "type": "string",
             "title": "Schema Version",
             "default": "v1"
           },
+          "kind": {
+            "$ref": "#/components/schemas/UploadKind"
+          },
+          "case_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id"
+          },
           "filename": {
             "type": "string",
             "title": "Filename"
           },
-          "mime_type": {
+          "content_type": {
             "type": "string",
-            "title": "Mime Type"
+            "title": "Content Type"
           },
           "size_bytes": {
             "type": "integer",
@@ -13785,13 +15099,8 @@
             "title": "Sha256"
           },
           "status": {
-            "$ref": "#/components/schemas/UploadStatus",
+            "$ref": "#/components/schemas/UploadSessionStatus",
             "default": "prepared"
-          },
-          "purpose": {
-            "type": "string",
-            "title": "Purpose",
-            "default": "media"
           },
           "upload_url": {
             "anyOf": [
@@ -13803,6 +15112,17 @@
               }
             ],
             "title": "Upload Url"
+          },
+          "local_temp_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Local Temp Path"
           },
           "object_uri": {
             "anyOf": [
@@ -13825,27 +15145,29 @@
         "type": "object",
         "required": [
           "id",
+          "kind",
           "filename",
-          "mime_type",
+          "content_type",
           "size_bytes"
         ],
         "title": "UploadSession"
       },
-      "UploadStatus": {
+      "UploadSessionStatus": {
         "type": "string",
         "enum": [
           "prepared",
-          "uploaded",
+          "uploading",
           "completed",
+          "failed",
           "cancelled",
           "expired"
         ],
-        "title": "UploadStatus"
+        "title": "UploadSessionStatus"
       },
       "UpsertBudgetRequest": {
         "properties": {
           "budget": {
-            "$ref": "#/components/schemas/Budget"
+            "$ref": "#/components/schemas/Budget-Input"
           }
         },
         "additionalProperties": false,
@@ -13908,6 +15230,13 @@
           "type": {
             "type": "string",
             "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
           }
         },
         "type": "object",
@@ -13933,6 +15262,22 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
           },
           "schema_version": {
             "type": "string",
@@ -13987,14 +15332,7 @@
       "VoiceOptions": {
         "properties": {
           "voice_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "string",
             "title": "Voice Id"
           },
           "provider_profile_id": {
@@ -14010,14 +15348,29 @@
           },
           "speed": {
             "type": "number",
-            "maximum": 3.0,
-            "exclusiveMinimum": 0.0,
+            "maximum": 2.0,
+            "minimum": 0.5,
             "title": "Speed",
+            "default": 1.0
+          },
+          "emotion": {
+            "type": "string",
+            "title": "Emotion",
+            "default": "neutral"
+          },
+          "volume": {
+            "type": "number",
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Volume",
             "default": 1.0
           }
         },
         "additionalProperties": false,
         "type": "object",
+        "required": [
+          "voice_id"
+        ],
         "title": "VoiceOptions"
       },
       "VoicePreviewRequest": {
@@ -14084,6 +15437,22 @@
             "format": "date-time",
             "title": "Updated At"
           },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
+          },
           "schema_version": {
             "type": "string",
             "title": "Schema Version",
@@ -14142,11 +15511,12 @@
       "WarningCode": {
         "type": "string",
         "enum": [
-          "provider.cost_unpriced",
-          "cover.frame_fallback",
+          "broll.skipped_no_material",
           "bgm.skipped_library_unannotated",
-          "font.default_used",
-          "platform.metrics_waiting"
+          "font_default_used",
+          "cover.frame_fallback",
+          "timestamp.estimated",
+          "cost.unpriced"
         ],
         "title": "WarningCode"
       },
@@ -14165,6 +15535,22 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
           },
           "schema_version": {
             "type": "string",
@@ -14198,6 +15584,17 @@
             "$ref": "#/components/schemas/RunStatus",
             "default": "created"
           },
+          "requested_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested By"
+          },
           "run_attempt": {
             "type": "integer",
             "title": "Run Attempt",
@@ -14214,7 +15611,7 @@
             ],
             "title": "Resume From Run Id"
           },
-          "retry_from_run_id": {
+          "retry_of_run_id": {
             "anyOf": [
               {
                 "type": "string"
@@ -14223,7 +15620,18 @@
                 "type": "null"
               }
             ],
-            "title": "Retry From Run Id"
+            "title": "Retry Of Run Id"
+          },
+          "experiment_assignment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Experiment Assignment Id"
           },
           "public_report_artifact_id": {
             "anyOf": [
@@ -14315,6 +15723,22 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
           },
           "schema_version": {
             "type": "string",

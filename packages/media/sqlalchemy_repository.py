@@ -72,6 +72,7 @@ def artifact_ref_from_row(row: ArtifactRow) -> ArtifactRef:
     return ArtifactRef(
         artifact_id=row.id,
         kind=ArtifactKind(row.kind),
+        uri=row.uri or f"artifact://{row.id}",
         schema_version=row.schema_version,
         sha256=row.sha256,
     )

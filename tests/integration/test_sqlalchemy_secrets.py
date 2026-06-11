@@ -36,7 +36,7 @@ def test_sqlalchemy_secret_create_rotate_disable_flow_is_persisted_without_plain
                 "provider_id": f"sandbox-{suffix}",
                 "environment": "local",
                 "name": "API key",
-                "value": "first-secret-value",
+                "plaintext_secret": "first-secret-value",
             },
         )
         assert created.status_code == 201, created.text
@@ -53,13 +53,18 @@ def test_sqlalchemy_secret_create_rotate_disable_flow_is_persisted_without_plain
 
         rotated = client.post(
             f"/api/secrets/{secret['id']}/rotate",
-            json={"value": "second-secret-value", "reason": "integration rotation"},
+            json={"plaintext_secret": "second-secret-value", "reason": "integration rotation"},
         )
         assert rotated.status_code == 200, rotated.text
-        assert rotated.json()["masked_value"] == "********"
+        rotated_secret = rotated.json()
+        assert rotated_secret["masked_value"] == "********"
+        # Spec 11.3: rotation creates a NEW record linked to the old one.
+        assert rotated_secret["id"] != secret["id"]
+        assert rotated_secret["rotated_from_secret_id"] == secret["id"]
+        assert rotated_secret["status"] == "active"
 
         disabled = client.patch(
-            f"/api/secrets/{secret['id']}/disable",
+            f"/api/secrets/{rotated_secret['id']}/disable",
             json={"reason": "integration disable"},
         )
         assert disabled.status_code == 200, disabled.text
@@ -67,12 +72,19 @@ def test_sqlalchemy_secret_create_rotate_disable_flow_is_persisted_without_plain
 
         listed = client.get("/api/secrets")
         assert listed.status_code == 200, listed.text
-        assert any(item["id"] == secret["id"] for item in listed.json()["items"])
+        listed_ids = {item["id"] for item in listed.json()["items"]}
+        assert {secret["id"], rotated_secret["id"]} <= listed_ids
 
     with session_factory() as session:
-        row = session.get(SecretRow, secret["id"])
-        assert row is not None
-        assert row.status == "disabled"
-        assert row.encrypted_value != first_digest
-        assert "second-secret-value" not in row.encrypted_value
-        assert row.rotated_at is not None
+        old_row = session.get(SecretRow, secret["id"])
+        assert old_row is not None
+        assert old_row.status == "rotated"
+        assert old_row.rotated_at is not None
+        assert old_row.encrypted_value == first_digest
+
+        new_row = session.get(SecretRow, rotated_secret["id"])
+        assert new_row is not None
+        assert new_row.status == "disabled"
+        assert new_row.rotated_from_secret_id == secret["id"]
+        assert new_row.encrypted_value != first_digest
+        assert "second-secret-value" not in new_row.encrypted_value

@@ -66,7 +66,7 @@ def test_sqlalchemy_metadata_covers_spec_table_families():
 
 def test_contract_columns_for_core_boundaries_exist():
     tables = Base.metadata.tables
-    assert {"email", "password_hash", "role", "disabled"} <= set(tables["users"].columns.keys())
+    assert {"email", "password_hash", "role", "status"} <= set(tables["users"].columns.keys())
     assert {"payload_schema", "schema_version", "payload"} <= set(tables["artifacts"].columns.keys())
     assert {"input_manifest_hash", "output_artifact_ids", "provider_invocation_ids"} <= set(
         tables["node_runs"].columns.keys()
@@ -90,6 +90,13 @@ def test_contract_columns_for_core_boundaries_exist():
         "raw_usage",
     } <= set(tables["usage_meter_records"].columns.keys())
     assert "media_seconds" not in tables["usage_meter_records"].columns.keys()
+    assert {"created_by", "request_schema", "active_run_id", "latest_finished_video_id"} <= set(
+        tables["jobs"].columns.keys()
+    )
+    assert {"requested_by", "retry_of_run_id", "experiment_assignment_id"} <= set(
+        tables["workflow_runs"].columns.keys()
+    )
+    assert {"attempt", "skipped_reason", "degradation_reason"} <= set(tables["node_runs"].columns.keys())
     assert {"variables_schema_ref", "output_schema_ref"} <= set(tables["prompt_templates"].columns.keys())
     assert {"topic", "aggregate_type", "aggregate_id", "dedupe_key", "payload_schema"} <= set(
         tables["outbox_events"].columns.keys()

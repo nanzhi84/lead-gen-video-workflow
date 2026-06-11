@@ -31,11 +31,11 @@ def create_completed_voice_upload(client: TestClient) -> str:
     prepared = client.post(
         "/api/uploads/prepare",
         json={
+            "kind": "voice_reference",
             "filename": "voice.wav",
-            "mime_type": "audio/wav",
+            "content_type": "audio/wav",
             "size_bytes": len(content),
             "sha256": digest,
-            "purpose": "voice",
         },
     )
     assert prepared.status_code == 201, prepared.text

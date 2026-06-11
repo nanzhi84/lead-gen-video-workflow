@@ -67,7 +67,7 @@ class UserRow(TimestampMixin, Base):
     display_name: Mapped[str] = mapped_column(String, nullable=False)
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     role: Mapped[str] = mapped_column(String, nullable=False)
-    disabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="active")
 
 
 class SessionRow(TimestampMixin, Base):
@@ -94,13 +94,15 @@ class UploadSessionRow(TimestampMixin, Base):
     __tablename__ = "upload_sessions"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    case_id: Mapped[str | None] = mapped_column(ForeignKey("cases.id", ondelete="SET NULL"))
     filename: Mapped[str] = mapped_column(String, nullable=False)
-    mime_type: Mapped[str] = mapped_column(String, nullable=False)
+    content_type: Mapped[str] = mapped_column(String, nullable=False)
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     sha256: Mapped[str | None] = mapped_column(String)
     status: Mapped[str] = mapped_column(String, nullable=False)
-    purpose: Mapped[str] = mapped_column(String, nullable=False)
     object_uri: Mapped[str | None] = mapped_column(Text)
+    local_temp_path: Mapped[str | None] = mapped_column(Text)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
@@ -111,9 +113,12 @@ class SecretRow(TimestampMixin, Base):
     provider_id: Mapped[str] = mapped_column(String, nullable=False)
     environment: Mapped[str] = mapped_column(String, nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=False)
+    secret_ref: Mapped[str] = mapped_column(String, nullable=False)
     encrypted_value: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String, nullable=False, default="active")
+    rotated_from_secret_id: Mapped[str | None] = mapped_column(String)
     rotated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class CaseRow(TimestampMixin, Base):
@@ -137,6 +142,11 @@ class ArtifactRow(TimestampMixin, Base):
     node_run_id: Mapped[str | None] = mapped_column(String)
     kind: Mapped[str] = mapped_column(String, nullable=False)
     uri: Mapped[str | None] = mapped_column(Text)
+    local_path: Mapped[str | None] = mapped_column(Text)
+    oss_uri: Mapped[str | None] = mapped_column(Text)
+    size_bytes: Mapped[int | None] = mapped_column(Integer)
+    immutable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    retention_policy: Mapped[str] = mapped_column(String, nullable=False, default="default")
     sha256: Mapped[str | None] = mapped_column(String)
     media_info: Mapped[dict | None] = mapped_column(JSONB)
     payload_schema: Mapped[str] = mapped_column(String, nullable=False)
@@ -151,10 +161,11 @@ class JobRow(TimestampMixin, Base):
     type: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False)
     case_id: Mapped[str | None] = mapped_column(ForeignKey("cases.id", ondelete="SET NULL"))
-    created_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_by: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     request_schema: Mapped[str] = mapped_column(String, nullable=False)
     request: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    current_run_id: Mapped[str | None] = mapped_column(String)
+    active_run_id: Mapped[str | None] = mapped_column(String)
+    latest_finished_video_id: Mapped[str | None] = mapped_column(String)
 
 
 class WorkflowRunRow(TimestampMixin, Base):
@@ -168,7 +179,9 @@ class WorkflowRunRow(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String, nullable=False)
     run_attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     resume_from_run_id: Mapped[str | None] = mapped_column(String)
-    retry_from_run_id: Mapped[str | None] = mapped_column(String)
+    retry_of_run_id: Mapped[str | None] = mapped_column(String)
+    requested_by: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    experiment_assignment_id: Mapped[str | None] = mapped_column(String)
     public_report_artifact_id: Mapped[str | None] = mapped_column(ForeignKey("artifacts.id"))
     debug_report_artifact_id: Mapped[str | None] = mapped_column(ForeignKey("artifacts.id"))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -183,12 +196,15 @@ class NodeRunRow(TimestampMixin, Base):
     node_id: Mapped[str] = mapped_column(String, nullable=False)
     node_version: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False)
-    input_manifest_hash: Mapped[str | None] = mapped_column(String)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    input_manifest_hash: Mapped[str] = mapped_column(String, nullable=False)
     output_artifact_ids: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
     provider_invocation_ids: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
     error: Mapped[dict | None] = mapped_column(JSONB)
+    skipped_reason: Mapped[str | None] = mapped_column(Text)
+    degradation_reason: Mapped[str | None] = mapped_column(Text)
     warnings: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
-    degradations: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    degradations: Mapped[list[dict]] = mapped_column(JSONB, nullable=False, default=list)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -240,9 +256,14 @@ class ProviderProfileRow(TimestampMixin, Base):
     display_name: Mapped[str] = mapped_column(String, nullable=False)
     environment: Mapped[str] = mapped_column(String, nullable=False)
     secret_ref: Mapped[str | None] = mapped_column(String)
+    concurrency_key: Mapped[str] = mapped_column(String, nullable=False, default="default")
+    timeout_sec: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+    retry_policy: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    cost_policy_id: Mapped[str | None] = mapped_column(String)
     options_schema_ref: Mapped[dict] = mapped_column(JSONB, nullable=False)
     default_options: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    version: Mapped[str] = mapped_column(String, nullable=False, default="v1")
 
 
 class ProviderCapabilityRow(TimestampMixin, Base):
@@ -251,6 +272,16 @@ class ProviderCapabilityRow(TimestampMixin, Base):
     id: Mapped[str] = mapped_column(String, primary_key=True)
     provider_id: Mapped[str] = mapped_column(String, nullable=False)
     capability_id: Mapped[str] = mapped_column(String, nullable=False)
+    model_id: Mapped[str] = mapped_column(String, nullable=False, default="*")
+    display_name: Mapped[str] = mapped_column(String, nullable=False, default="")
+    input_schema_id: Mapped[str] = mapped_column(String, nullable=False, default="")
+    output_schema_id: Mapped[str] = mapped_column(String, nullable=False, default="")
+    options_schema_id: Mapped[str] = mapped_column(String, nullable=False, default="")
+    supports_async_job: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    supports_cancel: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    max_payload_bytes: Mapped[int | None] = mapped_column(Integer)
+    max_duration_sec: Mapped[float | None] = mapped_column(Float)
+    default_timeout_sec: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
     input_schema_ref: Mapped[dict] = mapped_column(JSONB, nullable=False)
     output_schema_ref: Mapped[dict] = mapped_column(JSONB, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
@@ -575,10 +606,16 @@ class PublishAttemptRow(TimestampMixin, Base):
     __tablename__ = "publish_attempts"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    batch_id: Mapped[str] = mapped_column(ForeignKey("publish_batches.id", ondelete="CASCADE"), nullable=False)
     item_id: Mapped[str] = mapped_column(ForeignKey("publish_batch_items.id"), nullable=False)
-    platform: Mapped[str] = mapped_column(String, nullable=False)
+    platforms: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    manual_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     status: Mapped[str] = mapped_column(String, nullable=False)
+    adapter_id: Mapped[str] = mapped_column(String, nullable=False, default="sandbox.publish")
+    external_task_id: Mapped[str | None] = mapped_column(String)
+    results: Mapped[list[dict]] = mapped_column(JSONB, nullable=False, default=list)
     error: Mapped[dict | None] = mapped_column(JSONB)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class YieldFunnelEventRow(TimestampMixin, Base):

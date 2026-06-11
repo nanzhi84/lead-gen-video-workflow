@@ -70,7 +70,7 @@ PROVIDER_TRANSITIONS: dict[ProviderStatus, frozenset[ProviderStatus]] = {
 }
 
 PROMPT_VERSION_TRANSITIONS: dict[str, frozenset[str]] = {
-    "draft": frozenset({"reviewing", "approved"}),
+    "draft": frozenset({"reviewing"}),
     "reviewing": frozenset({"approved", "deprecated"}),
     "approved": frozenset({"published", "deprecated"}),
     "published": frozenset({"deprecated", "rolled_back"}),

@@ -3,9 +3,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from enum import Enum
-from typing import Any, Generic, Literal, TypeVar
+from typing import Annotated, Any, Generic, Literal, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 
 T = TypeVar("T")
@@ -61,19 +61,18 @@ class ErrorCode(str, Enum):
 
 
 class WarningCode(str, Enum):
-    cost_unpriced = "cost.unpriced"
-    cover_frame_fallback = "cover.frame_fallback"
     broll_skipped_no_material = "broll.skipped_no_material"
     bgm_skipped_library_unannotated = "bgm.skipped_library_unannotated"
-    font_default_used = "font.default_used"
+    font_default_used = "font_default_used"
+    cover_frame_fallback = "cover.frame_fallback"
     timestamp_estimated = "timestamp.estimated"
-    platform_metrics_waiting = "platform.metrics_waiting"
+    cost_unpriced = "cost.unpriced"
 
 
 class DegradationCode(str, Enum):
     broll_skipped_no_material = "broll.skipped_no_material"
     bgm_skipped_library_unannotated = "bgm.skipped_library_unannotated"
-    font_default_used = "font.default_used"
+    font_default_used = "font_default_used"
     cover_frame_fallback = "cover.frame_fallback"
 
 
@@ -126,32 +125,47 @@ class JobType(str, Enum):
 
 class ArtifactKind(str, Enum):
     uploaded_file = "uploaded.file"
-    validated_production_spec = "validated.production_spec"
+    validated_production_spec = "spec.validated_production"
     case_context = "case.context"
+    case_performance_analysis = "case.performance_analysis"
+    case_reflection = "case.reflection"
+    script_strategy = "script.strategy"
     creative_intent = "creative.intent"
     audio_tts = "audio.tts"
     audio_alignment_raw = "audio.alignment.raw"
     audio_alignment = "audio.alignment"
     narration_units = "narration.units"
+    material_pack = "plan.material_pack"
     plan_material_pack = "plan.material_pack"
+    portrait_plan = "plan.portrait"
     plan_portrait = "plan.portrait"
+    broll_plan = "plan.broll"
     plan_broll = "plan.broll"
+    style_plan = "plan.style"
     plan_style = "plan.style"
+    timeline_plan = "plan.timeline"
     plan_timeline = "plan.timeline"
+    render_plan = "plan.render"
     plan_render = "plan.render"
     video_portrait_track = "video.portrait_track"
     video_lipsync = "video.lipsync"
+    lipsync_report = "lipsync.report"
     video_rendered = "video.rendered"
     video_final = "video.final"
     video_finished = "video.finished"
     subtitle_ass = "subtitle.ass"
     cover_image = "cover.image"
     publish_package = "publish.package"
+    run_public_report = "run.report.public"
     run_report_public = "run.report.public"
+    run_debug_report = "run.report.debug"
     run_report_debug = "run.report.debug"
-    case_reflection = "case.reflection"
-    editor_handoff = "editor.handoff"
-    jianying_draft = "jianying.draft"
+    editor_handoff_package = "editor.handoff_package"
+    editor_handoff = "editor.handoff_package"
+    jianying_draft_package = "editor.jianying_draft_package"
+    jianying_draft = "editor.jianying_draft_package"
+    provider_raw_request = "provider.raw_request"
+    provider_raw_response = "provider.raw_response"
     import_mapping = "import.mapping"
 
 
@@ -167,6 +181,16 @@ class UploadSessionStatus(str, Enum):
 UploadStatus = UploadSessionStatus
 
 
+class UploadKind(str, Enum):
+    portrait = "portrait"
+    broll = "broll"
+    voice_reference = "voice_reference"
+    bgm = "bgm"
+    font = "font"
+    cover_template = "cover_template"
+    publish_video = "publish_video"
+
+
 class UserRole(str, Enum):
     admin = "admin"
     operator = "operator"
@@ -178,6 +202,13 @@ class Money(ContractModel):
     currency: str = Field(min_length=3, max_length=3, pattern=r"^[A-Z]{3}$")
     amount_micro: int | None = None
 
+    @model_validator(mode="after")
+    def _derive_amount_micro(self) -> "Money":
+        # Spec 23.1: persisted money must always carry amount_micro to avoid float drift.
+        if self.amount_micro is None:
+            object.__setattr__(self, "amount_micro", int(self.amount * 1_000_000))
+        return self
+
 
 def zero_money(currency: str = "CNY") -> Money:
     return Money(amount=Decimal("0"), currency=currency, amount_micro=0)
@@ -187,6 +218,8 @@ class EntityMeta(ContractModel):
     id: str
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
+    created_by: str | None = None
+    version: int = 1
     schema_version: str = "v1"
 
 
@@ -232,6 +265,14 @@ class NodeError(ContractModel):
     node_run_id: str | None = None
 
 
+class DegradationNotice(ContractModel):
+    code: WarningCode
+    message: str
+    node_id: str | None = None
+    affects_true_yield: bool = False
+    details: dict[str, JsonValue] = Field(default_factory=dict)
+
+
 class ErrorEnvelope(ContractModel):
     error: NodeError
 
@@ -239,16 +280,20 @@ class ErrorEnvelope(ContractModel):
 class ArtifactRef(ContractModel):
     artifact_id: str
     kind: ArtifactKind
+    uri: str
     schema_version: str = "v1"
     sha256: str | None = None
 
 
 class MediaInfo(ContractModel):
+    media_type: Literal["video", "audio", "image", "subtitle", "json"]
+    codec: str
+    format: str
     mime_type: str | None = None
     duration_sec: float | None = None
     width: int | None = None
     height: int | None = None
-    frame_rate: float | None = None
+    fps: float | None = None
     sample_rate: int | None = None
     channels: int | None = None
 
@@ -259,6 +304,11 @@ class Artifact(EntityMeta):
     node_run_id: str | None = None
     kind: ArtifactKind
     uri: str | None = None
+    local_path: str | None = None
+    oss_uri: str | None = None
+    size_bytes: int | None = None
+    immutable: bool = True
+    retention_policy: str = "default"
     sha256: str | None = None
     media_info: MediaInfo | None = None
     payload_schema: str
@@ -316,15 +366,16 @@ class ProviderInvocation(EntityMeta):
 
 
 class RetryPolicy(ContractModel):
-    max_attempts: int = 3
-    initial_interval_seconds: float = 1
-    backoff_coefficient: float = 2
-    max_interval_seconds: float = 30
+    max_attempts: int = Field(1, ge=1, le=10)
+    backoff_seconds: float = Field(0, ge=0)
+    backoff_multiplier: float = Field(2.0, ge=1.0)
+    retryable_error_codes: list[ErrorCode] = Field(default_factory=list)
 
 
 class ResumePolicy(ContractModel):
-    can_reuse_artifacts: bool = True
-    side_effect_resume_requires_idempotency_key: bool = True
+    mode: Literal["never", "reuse_if_hash_match", "always_rerun"] = "reuse_if_hash_match"
+    reusable_artifact_kinds: list[ArtifactKind] = Field(default_factory=list)
+    side_effect_replay: Literal["forbidden", "idempotent_only"] = "idempotent_only"
 
 
 class WorkflowEdge(ContractModel):
@@ -353,46 +404,61 @@ class WorkflowTemplate(ContractModel):
 
 
 class VoiceOptions(ContractModel):
-    voice_id: str | None = None
+    voice_id: str
     provider_profile_id: str | None = None
-    speed: float = Field(1.0, gt=0, le=3)
+    speed: float = Field(1.0, ge=0.5, le=2.0)
+    emotion: str = "neutral"
+    volume: float = Field(1.0, ge=0.0, le=2.0)
 
 
 class PortraitOptions(ContractModel):
-    required: bool = True
-    asset_ids: list[str] = Field(default_factory=list)
+    template_mode: Literal["agent", "specific", "sequence"] = "agent"
+    specific_template_id: str | None = None
+    template_sequence_ids: list[str] = Field(default_factory=list)
+    rhythm_preset: Literal["steady", "balanced", "fast"] = "balanced"
 
 
 class BrollOptions(ContractModel):
-    enabled: bool = False
-    max_inserts: int = Field(3, ge=0, le=30)
-    asset_ids: list[str] = Field(default_factory=list)
+    enabled: bool = True
+    case_id: str | None = None
+    max_inserts: int = Field(4, ge=0, le=20)
+    min_segment_duration: float = Field(3.0, ge=0.5)
 
 
 class LipSyncOptions(ContractModel):
     enabled: bool = True
     provider_profile_id: str = "runninghub.heygem.default"
     ref_image_artifact_id: str | None = None
-    options: dict[str, JsonValue] = Field(default_factory=dict)
+    video_extension: bool = False
+    query_face_threshold: float | None = Field(None, ge=0.0, le=1.0)
+    timeout_minutes: int = Field(30, ge=5, le=120)
 
 
 class SubtitleOptions(ContractModel):
     enabled: bool = True
-    style: dict[str, JsonValue] = Field(default_factory=dict)
+    style_preset: str = "douyin"
+    font_id: str | None = None
+    font_size: int | None = None
+    position: dict[str, float] | None = None
 
 
 class BgmOptions(ContractModel):
-    enabled: bool = False
-    asset_id: str | None = None
-    volume: float = Field(0.2, ge=0, le=1)
+    enabled: bool = True
+    bgm_id: str | None = None
+    volume: float = Field(0.25, ge=0, le=1)
+    auto_mix: bool = True
 
 
 class CoverOptions(ContractModel):
-    mode: Literal["ai", "frame", "upload"] = "frame"
-    upload_artifact_id: str | None = None
+    mode: Literal["none", "frame", "ai"] = "frame"
+    template_id: str | None = None
 
 
 class OutputOptions(ContractModel):
+    export_jianying_draft: bool = True
+    export_editor_handoff: bool = True
+    upload_to_oss: bool = True
+    keep_local_originals: bool = False
     width: int = 1080
     height: int = 1920
     fps: int = 30
@@ -400,11 +466,15 @@ class OutputOptions(ContractModel):
 
 
 class StrictnessOptions(ContractModel):
-    strict_alignment: bool = False
+    strict_timestamps: bool = True
+    portrait_insufficient_policy: Literal["hard_fail"] = "hard_fail"
+    broll_insufficient_policy: Literal["soft_degrade"] = "soft_degrade"
+    bgm_unavailable_policy: Literal["soft_degrade"] = "soft_degrade"
     strict_cost_pricing: bool = False
 
 
 class DigitalHumanVideoRequest(ContractModel):
+    schema_version: Literal["digital_human_video_request.v1"] = "digital_human_video_request.v1"
     case_id: str
     script: str
     title: str | None = None
@@ -416,7 +486,7 @@ class DigitalHumanVideoRequest(ContractModel):
     portrait: PortraitOptions = Field(default_factory=PortraitOptions)
     broll: BrollOptions = Field(default_factory=BrollOptions)
     lipsync: LipSyncOptions = Field(default_factory=LipSyncOptions)
-    subtitles: SubtitleOptions = Field(default_factory=SubtitleOptions)
+    subtitle: SubtitleOptions = Field(default_factory=SubtitleOptions)
     bgm: BgmOptions = Field(default_factory=BgmOptions)
     cover: CoverOptions = Field(default_factory=CoverOptions)
     output: OutputOptions = Field(default_factory=OutputOptions)
@@ -424,30 +494,39 @@ class DigitalHumanVideoRequest(ContractModel):
 
 
 class CaseAgentRunRequest(ContractModel):
+    schema_version: Literal["case_agent_run_request.v1"] = "case_agent_run_request.v1"
     case_id: str
     goal: Literal["brief", "script_draft", "memory_proposal"]
     source_binding_ids: list[str] = Field(default_factory=list)
 
 
 class PublishBatchRequest(ContractModel):
+    schema_version: Literal["publish_batch_request.v1"] = "publish_batch_request.v1"
     publish_package_ids: list[str]
     platform_targets: list[str]
 
 
 class AnnotationBatchRequest(ContractModel):
+    schema_version: Literal["annotation_batch_request.v1"] = "annotation_batch_request.v1"
     asset_ids: list[str]
     provider_profile_id: str | None = None
+
+
+JobRequest = Annotated[
+    DigitalHumanVideoRequest | CaseAgentRunRequest | PublishBatchRequest | AnnotationBatchRequest,
+    Field(discriminator="schema_version"),
+]
 
 
 class Job(EntityMeta):
     type: JobType
     status: JobStatus = JobStatus.draft
     case_id: str | None = None
-    created_by_user_id: str | None = None
-    request: (
-        DigitalHumanVideoRequest | CaseAgentRunRequest | PublishBatchRequest | AnnotationBatchRequest
-    )
-    current_run_id: str | None = None
+    created_by: str | None = None
+    request_schema: str
+    request: JobRequest
+    active_run_id: str | None = None
+    latest_finished_video_id: str | None = None
 
 
 class WorkflowRun(EntityMeta):
@@ -456,9 +535,11 @@ class WorkflowRun(EntityMeta):
     workflow_template_id: str
     workflow_version: str
     status: RunStatus = RunStatus.created
+    requested_by: str | None = None
     run_attempt: int = 1
     resume_from_run_id: str | None = None
-    retry_from_run_id: str | None = None
+    retry_of_run_id: str | None = None
+    experiment_assignment_id: str | None = None
     public_report_artifact_id: str | None = None
     debug_report_artifact_id: str | None = None
     started_at: datetime | None = None
@@ -470,12 +551,15 @@ class NodeRun(EntityMeta):
     node_id: str
     node_version: str
     status: NodeStatus
-    input_manifest_hash: str | None = None
+    attempt: int = 1
+    input_manifest_hash: str
     output_artifact_ids: list[str] = Field(default_factory=list)
     provider_invocation_ids: list[str] = Field(default_factory=list)
     error: NodeError | None = None
+    skipped_reason: str | None = None
+    degradation_reason: str | None = None
     warnings: list[WarningCode] = Field(default_factory=list)
-    degradations: list[DegradationCode] = Field(default_factory=list)
+    degradations: list[DegradationNotice] = Field(default_factory=list)
     started_at: datetime | None = None
     finished_at: datetime | None = None
 
@@ -491,11 +575,12 @@ class AuthUser(EntityMeta):
     email: str
     display_name: str
     role: UserRole = UserRole.viewer
-    disabled: bool = False
+    status: Literal["active", "disabled"] = "active"
 
 
 class SessionInfo(ContractModel):
     user: AuthUser
+    session_id: str
     expires_at: datetime
     request_id: str
 
@@ -517,23 +602,26 @@ class AuthResponse(ContractModel):
 
 
 class ChangePasswordRequest(ContractModel):
-    current_password: str
+    old_password: str
     new_password: str = Field(min_length=8)
 
 
 class UserListQuery(BaseListQuery):
     role: UserRole | None = None
-    disabled: bool | None = None
+    status: Literal["active", "disabled"] | None = None
 
 
-class AdminCreateUserRequest(RegisterRequest):
+class AdminCreateUserRequest(ContractModel):
+    email: str
+    display_name: str
     role: UserRole = UserRole.viewer
+    password: str | None = None
 
 
 class AdminUpdateUserRequest(ContractModel):
     display_name: str | None = None
     role: UserRole | None = None
-    disabled: bool | None = None
+    status: Literal["active", "disabled"] | None = None
 
 
 class RegistrationCodeQuery(BaseListQuery):
@@ -566,34 +654,41 @@ class UpdateMeRequest(ContractModel):
 
 
 class PrepareUploadRequest(ContractModel):
+    kind: UploadKind
+    case_id: str | None = None
     filename: str
-    mime_type: str
+    content_type: str
     size_bytes: int = Field(gt=0)
     sha256: str | None = None
-    purpose: Literal["media", "voice", "finished_video", "import", "cover"] = "media"
+    multipart: bool = False
 
 
 class UploadSession(EntityMeta):
+    kind: UploadKind
+    case_id: str | None = None
     filename: str
-    mime_type: str
+    content_type: str
     size_bytes: int
     sha256: str | None = None
     status: UploadStatus = UploadStatus.prepared
-    purpose: str = "media"
     upload_url: str | None = None
+    local_temp_path: str | None = None
     object_uri: str | None = None
     expires_at: datetime = Field(default_factory=lambda: utcnow() + timedelta(hours=1))
 
 
 class CompleteUploadRequest(ContractModel):
     upload_session_id: str
-    size_bytes: int
+    size_bytes: int | None = None
     sha256: str | None = None
+    metadata: dict[str, str] = Field(default_factory=dict)
 
 
 class CompleteUploadResponse(ContractModel):
     upload_session: UploadSession
-    artifact: ArtifactRef | None = None
+    artifact: ArtifactRef
+    media_asset: MediaAssetRecord | None = None
+    publish_package: PublishPackage | None = None
     request_id: str
 
 
@@ -607,11 +702,11 @@ class CreateSecretRequest(ContractModel):
     provider_id: str
     environment: Literal["local", "dev", "staging", "prod"]
     name: str
-    value: str
+    plaintext_secret: str
 
 
 class RotateSecretRequest(ContractModel):
-    value: str
+    plaintext_secret: str
     reason: str
 
 
@@ -619,11 +714,32 @@ class DisableSecretRequest(ContractModel):
     reason: str
 
 
+class SecretStatus(str, Enum):
+    active = "active"
+    disabled = "disabled"
+    rotated = "rotated"
+
+
+class SecretRecord(EntityMeta):
+    provider_id: str
+    environment: Literal["local", "dev", "staging", "prod"]
+    name: str
+    secret_ref: str
+    status: SecretStatus = SecretStatus.active
+    rotated_from_secret_id: str | None = None
+    rotated_at: datetime | None = None
+    disabled_at: datetime | None = None
+
+
 class SecretPreview(EntityMeta):
     provider_id: str
     environment: str
     name: str
-    status: Literal["active", "disabled"] = "active"
+    secret_ref: str | None = None
+    status: SecretStatus = SecretStatus.active
+    rotated_from_secret_id: str | None = None
+    rotated_at: datetime | None = None
+    disabled_at: datetime | None = None
     masked_value: str = "********"
 
 
@@ -751,7 +867,18 @@ class RunEventsQuery(BaseListQuery):
 class MediaAssetRecord(EntityMeta):
     case_id: str | None = None
     title: str
-    kind: Literal["portrait", "broll", "bgm", "font", "voice", "video", "image", "other"]
+    kind: Literal[
+        "portrait",
+        "broll",
+        "bgm",
+        "font",
+        "cover_template",
+        "voice_reference",
+        "voice",
+        "video",
+        "image",
+        "other",
+    ]
     source_artifact_id: str | None = None
     tags: list[str] = Field(default_factory=list)
     annotation_status: Literal["pending", "annotated", "annotation_failed"] = "pending"
@@ -769,7 +896,17 @@ class CreateMediaAssetFromUploadRequest(ContractModel):
     case_id: str | None = None
     title: str
     tags: list[str] = Field(default_factory=list)
-    kind: Literal["portrait", "broll", "bgm", "font", "voice", "video", "image", "other"] = "other"
+    kind: Literal[
+        "portrait",
+        "broll",
+        "voice_reference",
+        "bgm",
+        "font",
+        "cover_template",
+        "video",
+        "image",
+        "other",
+    ] = "other"
 
 
 class MediaAssetCard(ContractModel):
@@ -1002,13 +1139,23 @@ class PatchPromptExperimentRequest(ContractModel):
 class ProviderOptionsSchemaRef(ContractModel):
     schema_id: str
     schema_version: str = "v1"
+    dialect: Literal["json_schema_2020_12", "pydantic"] = "pydantic"
+    sha256: str = "dev-unpinned"
 
 
 class ProviderCapability(EntityMeta):
+    capability: str
     provider_id: str
-    capability_id: str
-    input_schema_ref: ProviderOptionsSchemaRef
-    output_schema_ref: ProviderOptionsSchemaRef
+    model_id: str
+    display_name: str
+    input_schema_id: str
+    output_schema_id: str
+    options_schema_id: str
+    supports_async_job: bool
+    supports_cancel: bool
+    max_payload_bytes: int | None = None
+    max_duration_sec: float | None = None
+    default_timeout_sec: int
 
 
 class ProviderProfile(EntityMeta):
@@ -1018,9 +1165,14 @@ class ProviderProfile(EntityMeta):
     display_name: str
     environment: Literal["local", "dev", "staging", "prod"]
     secret_ref: str | None = None
+    enabled: bool = True
+    concurrency_key: str = "default"
+    timeout_sec: int = 30
+    retry_policy: RetryPolicy = Field(default_factory=RetryPolicy)
+    cost_policy_id: str | None = None
     options_schema_ref: ProviderOptionsSchemaRef
     default_options: dict[str, JsonValue] = Field(default_factory=dict)
-    enabled: bool = True
+    version: str = "v1"
 
 
 class ProviderProfileQuery(BaseListQuery):
@@ -1036,14 +1188,23 @@ class CreateProviderProfileRequest(ContractModel):
     display_name: str
     environment: Literal["local", "dev", "staging", "prod"]
     secret_ref: str | None = None
+    concurrency_key: str = "default"
+    timeout_sec: int = 30
+    retry_policy: RetryPolicy = Field(default_factory=RetryPolicy)
+    cost_policy_id: str | None = None
     options_schema_ref: ProviderOptionsSchemaRef
     default_options: dict[str, JsonValue] = Field(default_factory=dict)
+    version: str = "v1"
 
 
 class PatchProviderProfileRequest(ContractModel):
     display_name: str | None = None
     enabled: bool | None = None
     secret_ref: str | None = None
+    concurrency_key: str | None = None
+    timeout_sec: int | None = None
+    retry_policy: RetryPolicy | None = None
+    cost_policy_id: str | None = None
     default_options: dict[str, JsonValue] | None = None
 
 
@@ -1474,10 +1635,16 @@ class PatchPublishItemRequest(ContractModel):
 
 
 class PublishAttempt(EntityMeta):
+    batch_id: str
     item_id: str
-    platform: str
+    platforms: list[str]
+    manual_review: bool = False
     status: PublishAttemptStatus = PublishAttemptStatus.created
-    error: ProviderError | None = None
+    adapter_id: str
+    external_task_id: str | None = None
+    results: list[dict[str, JsonValue]] = Field(default_factory=list)
+    error: NodeError | None = None
+    finished_at: datetime | None = None
 
 
 class PublishAttemptDetail(ContractModel):

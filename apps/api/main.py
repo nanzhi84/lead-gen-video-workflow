@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+from contextvars import ContextVar
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request, Response, UploadFile
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from packages.ai.gateway import SqlAlchemyProviderRepository
@@ -92,9 +95,13 @@ PUBLIC_API_PATHS = {"/api/health"}
 PUBLIC_PATHS = {"/metrics"}
 PUBLIC_API_PREFIXES = ("/api/auth/",)
 IDEMPOTENT_WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+REQUEST_ID_CONTEXT: ContextVar[str | None] = ContextVar("request_id", default=None)
 
 
 def request_id() -> str:
+    current = REQUEST_ID_CONTEXT.get()
+    if current is not None:
+        return current
     return f"req_{uuid4().hex[:12]}"
 
 
@@ -135,7 +142,7 @@ def require_role(request: Request, minimum: c.UserRole) -> c.AuthUser:
     return user
 
 
-def node_error_response(exc: NodeExecutionError) -> JSONResponse:
+def node_error_response(exc: NodeExecutionError, *, status_override: int | None = None) -> JSONResponse:
     error = exc.error.model_copy(update={"request_id": request_id()})
     status = 400
     if error.code in {c.ErrorCode.auth_unauthorized, c.ErrorCode.auth_invalid_credentials}:
@@ -146,12 +153,46 @@ def node_error_response(exc: NodeExecutionError) -> JSONResponse:
         status = 409
     elif error.code in {c.ErrorCode.artifact_missing, c.ErrorCode.validation_missing_case}:
         status = 404
-    return JSONResponse(status_code=status, content=c.ErrorEnvelope(error=error).model_dump(mode="json"))
+    return JSONResponse(
+        status_code=status_override or status,
+        content=c.ErrorEnvelope(error=error).model_dump(mode="json"),
+        headers={"X-Request-Id": error.request_id or request_id()},
+    )
+
+
+def not_found_response(message: str) -> JSONResponse:
+    return node_error_response(NodeExecutionError(c.ErrorCode.artifact_missing, message), status_override=404)
 
 
 @app.exception_handler(NodeExecutionError)
 async def node_error_handler(request: Request, exc: NodeExecutionError) -> JSONResponse:
     return node_error_response(exc)
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    return node_error_response(
+        NodeExecutionError(
+            c.ErrorCode.validation_invalid_options,
+            "Request validation failed.",
+            details={"errors": jsonable_encoder(exc.errors())},
+        ),
+        status_override=422,
+    )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    code = c.ErrorCode.validation_invalid_options
+    if exc.status_code == 401:
+        code = c.ErrorCode.auth_unauthorized
+    elif exc.status_code == 403:
+        code = c.ErrorCode.auth_forbidden
+    elif exc.status_code == 404:
+        code = c.ErrorCode.artifact_missing
+    elif exc.status_code == 409:
+        code = c.ErrorCode.idempotency_conflict
+    return node_error_response(NodeExecutionError(code, str(exc.detail)))
 
 
 def requires_authenticated_api(path: str, method: str) -> bool:
@@ -164,63 +205,75 @@ def requires_authenticated_api(path: str, method: str) -> bool:
 
 @app.middleware("http")
 async def authenticate_api_request(request: Request, call_next):
+    token = REQUEST_ID_CONTEXT.set(request.headers.get("X-Request-Id") or f"req_{uuid4().hex[:12]}")
+    request.state.request_id = request_id()
     user: c.AuthUser | None = None
-    if requires_authenticated_api(request.url.path, request.method):
-        try:
-            user = current_user(request)
-        except NodeExecutionError as exc:
-            return node_error_response(exc)
-    idempotency_key = request.headers.get("Idempotency-Key")
-    if user is not None and idempotency_key and request.method in IDEMPOTENT_WRITE_METHODS:
-        body = await request.body()
-        body_sha256 = hashlib.sha256(body).hexdigest()
-        record_key = f"{user.id}:{request.method}:{request.url.path}:{idempotency_key}"
-        existing = repo.idempotency_records.get(record_key)
-        if existing is not None:
-            if existing["body_sha256"] != body_sha256:
-                return node_error_response(
-                    NodeExecutionError(
-                        c.ErrorCode.idempotency_conflict,
-                        "Idempotency-Key was already used with a different request body.",
-                    )
-                )
-            return JSONResponse(
-                status_code=200,
-                content=existing["content"],
-                headers={"Idempotency-Replayed": "true"},
-            )
-
-        async def receive():
-            return {"type": "http.request", "body": body, "more_body": False}
-
-        replayable_request = Request(request.scope, receive)
-        response = await call_next(replayable_request)
-        if 200 <= response.status_code < 300:
-            response_body = b""
-            async for chunk in response.body_iterator:
-                response_body += chunk
+    try:
+        if requires_authenticated_api(request.url.path, request.method):
             try:
-                content = json.loads(response_body) if response_body else None
-            except json.JSONDecodeError:
+                user = current_user(request)
+            except NodeExecutionError as exc:
+                return node_error_response(exc)
+        idempotency_key = request.headers.get("Idempotency-Key")
+        if user is not None and idempotency_key and request.method in IDEMPOTENT_WRITE_METHODS:
+            body = await request.body()
+            body_sha256 = hashlib.sha256(body).hexdigest()
+            record_key = f"{user.id}:{request.method}:{request.url.path}:{idempotency_key}"
+            existing = repo.idempotency_records.get(record_key)
+            if existing is not None:
+                if existing["body_sha256"] != body_sha256:
+                    return node_error_response(
+                        NodeExecutionError(
+                            c.ErrorCode.idempotency_conflict,
+                            "Idempotency-Key was already used with a different request body.",
+                        )
+                    )
+                replay = JSONResponse(
+                    status_code=200,
+                    content=existing["content"],
+                    headers={"Idempotency-Replayed": "true"},
+                )
+                replay.headers["X-Request-Id"] = request_id()
+                return replay
+
+            async def receive():
+                return {"type": "http.request", "body": body, "more_body": False}
+
+            replayable_request = Request(request.scope, receive)
+            response = await call_next(replayable_request)
+            if 200 <= response.status_code < 300:
+                response_body = b""
+                async for chunk in response.body_iterator:
+                    response_body += chunk
+                try:
+                    content = json.loads(response_body) if response_body else None
+                except json.JSONDecodeError:
+                    response.headers["X-Request-Id"] = request_id()
+                    return Response(
+                        content=response_body,
+                        status_code=response.status_code,
+                        headers=dict(response.headers),
+                        media_type=response.media_type,
+                    )
+                repo.idempotency_records[record_key] = {
+                    "body_sha256": body_sha256,
+                    "content": content,
+                    "status_code": response.status_code,
+                }
+                response.headers["X-Request-Id"] = request_id()
                 return Response(
                     content=response_body,
                     status_code=response.status_code,
                     headers=dict(response.headers),
                     media_type=response.media_type,
                 )
-            repo.idempotency_records[record_key] = {
-                "body_sha256": body_sha256,
-                "content": content,
-                "status_code": response.status_code,
-            }
-            return Response(
-                content=response_body,
-                status_code=response.status_code,
-                headers=dict(response.headers),
-                media_type=response.media_type,
-            )
+            response.headers["X-Request-Id"] = request_id()
+            return response
+        response = await call_next(request)
+        response.headers["X-Request-Id"] = request_id()
         return response
-    return await call_next(request)
+    finally:
+        REQUEST_ID_CONTEXT.reset(token)
 
 
 @app.get("/api/health", response_model=c.OkResponse)
@@ -286,7 +339,7 @@ def change_password(payload: c.ChangePasswordRequest, request: Request) -> c.OkR
     if isinstance(auth_service, SqlAlchemyAuthService):
         auth_service.change_password(current_user.id, payload)
         return c.OkResponse(request_id=request_id())
-    if not auth_service.verify_password(current_user.id, payload.current_password):
+    if not auth_service.verify_password(current_user.id, payload.old_password):
         raise NodeExecutionError(c.ErrorCode.auth_invalid_credentials, "Invalid credentials.")
     auth_service.repository.password_hashes[current_user.id] = auth_service.hash_password(payload.new_password)
     return c.OkResponse(request_id=request_id())
@@ -313,6 +366,7 @@ def create_user(payload: c.AdminCreateUserRequest, request: Request) -> c.AuthUs
         role=payload.role,
     )
     repo.users[user.id] = user
+    repo.password_hashes[user.id] = auth_service.hash_password(payload.password or new_id("pwd"))
     return user
 
 
@@ -382,14 +436,15 @@ def patch_registration_code(
 @app.post("/api/uploads/prepare", response_model=c.UploadSession, status_code=201)
 def prepare_upload(payload: c.PrepareUploadRequest, request: Request) -> c.UploadSession:
     require_role(request, c.UserRole.operator)
-    object_ref = object_store.prepare_upload(payload.filename, payload.purpose)
+    object_ref = object_store.prepare_upload(payload.filename, payload.kind.value)
     upload = c.UploadSession(
         id=new_id("upl"),
+        kind=payload.kind,
+        case_id=payload.case_id,
         filename=payload.filename,
-        mime_type=payload.mime_type,
+        content_type=payload.content_type,
         size_bytes=payload.size_bytes,
         sha256=payload.sha256,
-        purpose=payload.purpose,
         upload_url=object_store.signed_url(object_ref.uri).url,
         object_uri=object_ref.uri,
     )
@@ -438,7 +493,7 @@ def complete_upload(payload: c.CompleteUploadRequest, request: Request) -> c.Com
     if upload is None:
         raise NodeExecutionError(c.ErrorCode.upload_invalid_state, "Upload session not found.")
     assert_transition("upload_session", upload.status, c.UploadStatus.completed)
-    if payload.size_bytes != upload.size_bytes:
+    if payload.size_bytes is not None and payload.size_bytes != upload.size_bytes:
         raise NodeExecutionError(c.ErrorCode.upload_size_mismatch, "Upload size mismatch.")
     if upload.sha256 and payload.sha256 and upload.sha256 != payload.sha256:
         raise NodeExecutionError(c.ErrorCode.upload_sha256_mismatch, "Upload sha256 mismatch.")
@@ -456,9 +511,59 @@ def complete_upload(payload: c.CompleteUploadRequest, request: Request) -> c.Com
             sha256=upload.sha256,
         )
         artifact_ref = repo.artifact_ref(artifact.id)
+    media_asset = None
+    publish_package = None
+    if upload.kind in {
+        c.UploadKind.portrait,
+        c.UploadKind.broll,
+        c.UploadKind.bgm,
+        c.UploadKind.font,
+        c.UploadKind.cover_template,
+    }:
+        media_payload = c.CreateMediaAssetFromUploadRequest(
+            upload_session_id=upload.id,
+            case_id=upload.case_id,
+            title=payload.metadata.get("title") or upload.filename,
+            kind=upload.kind.value,
+            tags=[upload.kind.value, "upload"],
+        )
+        if sqlalchemy_media_repository is not None:
+            media_asset = sqlalchemy_media_repository.create_asset_from_upload(media_payload)
+        else:
+            media_asset = c.MediaAssetRecord(
+                id=new_id("asset"),
+                case_id=media_payload.case_id,
+                title=media_payload.title,
+                kind=media_payload.kind,
+                source_artifact_id=artifact.id,
+                tags=media_payload.tags,
+            )
+            repo.media_assets[media_asset.id] = media_asset
+    elif upload.kind == c.UploadKind.publish_video:
+        package_payload = c.CreatePublishPackageRequest(
+            upload_artifact_id=artifact.id,
+            title=payload.metadata.get("title") or upload.filename,
+            description=payload.metadata.get("description", ""),
+        )
+        if sqlalchemy_publishing_repository is not None:
+            publish_package = sqlalchemy_publishing_repository.create_package(package_payload)
+        else:
+            publish_package = c.PublishPackage(
+                id=new_id("pkg"),
+                case_id=upload.case_id,
+                upload_artifact_id=artifact.id,
+                video_artifact=artifact_ref,
+                platform_defaults=c.PublishDefaults(
+                    title=package_payload.title,
+                    description=package_payload.description,
+                ),
+            )
+            repo.publish_packages[publish_package.id] = publish_package
     return c.CompleteUploadResponse(
         upload_session=upload,
         artifact=artifact_ref,
+        media_asset=media_asset,
+        publish_package=publish_package,
         request_id=request_id(),
     )
 
@@ -506,7 +611,9 @@ def create_secret(payload: c.CreateSecretRequest, request: Request) -> c.SecretP
         provider_id=payload.provider_id,
         environment=payload.environment,
         name=payload.name,
+        secret_ref="pending",
     )
+    secret = secret.model_copy(update={"secret_ref": f"dev://secrets/{secret.id}"})
     repo.secrets[secret.id] = secret
     return secret
 
@@ -516,7 +623,21 @@ def rotate_secret(secret_id: str, payload: c.RotateSecretRequest, request: Reque
     require_role(request, c.UserRole.admin)
     if sqlalchemy_secret_repository is not None:
         return sqlalchemy_secret_repository.rotate_secret(secret_id, payload)
-    return repo.patch(repo.secrets, secret_id, {"masked_value": "********"})
+    old_secret = repo.secrets[secret_id]
+    repo.secrets[secret_id] = old_secret.model_copy(
+        update={"status": c.SecretStatus.rotated, "rotated_at": c.utcnow(), "updated_at": c.utcnow()}
+    )
+    new_secret = c.SecretPreview(
+        id=new_id("sec"),
+        provider_id=old_secret.provider_id,
+        environment=old_secret.environment,
+        name=old_secret.name,
+        secret_ref="pending",
+        rotated_from_secret_id=old_secret.id,
+    )
+    new_secret = new_secret.model_copy(update={"secret_ref": f"dev://secrets/{new_secret.id}"})
+    repo.secrets[new_secret.id] = new_secret
+    return new_secret
 
 
 @app.patch("/api/secrets/{secret_id}/disable", response_model=c.SecretPreview)
@@ -524,7 +645,7 @@ def disable_secret(secret_id: str, payload: c.DisableSecretRequest, request: Req
     require_role(request, c.UserRole.admin)
     if sqlalchemy_secret_repository is not None:
         return sqlalchemy_secret_repository.disable_secret(secret_id, payload)
-    return repo.patch(repo.secrets, secret_id, {"status": "disabled"})
+    return repo.patch(repo.secrets, secret_id, {"status": c.SecretStatus.disabled, "disabled_at": c.utcnow()})
 
 
 @app.get("/api/cases", response_model=c.PageResponse[c.CaseListItem])
@@ -587,7 +708,8 @@ def create_digital_human_job(
         id=new_id("job"),
         type=c.JobType.digital_human_video,
         case_id=payload.case_id,
-        created_by_user_id="usr_admin",
+        created_by="usr_admin",
+        request_schema=payload.schema_version,
         request=payload,
     )
     repo.jobs[job.id] = job
@@ -620,7 +742,7 @@ def job_detail(job_id: str) -> c.JobDetailResponse:
 @app.post("/api/jobs/{job_id}/runs", response_model=c.WorkflowRunResponse, status_code=201)
 def create_run(job_id: str, payload: c.CreateRunRequest, request: Request) -> c.WorkflowRunResponse:
     require_role(request, c.UserRole.operator)
-    previous = repo.jobs[job_id].current_run_id
+    previous = repo.jobs[job_id].active_run_id
     run = workflow.start_digital_human_run(
         job_id=job_id,
         mode=payload.mode,
@@ -1044,6 +1166,9 @@ def approve_prompt_version(
     if sqlalchemy_prompt_repository is not None:
         return sqlalchemy_prompt_repository.approve_version(template_id, version_id, payload)
     version = repo.prompt_versions[version_id]
+    if version.status == "draft":
+        assert_transition("prompt_version", version.status, "reviewing")
+        version = repo.patch(repo.prompt_versions, version_id, {"status": "reviewing"})
     assert_transition("prompt_version", version.status, "approved")
     version = repo.patch(repo.prompt_versions, version_id, {"status": "approved", "approved_at": c.utcnow()})
     return c.PromptVersionView(version=version, template=repo.prompt_templates[template_id])
@@ -1856,26 +1981,31 @@ def create_publish_batch(payload: c.CreatePublishBatchRequest, request: Request)
 
 
 @app.get("/api/publish/batches/{batch_id}", response_model=c.PublishBatchVm)
-def publish_batch_detail(batch_id: str) -> c.PublishBatchVm:
+def publish_batch_detail(batch_id: str) -> c.PublishBatchVm | JSONResponse:
     if sqlalchemy_publishing_repository is not None:
         batch = sqlalchemy_publishing_repository.get_batch(batch_id)
         if batch is None:
-            raise HTTPException(status_code=404, detail="Publish batch not found")
+            return not_found_response("Publish batch not found")
         return batch
-    return repo.publish_batches[batch_id]
+    batch = repo.publish_batches.get(batch_id)
+    if batch is None:
+        return not_found_response("Publish batch not found")
+    return batch
 
 
 @app.post("/api/publish/batches/{batch_id}/submit", response_model=c.PublishBatchVm, status_code=202)
 def submit_publish_batch(
     batch_id: str, payload: c.SubmitPublishBatchRequest, request: Request
-) -> c.PublishBatchVm:
+) -> c.PublishBatchVm | JSONResponse:
     require_role(request, c.UserRole.operator)
     if sqlalchemy_publishing_repository is not None:
         batch = sqlalchemy_publishing_repository.submit_batch(batch_id, payload)
         if batch is None:
-            raise HTTPException(status_code=404, detail="Publish batch not found")
+            return not_found_response("Publish batch not found")
         return batch
-    batch = repo.publish_batches[batch_id]
+    batch = repo.publish_batches.get(batch_id)
+    if batch is None:
+        return not_found_response("Publish batch not found")
     new_items = []
     selected_count = 0
     for item in batch.items:
@@ -1901,9 +2031,14 @@ def submit_publish_batch(
         assert_transition("publish_attempt", "created", attempt_status)
         attempt = c.PublishAttempt(
             id=new_id("pub_attempt"),
+            batch_id=batch.id,
             item_id=item.id,
-            platform=item.platform,
+            platforms=[item.platform],
+            manual_review=payload.dry_run,
             status=c.PublishAttemptStatus(attempt_status),
+            adapter_id="sandbox.publish",
+            results=[],
+            finished_at=c.utcnow() if attempt_status == "published" else None,
         )
         repo.publish_attempts[attempt.id] = attempt
     if selected_count == 0:
@@ -1924,12 +2059,12 @@ def submit_publish_batch(
 @app.patch("/api/publish/items/{item_id}", response_model=c.PublishBatchItemVm)
 def patch_publish_item(
     item_id: str, payload: c.PatchPublishItemRequest, request: Request
-) -> c.PublishBatchItemVm:
+) -> c.PublishBatchItemVm | JSONResponse:
     require_role(request, c.UserRole.operator)
     if sqlalchemy_publishing_repository is not None:
         item = sqlalchemy_publishing_repository.patch_item(item_id, payload)
         if item is None:
-            raise HTTPException(status_code=404, detail="Publish item not found")
+            return not_found_response("Publish item not found")
         return item
     for batch in repo.publish_batches.values():
         for index, item in enumerate(batch.items):
@@ -1939,17 +2074,20 @@ def patch_publish_item(
                 items[index] = updated
                 repo.publish_batches[batch.id] = batch.model_copy(update={"items": items})
                 return updated
-    raise HTTPException(status_code=404, detail="Publish item not found")
+    return not_found_response("Publish item not found")
 
 
 @app.get("/api/publish/attempts/{attempt_id}", response_model=c.PublishAttemptDetail)
-def publish_attempt(attempt_id: str) -> c.PublishAttemptDetail:
+def publish_attempt(attempt_id: str) -> c.PublishAttemptDetail | JSONResponse:
     if sqlalchemy_publishing_repository is not None:
         detail = sqlalchemy_publishing_repository.attempt_detail(attempt_id)
         if detail is None:
-            raise HTTPException(status_code=404, detail="Publish attempt not found")
+            return not_found_response("Publish attempt not found")
         return detail
-    return c.PublishAttemptDetail(attempt=repo.publish_attempts[attempt_id], record=None)
+    attempt = repo.publish_attempts.get(attempt_id)
+    if attempt is None:
+        return not_found_response("Publish attempt not found")
+    return c.PublishAttemptDetail(attempt=attempt, record=None)
 
 
 @app.get("/api/ops/dashboard", response_model=c.OpsDashboardVm)

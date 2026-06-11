@@ -23,11 +23,12 @@ def test_upload_flow_uses_object_store_uri_and_validates_integrity():
     prepared = client.post(
         "/api/uploads/prepare",
         json={
+            "kind": "portrait",
+            "case_id": "case_demo",
             "filename": "sample.txt",
-            "mime_type": "text/plain",
+            "content_type": "text/plain",
             "size_bytes": len(content),
             "sha256": digest,
-            "purpose": "import",
         },
     )
     assert prepared.status_code == 201, prepared.text
@@ -49,6 +50,8 @@ def test_upload_flow_uses_object_store_uri_and_validates_integrity():
     assert completed.status_code == 200, completed.text
     artifact = completed.json()["artifact"]
     assert artifact["kind"] == "uploaded.file"
+    assert completed.json()["media_asset"]["kind"] == "portrait"
+    assert completed.json()["media_asset"]["source_artifact_id"] == artifact["artifact_id"]
 
 
 def test_upload_file_rejects_size_mismatch_before_completion():
@@ -56,10 +59,10 @@ def test_upload_file_rejects_size_mismatch_before_completion():
     prepared = client.post(
         "/api/uploads/prepare",
         json={
+            "kind": "broll",
             "filename": "short.txt",
-            "mime_type": "text/plain",
+            "content_type": "text/plain",
             "size_bytes": 100,
-            "purpose": "import",
         },
     ).json()
     response = client.put(
@@ -68,3 +71,41 @@ def test_upload_file_rejects_size_mismatch_before_completion():
     )
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "upload.size_mismatch"
+
+
+def test_publish_video_upload_creates_publish_package():
+    login_admin()
+    content = b"publish video upload"
+    digest = hashlib.sha256(content).hexdigest()
+    prepared = client.post(
+        "/api/uploads/prepare",
+        json={
+            "kind": "publish_video",
+            "case_id": "case_demo",
+            "filename": "publish.mp4",
+            "content_type": "video/mp4",
+            "size_bytes": len(content),
+            "sha256": digest,
+        },
+    )
+    assert prepared.status_code == 201, prepared.text
+    upload = prepared.json()
+    uploaded = client.put(
+        f"/api/uploads/{upload['id']}/file",
+        files={"file": ("publish.mp4", content, "video/mp4")},
+    )
+    assert uploaded.status_code == 200, uploaded.text
+
+    completed = client.post(
+        "/api/uploads/complete",
+        json={
+            "upload_session_id": upload["id"],
+            "sha256": digest,
+            "metadata": {"title": "Publish upload"},
+        },
+    )
+
+    assert completed.status_code == 200, completed.text
+    assert completed.json()["media_asset"] is None
+    assert completed.json()["publish_package"]["upload_artifact_id"] == completed.json()["artifact"]["artifact_id"]
+    assert completed.json()["publish_package"]["platform_defaults"]["title"] == "Publish upload"

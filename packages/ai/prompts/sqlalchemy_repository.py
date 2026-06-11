@@ -284,6 +284,10 @@ class SqlAlchemyPromptRepository:
             if template is None or version is None or version.prompt_template_id != template_id:
                 raise NodeExecutionError(ErrorCode.validation_invalid_options, "Prompt version not found.")
             if "status" in updates:
+                if version.status == "draft" and updates["status"] == "approved":
+                    assert_transition("prompt_version", version.status, "reviewing")
+                    version.status = "reviewing"
+                    version.updated_at = utcnow()
                 assert_transition("prompt_version", version.status, updates["status"])
             for key, value in updates.items():
                 setattr(version, key, value)

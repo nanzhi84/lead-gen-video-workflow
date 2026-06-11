@@ -37,7 +37,7 @@ def user_row_to_contract(row: UserRow) -> AuthUser:
         email=row.email,
         display_name=row.display_name,
         role=UserRole(row.role),
-        disabled=row.disabled,
+        status=row.status,
         schema_version=row.schema_version,
         created_at=row.created_at,
         updated_at=row.updated_at,
@@ -102,7 +102,7 @@ class SqlAlchemyAuthService:
                 display_name=payload.display_name,
                 password_hash=self.hash_password(payload.password),
                 role=role.value,
-                disabled=False,
+                status="active",
             )
             session.add(row)
             if code is not None:
@@ -130,9 +130,9 @@ class SqlAlchemyAuthService:
                 id=new_id("usr"),
                 email=payload.email,
                 display_name=payload.display_name,
-                password_hash=self.hash_password(payload.password),
+                password_hash=self.hash_password(payload.password or new_id("pwd")),
                 role=payload.role.value,
-                disabled=False,
+                status="active",
             )
             session.add(row)
             session.commit()
@@ -168,7 +168,7 @@ class SqlAlchemyAuthService:
     def change_password(self, user_id: str, payload: ChangePasswordRequest) -> None:
         with self.session_factory() as session:
             row = session.get(UserRow, user_id)
-            if row is None or not self._verify_hash(row.password_hash, payload.current_password):
+            if row is None or not self._verify_hash(row.password_hash, payload.old_password):
                 raise NodeExecutionError(ErrorCode.auth_invalid_credentials, "Invalid credentials.")
             row.password_hash = self.hash_password(payload.new_password)
             row.updated_at = utcnow()
@@ -215,7 +215,7 @@ class SqlAlchemyAuthService:
             row = session.scalar(select(UserRow).where(UserRow.email == email))
             if row is None or not self._verify_hash(row.password_hash, password):
                 raise NodeExecutionError(ErrorCode.auth_invalid_credentials, "Invalid credentials.")
-            if row.disabled:
+            if row.status == "disabled":
                 raise NodeExecutionError(ErrorCode.auth_user_disabled, "User is disabled.")
             user = user_row_to_contract(row)
             auth_response, token = self._auth_response(session, user)
@@ -232,7 +232,7 @@ class SqlAlchemyAuthService:
             if session_row.expires_at < utcnow():
                 raise NodeExecutionError(ErrorCode.auth_unauthorized, "Session expired.")
             user_row = session.get(UserRow, session_row.user_id)
-            if user_row is None or user_row.disabled:
+            if user_row is None or user_row.status == "disabled":
                 raise NodeExecutionError(ErrorCode.auth_unauthorized, "User is not available.")
             return user_row_to_contract(user_row)
 
@@ -250,14 +250,28 @@ class SqlAlchemyAuthService:
             raise NodeExecutionError(ErrorCode.auth_forbidden, "Permission denied.")
 
     def session_info(self, user: AuthUser, request_id: str) -> SessionInfo:
-        return SessionInfo(user=user, expires_at=utcnow() + self.session_ttl, request_id=request_id)
+        with self.session_factory() as session:
+            session_row = session.scalar(
+                select(SessionRow)
+                .where(SessionRow.user_id == user.id)
+                .where(SessionRow.revoked_at.is_(None))
+                .order_by(SessionRow.expires_at.desc())
+                .limit(1)
+            )
+            session_id = session_row.id if session_row else ""
+        return SessionInfo(
+            user=user,
+            session_id=session_id,
+            expires_at=utcnow() + self.session_ttl,
+            request_id=request_id,
+        )
 
     def _auth_response(self, session: Session, user: AuthUser) -> tuple[AuthResponse, str]:
         token = new_id("sess")
         expires_at = utcnow() + self.session_ttl
         session.add(SessionRow(id=token, user_id=user.id, expires_at=expires_at))
         request_id = "req_local"
-        info = SessionInfo(user=user, expires_at=expires_at, request_id=request_id)
+        info = SessionInfo(user=user, session_id=token, expires_at=expires_at, request_id=request_id)
         return AuthResponse(user=user, session=info, request_id=request_id), token
 
     def _verify_hash(self, password_hash: str, password: str) -> bool:

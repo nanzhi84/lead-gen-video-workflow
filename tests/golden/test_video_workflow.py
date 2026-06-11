@@ -1,6 +1,8 @@
 from fastapi.testclient import TestClient
 
 from apps.api.main import app
+from apps.api.main import repo
+from packages.core.contracts import ArtifactKind
 
 
 client = TestClient(app)
@@ -20,11 +22,12 @@ def video_payload(**overrides):
         "title": "Golden success",
         "script": "先指出低效内容生产的痛点。再展示 Case Memory 如何复用历史经验。最后邀请运营查看报告。",
         "voice": {"voice_id": "voice_sandbox"},
-        "portrait": {"required": True},
+        "portrait": {"template_mode": "agent"},
         "broll": {"enabled": False, "max_inserts": 2},
         "bgm": {"enabled": False},
-        "subtitles": {"enabled": True},
+        "subtitle": {"enabled": True},
         "lipsync": {"enabled": True, "provider_profile_id": "runninghub.heygem.default"},
+        "strictness": {"strict_timestamps": False},
     }
     payload.update(overrides)
     return payload
@@ -61,7 +64,7 @@ def test_broll_missing_is_soft_degrade_and_reported():
         "/api/jobs/digital-human-video",
         json=video_payload(
             title="B-roll degraded",
-            broll={"enabled": True, "max_inserts": 2, "asset_ids": ["asset_missing"]},
+            broll={"enabled": True, "max_inserts": 2, "case_id": "case_without_broll"},
         ),
     )
     assert response.status_code == 201, response.text
@@ -84,6 +87,51 @@ def test_portrait_missing_is_hard_fail():
     detail = client.get(f"/api/runs/{run['id']}").json()
     errors = [node.get("error") for node in detail["node_runs"] if node.get("error")]
     assert errors[-1]["code"] == "material.insufficient.portrait"
+
+
+def test_pipeline_writes_typed_artifact_payloads_with_frame_quantized_timeline():
+    login_admin()
+    response = client.post(
+        "/api/jobs/digital-human-video",
+        json=video_payload(title="Typed artifacts"),
+    )
+    assert response.status_code == 201, response.text
+    run = response.json()["initial_run"]
+
+    artifacts = {
+        artifact.kind: artifact
+        for artifact in repo.artifacts.values()
+        if artifact.run_id == run["id"]
+    }
+    narration = artifacts[ArtifactKind.narration_units].payload
+    assert narration["source"] == "estimated"
+    assert narration["strict"] is False
+    assert all({"unit_id", "start", "end", "confidence"} <= set(unit) for unit in narration["units"])
+
+    timeline = artifacts[ArtifactKind.timeline_plan].payload
+    assert timeline["fps"] == 30
+    assert timeline["total_frames"] > 0
+    assert isinstance(timeline["tracks"], list)
+    assert all(isinstance(segment["timeline_start_frame"], int) for segment in timeline["tracks"])
+    assert timeline["validation"]["checks"] == {
+        "overlap": True,
+        "negative_duration": True,
+        "out_of_bounds": True,
+    }
+
+
+def test_strict_alignment_rejects_estimated_narration_units():
+    login_admin()
+    response = client.post(
+        "/api/jobs/digital-human-video",
+        json=video_payload(title="Strict timestamps", strictness={"strict_timestamps": True}),
+    )
+    assert response.status_code == 201, response.text
+    run = response.json()["initial_run"]
+    assert run["status"] == "failed"
+    detail = client.get(f"/api/runs/{run['id']}").json()
+    errors = [node.get("error") for node in detail["node_runs"] if node.get("error")]
+    assert errors[-1]["code"] == "render.invalid_timeline"
 
 
 def test_resume_from_failed_job_is_rejected_by_state_machine():

@@ -5,6 +5,9 @@ from packages.core.contracts import (
     ErrorCode,
     JobStatus,
     NodeStatus,
+    PublishItemStatus,
+    PublishAttempt,
+    PublishAttemptStatus,
     ProviderStatus,
     RunStatus,
 )
@@ -37,8 +40,12 @@ def test_core_state_machines_allow_spec_paths_and_reject_failed_to_running():
 
 
 def test_prompt_version_draft_cannot_publish_directly():
-    assert_transition("prompt_version", "draft", "approved")
+    assert_transition("prompt_version", "draft", "reviewing")
+    assert_transition("prompt_version", "reviewing", "approved")
     assert_transition("prompt_version", "approved", "published")
+
+    with pytest.raises(NodeExecutionError):
+        assert_transition("prompt_version", "draft", "approved")
 
     with pytest.raises(NodeExecutionError):
         assert_transition("prompt_version", "draft", "published")
@@ -66,3 +73,29 @@ def test_case_memory_requires_approved_before_active():
 
     with pytest.raises(NodeExecutionError):
         assert_transition("case_memory", "proposed", "active")
+
+
+def test_publish_item_status_uses_uploaded_initial_state_not_draft():
+    assert "draft" not in {status.value for status in PublishItemStatus}
+    assert_transition("publish_item", PublishItemStatus.uploaded, PublishItemStatus.normalizing)
+
+
+def test_publish_attempt_contract_has_appendix_f_fields():
+    attempt = PublishAttempt(
+        id="attempt_1",
+        batch_id="batch_1",
+        item_id="item_1",
+        platforms=["douyin"],
+        manual_review=True,
+        status=PublishAttemptStatus.manual_review_ready,
+        adapter_id="sandbox.publish",
+        external_task_id=None,
+        results=[],
+        error=None,
+    )
+
+    assert attempt.batch_id == "batch_1"
+    assert attempt.platforms == ["douyin"]
+    assert attempt.manual_review is True
+    assert attempt.adapter_id == "sandbox.publish"
+    assert attempt.finished_at is None

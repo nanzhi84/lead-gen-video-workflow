@@ -170,4 +170,4 @@ def test_sqlalchemy_provider_configuration_and_price_catalog_flow_is_persisted()
         assert catalog_row is not None
         assert catalog_row.status == "deprecated"
         assert item_row is not None
-        assert item_row.unit_price == {"currency": "CNY", "amount": 0.5}
+        assert item_row.unit_price == {"currency": "CNY", "amount": "0.5", "amount_micro": 500000}

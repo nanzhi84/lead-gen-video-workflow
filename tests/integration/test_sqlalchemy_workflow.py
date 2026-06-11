@@ -47,7 +47,8 @@ def test_sqlalchemy_workflow_job_run_report_and_artifacts_are_persisted():
                 "script": "用一个简短脚本验证数据库工作流持久化。",
                 "publish_content": "Database workflow handoff.",
                 "voice": {"voice_id": "voice_sandbox"},
-                "portrait": {"required": True},
+                "portrait": {"template_mode": "agent"},
+                "strictness": {"strict_timestamps": False},
             },
         )
         assert created.status_code == 201, created.text
@@ -58,7 +59,7 @@ def test_sqlalchemy_workflow_job_run_report_and_artifacts_are_persisted():
 
         job_detail = client.get(f"/api/jobs/{job_id}")
         assert job_detail.status_code == 200, job_detail.text
-        assert job_detail.json()["job"]["current_run_id"] == run_id
+        assert job_detail.json()["job"]["active_run_id"] == run_id
         assert job_detail.json()["latest_report_artifact_id"]
 
         run_detail = client.get(f"/api/runs/{run_id}")

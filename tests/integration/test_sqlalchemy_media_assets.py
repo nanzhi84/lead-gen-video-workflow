@@ -32,11 +32,12 @@ def create_completed_media_asset(client: TestClient) -> dict:
     prepared = client.post(
         "/api/uploads/prepare",
         json={
+            "kind": "portrait",
+            "case_id": "case_demo",
             "filename": "clip.txt",
-            "mime_type": "text/plain",
+            "content_type": "text/plain",
             "size_bytes": len(content),
             "sha256": digest,
-            "purpose": "media",
         },
     )
     assert prepared.status_code == 201, prepared.text

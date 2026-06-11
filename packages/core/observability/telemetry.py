@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from packages.core.contracts import RunStatus
+from packages.core.contracts import ProviderStatus, RunStatus
 from packages.core.storage import Repository
 
 
@@ -27,9 +27,8 @@ def metric_snapshot(repository: Repository) -> str:
     provider_invocations = list(repository.provider_invocations.values())
     failed_runs = len([run for run in runs if run.status == RunStatus.failed])
     failed_nodes = len([node for node in node_runs if node.status == "failed"])
-    failed_providers = len(
-        [item for item in provider_invocations if item.status.value in {"failed", "timeout", "quota_exceeded"}]
-    )
+    failed_provider_statuses = {ProviderStatus.failed, ProviderStatus.timed_out}
+    failed_providers = len([item for item in provider_invocations if item.status in failed_provider_statuses])
     estimated_cost = sum(item.estimated_cost.amount for item in provider_invocations if item.estimated_cost)
     lines = [
         "# HELP api_request_duration_seconds API request duration placeholder.",

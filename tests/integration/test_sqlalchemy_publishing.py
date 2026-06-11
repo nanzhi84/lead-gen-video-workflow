@@ -37,11 +37,12 @@ def create_completed_upload_artifact(client: TestClient) -> str:
     prepared = client.post(
         "/api/uploads/prepare",
         json={
+            "kind": "publish_video",
+            "case_id": "case_demo",
             "filename": "publishable-video.txt",
-            "mime_type": "text/plain",
+            "content_type": "text/plain",
             "size_bytes": len(content),
             "sha256": digest,
-            "purpose": "finished_video",
         },
     )
     assert prepared.status_code == 201, prepared.text
@@ -112,6 +113,7 @@ def test_sqlalchemy_publish_package_batch_item_and_attempt_flow_are_persisted():
         batch = created_batch.json()
         assert batch["status"] == "draft"
         assert len(batch["items"]) == 2
+        assert {item["status"] for item in batch["items"]} == {"uploaded"}
 
         first_item, second_item = batch["items"]
         patched_item = client.patch(

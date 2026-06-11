@@ -4,167 +4,22 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from packages.core.contracts import (
-    AdoptScriptDraftRequest,
-    CaseAgentRun,
-    CaseAgentRunDetail,
-    CaseAgentSourceBinding,
-    CaseInsightCard,
-    CaseKnowledgeResponse,
-    CaseMemory,
-    CaseMemoryScope,
-    CreateSourceBindingRequest,
-    CreativeBrief,
-    CreativePattern,
-    GenerateScriptWithMemoryRequest,
-    ImportCaseSourceRequest,
-    MemoryProposal,
-    ReflectionRun,
-    RunStatus,
-    ScriptDraft,
-    ScriptVersion,
-    StartCaseAgentRunRequest,
-    StartReflectionRunRequest,
-    VideoVersion,
-    utcnow,
+    AdoptScriptDraftRequest, CaseAgentRun, CaseAgentRunDetail, CaseAgentSourceBinding, CaseInsightCard,
+    CaseKnowledgeResponse, CaseMemory, CaseMemoryScope, CreateSourceBindingRequest, CreativePattern,
+    GenerateScriptWithMemoryRequest, ImportCaseSourceRequest, MemoryProposal, ReflectionRun, RunStatus,
+    ScriptDraft, ScriptVersion, StartCaseAgentRunRequest, StartReflectionRunRequest, utcnow,
 )
 from packages.core.storage.database import (
-    CaseAgentRunRow,
-    CaseAgentSourceBindingRow,
-    CaseMemoryRow,
-    CreativeBriefRow,
-    FinishedVideoRow,
-    MemoryProposalRow,
-    ReflectionRunRow,
-    ScriptDraftRow,
-    ScriptVersionRow,
-    VideoVersionRow,
+    CaseAgentRunRow, CaseAgentSourceBindingRow, CaseMemoryRow, CreativeBriefRow, FinishedVideoRow,
+    MemoryProposalRow, ReflectionRunRow, ScriptDraftRow, ScriptVersionRow, VideoVersionRow,
+)
+from packages.creative.cases.sqlalchemy_learning_mappers import (
+    case_agent_run_row_to_contract, case_memory_row_to_contract, creative_brief_row_to_contract,
+    memory_proposal_row_to_contract, reflection_run_row_to_contract, script_draft_row_to_contract,
+    script_version_row_to_contract, source_binding_row_to_contract, video_version_row_to_contract,
 )
 from packages.core.storage.repository import new_id
 from packages.core.contracts.state_machines import assert_transition
-
-
-def source_binding_row_to_contract(row: CaseAgentSourceBindingRow) -> CaseAgentSourceBinding:
-    return CaseAgentSourceBinding(
-        id=row.id,
-        case_id=row.case_id,
-        source_type=row.source_type,
-        source_ref=row.source_ref,
-        title=row.title,
-        schema_version=row.schema_version,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
-
-
-def case_agent_run_row_to_contract(row: CaseAgentRunRow) -> CaseAgentRun:
-    return CaseAgentRun(
-        id=row.id,
-        case_id=row.case_id,
-        goal=row.goal,
-        status=RunStatus(row.status),
-        source_binding_ids=list(row.source_binding_ids or []),
-        schema_version=row.schema_version,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
-
-
-def creative_brief_row_to_contract(row: CreativeBriefRow) -> CreativeBrief:
-    return CreativeBrief(
-        id=row.id,
-        case_id=row.case_id,
-        summary=row.summary,
-        source_binding_ids=list(row.source_binding_ids or []),
-        schema_version=row.schema_version,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
-
-
-def script_draft_row_to_contract(row: ScriptDraftRow) -> ScriptDraft:
-    return ScriptDraft(
-        id=row.id,
-        case_id=row.case_id,
-        title=row.title,
-        script=row.script,
-        status=row.status,
-        memory_ids=list(row.memory_ids or []),
-        schema_version=row.schema_version,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
-
-
-def script_version_row_to_contract(row: ScriptVersionRow) -> ScriptVersion:
-    return ScriptVersion(
-        id=row.id,
-        case_id=row.case_id,
-        title=row.title,
-        script=row.script,
-        creative_intent_artifact_id=row.creative_intent_artifact_id,
-        adopted_from_draft_id=row.adopted_from_draft_id,
-        schema_version=row.schema_version,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
-
-
-def case_memory_row_to_contract(row: CaseMemoryRow) -> CaseMemory:
-    return CaseMemory(
-        id=row.id,
-        case_id=row.case_id,
-        status=row.status,
-        scope=CaseMemoryScope.model_validate(row.scope),
-        insight=row.insight,
-        evidence=list(row.evidence or []),
-        confidence=row.confidence,
-        schema_version=row.schema_version,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
-
-
-def memory_proposal_row_to_contract(row: MemoryProposalRow) -> MemoryProposal:
-    return MemoryProposal(
-        id=row.id,
-        case_id=row.case_id,
-        status=row.status,
-        scope=CaseMemoryScope.model_validate(row.scope),
-        insight=row.insight,
-        evidence=list(row.evidence or []),
-        confidence=row.confidence,
-        proposed_by_reflection_run_id=row.proposed_by_reflection_run_id,
-        schema_version=row.schema_version,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
-
-
-def reflection_run_row_to_contract(row: ReflectionRunRow) -> ReflectionRun:
-    return ReflectionRun(
-        id=row.id,
-        case_id=row.case_id,
-        status=RunStatus(row.status),
-        window=row.window,
-        report_artifact_id=row.report_artifact_id,
-        schema_version=row.schema_version,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
-
-
-def video_version_row_to_contract(row: VideoVersionRow) -> VideoVersion:
-    return VideoVersion(
-        id=row.id,
-        case_id=row.case_id,
-        script_version_id=row.script_version_id,
-        finished_video_id=row.finished_video_id,
-        timeline_plan_artifact_id=row.timeline_plan_artifact_id,
-        style_plan_artifact_id=row.style_plan_artifact_id,
-        schema_version=row.schema_version,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
 
 
 class SqlAlchemyCaseLearningRepository:
@@ -196,6 +51,15 @@ class SqlAlchemyCaseLearningRepository:
             session.commit()
             session.refresh(row)
             return source_binding_row_to_contract(row)
+
+    def delete_source_binding(self, *, case_id: str, binding_id: str) -> bool:
+        with self.session_factory() as session:
+            row = session.get(CaseAgentSourceBindingRow, binding_id)
+            if row is None or row.case_id != case_id:
+                return False
+            session.delete(row)
+            session.commit()
+            return True
 
     def import_case_source(self, *, case_id: str, payload: ImportCaseSourceRequest) -> CaseAgentRun | None:
         with self.session_factory() as session:

@@ -32,6 +32,12 @@ def create_source_binding(
     return service.create_source_binding(case_id, payload, request)
 
 
+@router.delete("/api/cases/{case_id}/agent/source-bindings/{binding_id}", response_model=c.OkResponse)
+def delete_source_binding(case_id: str, binding_id: str, request: Request) -> c.OkResponse:
+    require_role(request, c.UserRole.operator)
+    return service.delete_source_binding(case_id, binding_id, request)
+
+
 @router.post("/api/cases/{case_id}/agent/import-source", response_model=c.CaseAgentRun, status_code=202)
 def import_case_source(case_id: str, payload: c.ImportCaseSourceRequest, request: Request) -> c.CaseAgentRun:
     require_role(request, c.UserRole.operator)

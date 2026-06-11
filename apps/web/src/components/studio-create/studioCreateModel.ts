@@ -1,0 +1,136 @@
+export type StudioStep = 0 | 1 | 2 | 3 | 4;
+
+export type LipSyncPreset = "balanced" | "large_motion" | "strict_face" | "audio_priority";
+
+export type FormState = {
+  title: string;
+  script: string;
+  voiceId: string;
+  speed: number;
+  emotion: string;
+  portraitMode: "agent" | "specific" | "sequence";
+  rhythmPreset: "steady" | "balanced" | "fast";
+  brollEnabled: boolean;
+  maxInserts: number;
+  subtitleEnabled: boolean;
+  subtitleStyle: "douyin" | "clean" | "variety" | "news" | "movie" | "youshe_title_black";
+  subtitleSize: number;
+  bgmEnabled: boolean;
+  bgmVolume: number;
+  bgmAutoMix: boolean;
+  coverMode: "none" | "frame" | "ai";
+  lipsyncEnabled: boolean;
+  lipsyncPreset: LipSyncPreset;
+  lipsyncVideoExtension: boolean;
+  lipsyncTimeoutMinutes: number;
+};
+
+export const STORAGE_KEY = "m6ar_studio_create_preferences_v1";
+
+export const defaultForm: FormState = {
+  title: "",
+  script: "先指出内容生产低效。再展示 Case Memory 如何复用经验。最后推动发布复盘。",
+  voiceId: "voice_sandbox",
+  speed: 1,
+  emotion: "neutral",
+  portraitMode: "agent",
+  rhythmPreset: "balanced",
+  brollEnabled: true,
+  maxInserts: 4,
+  subtitleEnabled: true,
+  subtitleStyle: "douyin",
+  subtitleSize: 28,
+  bgmEnabled: false,
+  bgmVolume: 0.25,
+  bgmAutoMix: true,
+  coverMode: "frame",
+  lipsyncEnabled: true,
+  lipsyncPreset: "balanced",
+  lipsyncVideoExtension: false,
+  lipsyncTimeoutMinutes: 30,
+};
+
+export const steps = ["脚本", "模板", "成片配置", "后处理", "提交"] as const;
+
+export const emotionOptions = [
+  { value: "neutral", label: "自然" },
+  { value: "happy", label: "明快" },
+  { value: "serious", label: "沉稳" },
+  { value: "energetic", label: "有力" },
+] as const;
+
+export const lipsyncPresets: Record<LipSyncPreset, { label: string; description: string; videoExtension: boolean }> = {
+  balanced: { label: "标准均衡", description: "通用场景默认策略，兼顾锁脸稳定性与匹配成功率。", videoExtension: false },
+  large_motion: { label: "大幅头动", description: "适合转头、抬头、位移较大场景，提高匹配宽容度。", videoExtension: false },
+  strict_face: { label: "严格锁脸", description: "适合固定机位单人视频，减少误匹配。", videoExtension: false },
+  audio_priority: { label: "时长优先", description: "音频较长时自动延长视频，避免尾部被截断。", videoExtension: true },
+};
+
+function clampNumber(value: number, min: number, max: number, fallback: number) {
+  if (Number.isNaN(value)) return fallback;
+  return Math.max(min, Math.min(max, value));
+}
+
+export function loadStoredForm(): FormState {
+  if (typeof window === "undefined") return defaultForm;
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (!saved) return defaultForm;
+    const parsed = JSON.parse(saved) as Partial<FormState>;
+    return {
+      ...defaultForm,
+      ...parsed,
+      speed: clampNumber(Number(parsed.speed ?? defaultForm.speed), 0.5, 2, defaultForm.speed),
+      maxInserts: clampNumber(Number(parsed.maxInserts ?? defaultForm.maxInserts), 0, 20, defaultForm.maxInserts),
+      subtitleSize: clampNumber(Number(parsed.subtitleSize ?? defaultForm.subtitleSize), 12, 96, defaultForm.subtitleSize),
+      bgmVolume: clampNumber(Number(parsed.bgmVolume ?? defaultForm.bgmVolume), 0, 1, defaultForm.bgmVolume),
+      lipsyncTimeoutMinutes: clampNumber(
+        Number(parsed.lipsyncTimeoutMinutes ?? defaultForm.lipsyncTimeoutMinutes),
+        5,
+        90,
+        defaultForm.lipsyncTimeoutMinutes,
+      ),
+    };
+  } catch {
+    return defaultForm;
+  }
+}
+
+export function validateStep(step: StudioStep, form: FormState, selectedVoice: string) {
+  if (step === 0 && !form.script.trim()) return "请先输入脚本正文";
+  if (step === 1 && form.portraitMode !== "agent") return "当前版本请使用自动模板，指定模板和序列将在素材库里程碑接入";
+  if (step === 2 && !selectedVoice) return "请选择可用声音";
+  if (step === 2 && (form.speed < 0.5 || form.speed > 2)) return "语速需在 0.5 到 2.0 之间";
+  if (step === 3 && form.subtitleEnabled && (form.subtitleSize < 12 || form.subtitleSize > 96)) return "字幕字号需在 12 到 96 之间";
+  if (step === 3 && form.bgmEnabled && (form.bgmVolume < 0 || form.bgmVolume > 1)) return "BGM 音量需在 0 到 100% 之间";
+  return null;
+}
+
+export function validateAll(form: FormState, selectedVoice: string) {
+  for (let index = 0; index < steps.length - 1; index += 1) {
+    const message = validateStep(index as StudioStep, form, selectedVoice);
+    if (message) return { step: index as StudioStep, message };
+  }
+  return null;
+}
+
+export function portraitModeLabel(value: FormState["portraitMode"]) {
+  if (value === "agent") return "自动模板";
+  if (value === "specific") return "指定模板";
+  return "模板序列";
+}
+
+export function rhythmLabel(value: FormState["rhythmPreset"]) {
+  if (value === "steady") return "稳";
+  if (value === "fast") return "快";
+  return "均衡";
+}
+
+export function subtitleLabel(value: FormState["subtitleStyle"]) {
+  if (value === "clean") return "简洁风";
+  if (value === "variety") return "综艺风";
+  if (value === "news") return "新闻风";
+  if (value === "movie") return "电影风";
+  if (value === "youshe_title_black") return "标题黑风";
+  return "抖音风";
+}

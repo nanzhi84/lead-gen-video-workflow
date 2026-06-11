@@ -1,34 +1,27 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Ban, Download, Eye, Image as ImageIcon, Play, RotateCw } from "lucide-react";
+import { Ban, Eye, Image as ImageIcon, Play, RotateCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import { api, type ApiError, type NodeRun, type RunCard, type RunDetailResponse } from "../../api/client";
+import { api, type ApiError, type RunCard } from "../../api/client";
 import { EmptyState, ErrorState, LoadingState } from "../../components/State";
 import { StatusPill } from "../../components/Status";
 import { StudioTabs } from "../../components/StudioTabs";
 import { TimeText } from "../../components/TimeText";
+import { RunDetailModal } from "../../components/runs/RunDetailModal";
+import {
+  confirmButtonText,
+  confirmConsequences,
+  confirmMessage,
+  confirmTitle,
+  connectionLabel,
+  type PendingAction,
+} from "../../components/runs/runModel";
 import { useToast } from "../../components/Toast";
-import { Modal } from "../../components/ui/Modal";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { useRunEvents } from "../../hooks/useRunEvents";
 import { usePageVisible } from "../../hooks/usePageVisible";
 import { shortId } from "../../lib/format";
 import { toDisplayUrl } from "../../lib/url";
-
-type RunAction = "cancel" | "retry" | "resume";
-
-type PendingAction = {
-  type: RunAction;
-  run: RunCard;
-};
-
-function connectionLabel(state: string) {
-  if (state === "live") return "实时连接中";
-  if (state === "connecting") return "正在连接";
-  if (state === "reconnecting") return "重连中";
-  if (state === "error") return "连接异常";
-  return "未连接";
-}
 
 export default function RunsPage() {
   const { caseId = "" } = useParams();
@@ -45,6 +38,12 @@ export default function RunsPage() {
   const runs = useQuery({
     queryKey: ["case-runs", caseId],
     queryFn: () => api.cases.runs(caseId, { limit: 100 }),
+    enabled: Boolean(caseId),
+    refetchInterval: pageVisible ? 10000 : false,
+  });
+  const finishedVideos = useQuery({
+    queryKey: ["finished-videos", caseId],
+    queryFn: () => api.finishedVideos.list(caseId),
     enabled: Boolean(caseId),
     refetchInterval: pageVisible ? 10000 : false,
   });
@@ -282,6 +281,7 @@ export default function RunsPage() {
         detail={runDetail.data}
         isLoading={runDetail.isLoading}
         error={runDetail.error}
+        finishedVideo={finishedVideos.data?.items.find((video) => video.run_id === selectedCard?.runId) ?? null}
         onAction={(type, run) => setPendingAction({ type, run })}
       />
 
@@ -327,195 +327,4 @@ function RunThumbnail({ run }: { run: RunCard }) {
       ) : null}
     </div>
   );
-}
-
-function RunDetailModal({
-  isOpen,
-  onClose,
-  card,
-  detail,
-  isLoading,
-  error,
-  onAction,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  card?: RunCard;
-  detail?: RunDetailResponse;
-  isLoading: boolean;
-  error: unknown;
-  onAction: (type: RunAction, run: RunCard) => void;
-}) {
-  const nodes = detail?.node_runs ?? [];
-  const artifacts = detail?.artifacts ?? [];
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title={card ? `运行详情 ${shortId(card.runId)}` : "运行详情"} size="2xl">
-      {!card ? <EmptyState title="暂无任务" /> : null}
-      {isLoading ? <LoadingState label="加载运行详情" /> : null}
-      {error ? <ErrorState error={error} /> : null}
-      {card ? (
-        <div className="grid gap-5">
-          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
-            <div>
-              <h3 className="text-xl font-semibold text-text-primary">{card.title}</h3>
-              <p className="mt-1 text-sm text-text-secondary">当前节点：{card.currentNodeLabel || "等待节点推进"}</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button className="btn-secondary compactButton" type="button" disabled={card.status !== "running" && card.status !== "admitted"} onClick={() => onAction("cancel", card)}>
-                <Ban className="h-4 w-4" />
-                <span>中断</span>
-              </button>
-              <button className="btn-secondary compactButton" type="button" disabled={!card.canRetry} onClick={() => onAction("retry", card)}>
-                <RotateCw className="h-4 w-4" />
-                <span>重试</span>
-              </button>
-              <button className="btn-secondary compactButton" type="button" disabled={!card.canResume} onClick={() => onAction("resume", card)}>
-                <Play className="h-4 w-4" />
-                <span>续跑</span>
-              </button>
-            </div>
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-4">
-            <DetailMetric label="状态" value={<StatusPill status={card.status} />} />
-            <DetailMetric label="进度" value={`${Math.round(card.progress * 100)}%`} />
-            <DetailMetric label="开始" value={<TimeText value={card.startedAt} />} />
-            <DetailMetric label="更新" value={<TimeText value={card.updatedAt} />} />
-          </div>
-
-          <section className="grid gap-3">
-            <h4 className="text-base font-semibold text-text-primary">节点时间线</h4>
-            {nodes.length === 0 && !isLoading ? <EmptyState title="暂无节点" /> : null}
-            <div className="grid gap-3">
-              {nodes.map((node) => (
-                <NodeDetail key={node.id} node={node} />
-              ))}
-            </div>
-          </section>
-
-          <section className="grid gap-3">
-            <h4 className="text-base font-semibold text-text-primary">产物清单</h4>
-            {artifacts.length === 0 ? <EmptyState title="暂无产物" detail="节点完成后会显示可下载产物。" /> : null}
-            <div className="grid gap-2">
-              {artifacts.map((artifact) => (
-                <a
-                  className="flex items-center justify-between gap-3 rounded-2xl border border-border/70 bg-white/60 p-3 no-underline hover:bg-white/80"
-                  href={artifact.uri}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  key={artifact.artifact_id}
-                >
-                  <div className="min-w-0">
-                    <p className="truncate font-medium text-text-primary">{artifactLabel(artifact.kind)}</p>
-                    <p className="truncate font-mono text-xs text-text-tertiary">{shortId(artifact.artifact_id, 12)} · {artifact.schema_version}</p>
-                  </div>
-                  <Download className="h-4 w-4 text-accent" />
-                </a>
-              ))}
-            </div>
-          </section>
-        </div>
-      ) : null}
-    </Modal>
-  );
-}
-
-function DetailMetric({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="rounded-2xl border border-border/70 bg-white/60 p-3">
-      <p className="text-xs text-text-tertiary">{label}</p>
-      <div className="mt-1 text-sm font-medium text-text-primary">{value}</div>
-    </div>
-  );
-}
-
-function NodeDetail({ node }: { node: NodeRun }) {
-  const warnings = [...(node.warnings ?? []), ...(node.degradations ?? []).map((item) => item.code)];
-  return (
-    <div className="grid gap-3 rounded-[20px] border border-border/70 bg-white/60 p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="font-semibold text-text-primary">{node.node_id}</p>
-          <p className="text-xs text-text-secondary">
-            <TimeText value={node.started_at} /> - <TimeText value={node.finished_at} />
-          </p>
-        </div>
-        <StatusPill status={node.status} />
-      </div>
-      {warnings.length > 0 ? (
-        <div className="grid gap-1 rounded-2xl border border-status-warning/20 bg-status-warning/10 p-3 text-sm text-status-warning">
-          {warnings.map((warning) => (
-            <p key={warning}>{warningLabel(warning)}</p>
-          ))}
-          {(node.degradations ?? []).map((notice) => (
-            <p key={`${notice.code}-${notice.node_id ?? ""}`}>{notice.message || warningLabel(notice.code)}</p>
-          ))}
-        </div>
-      ) : null}
-      {node.error ? (
-        <div className="grid gap-1 rounded-2xl border border-status-error/25 bg-status-error/10 p-3 text-sm text-status-error">
-          <p className="font-medium">{node.error.message}</p>
-          <p>严重级别：{severityLabel(node.error.severity)} · {node.error.retryable ? "可重试" : "不可重试"}</p>
-          {node.error.request_id ? <p className="font-mono text-xs">request_id: {node.error.request_id}</p> : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function warningLabel(value: string) {
-  if (value === "broll.skipped_no_material") return "B-roll 素材不足，已跳过插入";
-  if (value === "bgm.skipped_library_unannotated") return "BGM 库未完成标注，已跳过配乐";
-  if (value === "font_default_used") return "指定字体不可用，已使用默认字体";
-  if (value === "cover.frame_fallback") return "封面生成降级为取帧";
-  if (value === "timestamp.estimated") return "部分时间戳为系统估算";
-  if (value === "cost.unpriced") return "部分供应商费用未定价";
-  return "未知警告";
-}
-
-function severityLabel(value: string) {
-  if (value === "info") return "提示";
-  if (value === "warning") return "警告";
-  if (value === "fatal") return "致命";
-  return "错误";
-}
-
-function artifactLabel(value: string) {
-  if (value === "video.final" || value === "video.finished") return "最终视频";
-  if (value === "video.rendered") return "渲染视频";
-  if (value === "subtitle.ass") return "字幕文件";
-  if (value === "cover.image") return "封面图片";
-  if (value === "audio.tts") return "配音音频";
-  if (value === "publish.package") return "发布包";
-  if (value === "run.report.public") return "公开报告";
-  if (value === "run.report.debug") return "调试报告";
-  return "运行产物";
-}
-
-function confirmTitle(action: PendingAction | null) {
-  if (action?.type === "cancel") return "确认中断生成任务";
-  if (action?.type === "retry") return "确认重试任务";
-  if (action?.type === "resume") return "确认续跑任务";
-  return "确认操作";
-}
-
-function confirmMessage(action: PendingAction | null) {
-  if (action?.type === "cancel") return "系统会请求停止当前生成链路，已完成产物会保留在运行记录中。";
-  if (action?.type === "retry") return "系统会复制当前配置并创建新的生成任务，可能产生新的供应商费用。";
-  if (action?.type === "resume") return "系统会从失败阶段继续执行，并复用已完成节点的有效产物。";
-  return "请确认是否继续。";
-}
-
-function confirmConsequences(action: PendingAction | null) {
-  if (action?.type === "cancel") return ["不会删除已生成文件", "任务会进入中断中，最终状态由后端工作流确认"];
-  if (action?.type === "retry") return ["会创建新的 Run", "会重新调用必要供应商能力并可能计费"];
-  if (action?.type === "resume") return ["会复用可用产物", "只从失败或待恢复阶段继续执行"];
-  return [];
-}
-
-function confirmButtonText(action: PendingAction | null) {
-  if (action?.type === "cancel") return "确认中断";
-  if (action?.type === "retry") return "确认重试";
-  if (action?.type === "resume") return "确认续跑";
-  return "确认";
 }

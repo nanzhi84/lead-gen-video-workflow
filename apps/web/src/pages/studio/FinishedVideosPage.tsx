@@ -10,6 +10,7 @@ import { useAuth } from "../auth/AuthContext";
 import { routes } from "../../routes";
 import { TimeText } from "../../components/TimeText";
 import { toDisplayUrl } from "../../lib/url";
+import { EditorHandoffActions } from "../../components/editor-handoff/EditorHandoffActions";
 
 export default function FinishedVideosPage() {
   const { caseId = "" } = useParams();
@@ -115,6 +116,7 @@ export default function FinishedVideosPage() {
                     <span>删除</span>
                   </button>
                 ) : null}
+                <EditorHandoffActions finishedVideoId={video.id} compact />
               </span>
             </div>
           ))}

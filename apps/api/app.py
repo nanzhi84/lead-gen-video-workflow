@@ -41,7 +41,7 @@ from packages.core.storage.secret_store import LocalSecretStore
 from packages.core.storage.sqlalchemy_idempotency import SqlAlchemyIdempotencyRepository
 from packages.core.storage.sqlalchemy_secrets import SqlAlchemySecretRepository
 from packages.core.storage.sqlalchemy_uploads import SqlAlchemyUploadRepository
-from packages.core.workflow import NodeExecutionError
+from packages.core.workflow import NodeExecutionError, load_workflow_runtime_settings
 from packages.creative.cases import SqlAlchemyCaseLearningRepository, SqlAlchemyCaseRepository
 from packages.media import SqlAlchemyMediaRepository
 from packages.ops import SqlAlchemyOpsRepository
@@ -117,11 +117,21 @@ def configure_app_state(app: FastAPI, *, session_factory=None) -> None:
         secret_store=app.state.secret_store,
     )
     app.state.prompt_registry = PromptRegistry(runtime_repository, prompt_reader=prompt_reader)
-    app.state.workflow = build_digital_human_workflow(
+    app.state.workflow_runtime_settings = load_workflow_runtime_settings()
+    local_runtime = build_digital_human_workflow(
         runtime_repository,
         provider_gateway=app.state.provider_gateway,
         prompt_registry=app.state.prompt_registry,
     )
+    if app.state.workflow_runtime_settings.runtime == "temporal":
+        from packages.core.workflow.temporal_adapter import TemporalRuntimeAdapter
+
+        app.state.workflow = TemporalRuntimeAdapter(
+            app.state.workflow_runtime_settings,
+            repository=runtime_repository,
+        )
+    else:
+        app.state.workflow = local_runtime
 
 
 def create_app() -> FastAPI:

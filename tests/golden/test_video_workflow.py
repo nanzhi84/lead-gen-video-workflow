@@ -134,6 +134,31 @@ def test_strict_alignment_rejects_estimated_narration_units():
     assert errors[-1]["code"] == "render.invalid_timeline"
 
 
+def test_resume_from_successful_run_reuses_prefix_and_keeps_report_readable():
+    login_admin()
+    created = client.post(
+        "/api/jobs/digital-human-video",
+        json=video_payload(title="Resume source"),
+    )
+    assert created.status_code == 201, created.text
+    source_run = created.json()["initial_run"]
+    assert source_run["status"] == "succeeded"
+
+    resumed = client.post(
+        f"/api/runs/{source_run['id']}/resume",
+        json={"reason": "reuse successful prefix", "reuse_valid_artifacts": True},
+    )
+
+    assert resumed.status_code == 201, resumed.text
+    new_run = resumed.json()["run"]
+    assert new_run["status"] == "succeeded"
+    detail = client.get(f"/api/runs/{new_run['id']}").json()
+    assert detail["node_runs"]
+    assert all(node["status"] == "skipped" for node in detail["node_runs"])
+    report = client.get(f"/api/runs/{new_run['id']}/report")
+    assert report.status_code == 200, report.text
+
+
 def test_resume_from_failed_job_is_rejected_by_state_machine():
     login_admin()
     case = client.post("/api/cases", json={"name": "Resume case"}).json()

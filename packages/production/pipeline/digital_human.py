@@ -54,6 +54,7 @@ from packages.core.contracts.state_machines import assert_transition
 from packages.core.storage import Repository
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError, NodeOutput, WorkflowRuntimeAdapter, manifest_hash
+from packages.production.pipeline.reuse import ReusePlan, ReuseSourceRun, compute_reuse_plan
 
 
 NODE_SEQUENCE = [
@@ -77,12 +78,18 @@ NODE_SEQUENCE = [
 
 
 def digital_human_template() -> WorkflowTemplate:
+    provider_side_effect_nodes = {"TTS", "ResolveCreativeIntent", "LipSync"}
     nodes = [
         NodeSpec(
             node_id=node_id,
             input_schema=f"{node_id}.input.v1",
             output_artifact_kinds=[],
-            side_effects=["provider_call"] if node_id in {"TTS", "ResolveCreativeIntent", "LipSync"} else [],
+            side_effects=["provider_call"] if node_id in provider_side_effect_nodes else [],
+            idempotency_key=(
+                f"digital_human_v2:{node_id}:{{input_manifest_hash}}"
+                if node_id in provider_side_effect_nodes
+                else None
+            ),
         )
         for node_id in NODE_SEQUENCE
     ]
@@ -163,7 +170,7 @@ def degradation_notice(
     )
 
 
-class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
+class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
     def __init__(
         self,
         repository: Repository,
@@ -175,48 +182,32 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
         self.prompt_registry = prompt_registry
         self.template = digital_human_template()
 
-    def start_digital_human_run(
+    def start_run(
         self,
         *,
-        job_id: str,
-        mode: str = "new",
-        from_run_id: str | None = None,
-        reason: str | None = None,
-    ) -> WorkflowRun:
-        job = self.repository.jobs[job_id]
-        attempt = 1 + len([run for run in self.repository.runs.values() if run.job_id == job_id])
-        run = WorkflowRun(
-            id=new_id("run"),
-            job_id=job_id,
-            case_id=job.case_id,
-            workflow_template_id=self.template.workflow_template_id,
-            workflow_version=self.template.version,
-            status=RunStatus.created,
-            requested_by=job.created_by,
-            run_attempt=attempt,
-            resume_from_run_id=from_run_id if mode == "resume" else None,
-            retry_of_run_id=from_run_id if mode == "retry" else None,
+        job: Job,
+        run: WorkflowRun,
+        template: WorkflowTemplate,
+    ) -> None:
+        self._execute(run.id, mode="new", from_run_id=None, reuse_plan=None)
+
+    def resume_run(
+        self,
+        *,
+        source_run_id: str,
+        new_run: WorkflowRun,
+        reuse_plan,
+    ) -> None:
+        self._execute(
+            new_run.id,
+            mode="resume",
+            from_run_id=source_run_id,
+            reuse_plan=ReusePlan.model_validate(reuse_plan),
         )
-        assert_transition("run", run.status, RunStatus.admitted)
-        run = run.model_copy(update={"status": RunStatus.admitted, "updated_at": utcnow()})
-        self.repository.runs[run.id] = run
-        self.repository.node_runs[run.id] = []
-        next_job_status = job.status
-        if next_job_status == JobStatus.draft:
-            assert_transition("job", next_job_status, JobStatus.queued)
-            next_job_status = JobStatus.queued
-        assert_transition("job", next_job_status, JobStatus.running)
-        self.repository.jobs[job_id] = job.model_copy(
-            update={"active_run_id": run.id, "status": JobStatus.running, "updated_at": utcnow()}
-        )
-        self.repository.create_event(
-            "workflow.run.created",
-            "run",
-            run.id,
-            {"job_id": job_id, "mode": mode, "reason": reason or ""},
-        )
-        self._execute(run.id, mode=mode, from_run_id=from_run_id)
-        return self.repository.runs[run.id]
+
+    def get_run_status(self, run_id: str) -> RunStatus | None:
+        run = self.repository.runs.get(run_id)
+        return run.status if run else None
 
     def cancel_run(self, run_id: str, *, force: bool = False, reason: str | None = None) -> WorkflowRun:
         run = self.repository.runs[run_id]
@@ -225,121 +216,192 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
                 ErrorCode.workflow_invalid_transition,
                 f"Run {run_id} cannot be cancelled from {run.status}.",
             )
-        if run.status == RunStatus.running:
-            assert_transition("run", run.status, RunStatus.cancelling)
-            run = run.model_copy(update={"status": RunStatus.cancelling, "updated_at": utcnow()})
-            self.repository.runs[run.id] = run
-        assert_transition("run", run.status, RunStatus.cancelled)
-        run = run.model_copy(
-            update={"status": RunStatus.cancelled, "finished_at": utcnow(), "updated_at": utcnow()}
-        )
-        self.repository.runs[run.id] = run
+        self._mark_cancelled(run_id)
         self.repository.create_event(
             "workflow.run.cancelled",
             "run",
             run.id,
             {"force": force, "reason": reason or ""},
         )
-        return run
+        return self.repository.runs[run_id]
 
-    def _execute(self, run_id: str, *, mode: str, from_run_id: str | None) -> None:
+    def _execute(
+        self,
+        run_id: str,
+        *,
+        mode: str,
+        from_run_id: str | None,
+        reuse_plan: ReusePlan | None,
+    ) -> None:
         run = self.repository.runs[run_id]
         job = self.repository.jobs[run.job_id]
         request = self._request(job)
         state = RunState(request=request)
         start_index = 0
+        if job.status != JobStatus.running:
+            assert_transition("job", job.status, JobStatus.running)
+            job = job.model_copy(update={"status": JobStatus.running, "updated_at": utcnow()})
+            self.repository.jobs[job.id] = job
         assert_transition("run", run.status, RunStatus.running)
         run = run.model_copy(update={"status": RunStatus.running, "started_at": utcnow()})
         self.repository.runs[run.id] = run
         if mode == "resume" and from_run_id:
-            start_index = self._reuse_prefix(run, state, from_run_id)
+            start_index = self._reuse_prefix(run, state, from_run_id, reuse_plan)
         for index, node_id in enumerate(NODE_SEQUENCE[start_index:], start=start_index):
             if self.repository.runs[run.id].status == RunStatus.cancelled:
                 return
-            node_run = NodeRun(
-                id=new_id("nr"),
-                run_id=run.id,
-                node_id=node_id,
-                node_version="v1",
-                status=NodeStatus.pending,
-                input_manifest_hash=manifest_hash(
-                    {
-                        "node_id": node_id,
-                        "request": request.model_dump(mode="json"),
-                        "artifact_refs": {
-                            kind.value: artifact.id for kind, artifact in state.artifacts.items()
-                        },
-                    }
-                ),
-                started_at=utcnow(),
-            )
-            self.repository.node_runs[run.id].append(node_run)
-            try:
-                if not self._may_skip_without_running(node_id, state):
-                    assert_transition("node", node_run.status, NodeStatus.running)
-                    node_run = node_run.model_copy(
-                        update={"status": NodeStatus.running, "updated_at": utcnow()}
-                    )
-                    self.repository.node_runs[run.id][-1] = node_run
-                output = self._run_node(node_id, run, node_run, state)
-                for artifact in output.artifacts:
-                    state.artifacts[artifact.kind] = artifact
-                state.provider_invocation_ids.extend(output.provider_invocation_ids)
-                state.warnings.extend(output.warnings)
-                state.degradations.extend(output.degradations)
-                status = output.status
-                if status == NodeStatus.succeeded and output.degradations:
-                    status = NodeStatus.degraded
-                if node_run.status == NodeStatus.pending and status != NodeStatus.skipped:
-                    assert_transition("node", node_run.status, NodeStatus.running)
-                    node_run = node_run.model_copy(update={"status": NodeStatus.running})
-                assert_transition("node", node_run.status, status)
-                patched = node_run.model_copy(
-                    update={
-                        "status": status,
-                        "output_artifact_ids": [artifact.id for artifact in output.artifacts],
-                        "provider_invocation_ids": output.provider_invocation_ids,
-                        "warnings": output.warnings,
-                        "degradations": output.degradations,
-                        "degradation_reason": "; ".join(item.message for item in output.degradations) or None,
-                        "finished_at": utcnow(),
-                        "updated_at": utcnow(),
-                    }
-                )
-                self.repository.node_runs[run.id][-1] = patched
-            except NodeExecutionError as exc:
-                if node_run.status == NodeStatus.pending:
-                    assert_transition("node", node_run.status, NodeStatus.running)
-                    node_run = node_run.model_copy(update={"status": NodeStatus.running})
-                    self.repository.node_runs[run.id][-1] = node_run
-                assert_transition("node", node_run.status, NodeStatus.failed)
-                error = exc.error.model_copy(
-                    update={"job_id": job.id, "run_id": run.id, "node_run_id": node_run.id}
-                )
-                self.repository.node_runs[run.id][-1] = node_run.model_copy(
-                    update={
-                        "status": NodeStatus.failed,
-                        "error": error,
-                        "finished_at": utcnow(),
-                        "updated_at": utcnow(),
-                    }
-                )
-                self._write_report(run, state, failed=True)
-                assert_transition("run", self.repository.runs[run.id].status, RunStatus.failed)
-                self.repository.runs[run.id] = self.repository.runs[run.id].model_copy(
-                    update={"status": RunStatus.failed, "finished_at": utcnow(), "updated_at": utcnow()}
-                )
-                assert_transition("job", self.repository.jobs[job.id].status, JobStatus.failed)
-                self.repository.jobs[job.id] = self.repository.jobs[job.id].model_copy(
-                    update={"status": JobStatus.failed, "updated_at": utcnow()}
-                )
-                self.repository.create_event(
-                    "workflow.node.failed",
-                    "run",
-                    run.id,
-                    {"node_id": node_id, "error_code": error.code.value},
-                )
+            if not self._execute_node(node_id, run, state):
                 return
+        self._complete_run(run.id)
+
+    def run_node_activity(self, run_id: str, node_id: str) -> dict:
+        run = self.repository.runs[run_id]
+        job = self.repository.jobs[run.job_id]
+        request = self._request(job)
+        state = self._state_from_persisted_artifacts(run_id, request)
+        if job.status != JobStatus.running:
+            assert_transition("job", job.status, JobStatus.running)
+            self.repository.jobs[job.id] = job.model_copy(
+                update={"status": JobStatus.running, "updated_at": utcnow()}
+            )
+        if run.status == RunStatus.cancelling:
+            self._mark_cancelled(run_id)
+            return self._node_activity_summary(run_id, node_id)
+        if run.status == RunStatus.admitted:
+            assert_transition("run", run.status, RunStatus.running)
+            run = run.model_copy(update={"status": RunStatus.running, "started_at": utcnow()})
+            self.repository.runs[run.id] = run
+        if self.repository.runs[run_id].status != RunStatus.running:
+            return self._node_activity_summary(run_id, node_id)
+        if self._execute_node(node_id, self.repository.runs[run_id], state) and node_id == NODE_SEQUENCE[-1]:
+            self._complete_run(run_id)
+        return self._node_activity_summary(run_id, node_id)
+
+    def apply_reuse_plan(
+        self, run_id: str, source_run_id: str, reuse_plan: ReusePlan
+    ) -> dict:
+        run = self.repository.runs[run_id]
+        request = self._request(self.repository.jobs[run.job_id])
+        state = RunState(request=request)
+        self._reuse_prefix(run, state, source_run_id, reuse_plan)
+        return {
+            "run_id": run_id,
+            "source_run_id": source_run_id,
+            "reused_node_ids": list(reuse_plan.reused_node_ids),
+            "rerun_from_node_id": reuse_plan.rerun_from_node_id,
+        }
+
+    def request_cancel(self, run_id: str, *, force: bool = False, reason: str | None = None) -> WorkflowRun:
+        return self.cancel_run(run_id, force=force, reason=reason) or self.repository.runs[run_id]
+
+    def _state_from_persisted_artifacts(
+        self, run_id: str, request: DigitalHumanVideoRequest
+    ) -> RunState:
+        state = RunState(request=request)
+        for artifact in self.repository.artifacts.values():
+            if artifact.run_id == run_id:
+                state.artifacts[artifact.kind] = artifact
+        for node_run in self.repository.node_runs.get(run_id, []):
+            for artifact_id in node_run.output_artifact_ids:
+                artifact = self.repository.artifacts.get(artifact_id)
+                if artifact is not None:
+                    state.artifacts[artifact.kind] = artifact
+        for node_run in self.repository.node_runs.get(run_id, []):
+            state.provider_invocation_ids.extend(node_run.provider_invocation_ids)
+            state.warnings.extend(node_run.warnings)
+            state.degradations.extend(node_run.degradations)
+        return state
+
+    def _execute_node(self, node_id: str, run: WorkflowRun, state: RunState) -> bool:
+        job = self.repository.jobs[run.job_id]
+        request = state.request
+        node_run = NodeRun(
+            id=new_id("nr"),
+            run_id=run.id,
+            node_id=node_id,
+            node_version="v1",
+            status=NodeStatus.pending,
+            input_manifest_hash=manifest_hash(
+                {
+                    "node_id": node_id,
+                    "request": request.model_dump(mode="json"),
+                    "artifact_refs": {
+                        kind.value: artifact.id for kind, artifact in state.artifacts.items()
+                    },
+                }
+            ),
+            started_at=utcnow(),
+        )
+        self.repository.node_runs[run.id].append(node_run)
+        try:
+            if not self._may_skip_without_running(node_id, state):
+                assert_transition("node", node_run.status, NodeStatus.running)
+                node_run = node_run.model_copy(update={"status": NodeStatus.running, "updated_at": utcnow()})
+                self.repository.node_runs[run.id][-1] = node_run
+            output = self._run_node(node_id, run, node_run, state)
+            for artifact in output.artifacts:
+                state.artifacts[artifact.kind] = artifact
+            state.provider_invocation_ids.extend(output.provider_invocation_ids)
+            state.warnings.extend(output.warnings)
+            state.degradations.extend(output.degradations)
+            status = output.status
+            if status == NodeStatus.succeeded and output.degradations:
+                status = NodeStatus.degraded
+            if node_run.status == NodeStatus.pending and status != NodeStatus.skipped:
+                assert_transition("node", node_run.status, NodeStatus.running)
+                node_run = node_run.model_copy(update={"status": NodeStatus.running})
+            assert_transition("node", node_run.status, status)
+            patched = node_run.model_copy(
+                update={
+                    "status": status,
+                    "output_artifact_ids": [artifact.id for artifact in output.artifacts],
+                    "provider_invocation_ids": output.provider_invocation_ids,
+                    "warnings": output.warnings,
+                    "degradations": output.degradations,
+                    "degradation_reason": "; ".join(item.message for item in output.degradations) or None,
+                    "finished_at": utcnow(),
+                    "updated_at": utcnow(),
+                }
+            )
+            self.repository.node_runs[run.id][-1] = patched
+            return True
+        except NodeExecutionError as exc:
+            if node_run.status == NodeStatus.pending:
+                assert_transition("node", node_run.status, NodeStatus.running)
+                node_run = node_run.model_copy(update={"status": NodeStatus.running})
+                self.repository.node_runs[run.id][-1] = node_run
+            assert_transition("node", node_run.status, NodeStatus.failed)
+            error = exc.error.model_copy(
+                update={"job_id": job.id, "run_id": run.id, "node_run_id": node_run.id}
+            )
+            self.repository.node_runs[run.id][-1] = node_run.model_copy(
+                update={
+                    "status": NodeStatus.failed,
+                    "error": error,
+                    "finished_at": utcnow(),
+                    "updated_at": utcnow(),
+                }
+            )
+            self._write_report(run, state, failed=True)
+            assert_transition("run", self.repository.runs[run.id].status, RunStatus.failed)
+            self.repository.runs[run.id] = self.repository.runs[run.id].model_copy(
+                update={"status": RunStatus.failed, "finished_at": utcnow(), "updated_at": utcnow()}
+            )
+            assert_transition("job", self.repository.jobs[job.id].status, JobStatus.failed)
+            self.repository.jobs[job.id] = self.repository.jobs[job.id].model_copy(
+                update={"status": JobStatus.failed, "updated_at": utcnow()}
+            )
+            self.repository.create_event(
+                "workflow.node.failed",
+                "run",
+                run.id,
+                {"node_id": node_id, "error_code": error.code.value},
+            )
+            return False
+
+    def _complete_run(self, run_id: str) -> None:
+        run = self.repository.runs[run_id]
+        job = self.repository.jobs[run.job_id]
         final_status = RunStatus.succeeded
         assert_transition("run", self.repository.runs[run.id].status, final_status)
         self.repository.runs[run.id] = self.repository.runs[run.id].model_copy(
@@ -356,31 +418,85 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
             {"status": final_status.value},
         )
 
-    def _reuse_prefix(self, run: WorkflowRun, state: RunState, from_run_id: str) -> int:
+    def _mark_cancelled(self, run_id: str) -> None:
+        run = self.repository.runs[run_id]
+        if run.status == RunStatus.cancelled:
+            return
+        if run.status == RunStatus.running:
+            assert_transition("run", run.status, RunStatus.cancelling)
+            run = run.model_copy(update={"status": RunStatus.cancelling, "updated_at": utcnow()})
+            self.repository.runs[run.id] = run
+        assert_transition("run", self.repository.runs[run.id].status, RunStatus.cancelled)
+        self.repository.runs[run.id] = self.repository.runs[run.id].model_copy(
+            update={"status": RunStatus.cancelled, "finished_at": utcnow(), "updated_at": utcnow()}
+        )
+        job = self.repository.jobs[run.job_id]
+        if job.status != JobStatus.cancelled:
+            assert_transition("job", job.status, JobStatus.cancelled)
+            self.repository.jobs[job.id] = job.model_copy(
+                update={"status": JobStatus.cancelled, "updated_at": utcnow()}
+            )
+
+    def _node_activity_summary(self, run_id: str, node_id: str) -> dict:
+        run = self.repository.runs[run_id]
+        latest = next(
+            (node for node in reversed(self.repository.node_runs.get(run_id, [])) if node.node_id == node_id),
+            None,
+        )
+        return {
+            "run_id": run_id,
+            "node_id": node_id,
+            "node_status": latest.status.value if latest else None,
+            "run_status": run.status.value,
+        }
+
+    def _reuse_prefix(
+        self,
+        run: WorkflowRun,
+        state: RunState,
+        from_run_id: str,
+        reuse_plan: ReusePlan | None,
+    ) -> int:
         previous = self.repository.node_runs.get(from_run_id, [])
-        reusable_statuses = {NodeStatus.succeeded, NodeStatus.degraded, NodeStatus.skipped}
-        start_index = 0
-        for index, previous_node_run in enumerate(previous):
-            if previous_node_run.status not in reusable_statuses:
-                start_index = index
-                break
+        if reuse_plan is None:
+            reuse_plan = compute_reuse_plan(
+                ReuseSourceRun(
+                    run=self.repository.runs[from_run_id],
+                    node_runs=previous,
+                ),
+                self.template,
+                self.repository.artifacts,
+            )
+        previous_by_node = {node.node_id: node for node in previous}
+        for node_id in reuse_plan.reused_node_ids:
+            previous_node_run = previous_by_node[node_id]
             for artifact_id in previous_node_run.output_artifact_ids:
                 artifact = self.repository.artifacts.get(artifact_id)
                 if artifact is None:
-                    start_index = index
-                    break
+                    raise NodeExecutionError(
+                        ErrorCode.artifact_missing,
+                        f"Reusable artifact {artifact_id} is missing.",
+                    )
                 state.artifacts[artifact.kind] = artifact
+                if artifact.kind == ArtifactKind.run_report_public:
+                    self.repository.runs[run.id] = self.repository.runs[run.id].model_copy(
+                        update={"public_report_artifact_id": artifact.id, "updated_at": utcnow()}
+                    )
+                elif artifact.kind == ArtifactKind.run_report_debug:
+                    self.repository.runs[run.id] = self.repository.runs[run.id].model_copy(
+                        update={"debug_report_artifact_id": artifact.id, "updated_at": utcnow()}
+                    )
             copied = previous_node_run.model_copy(
                 update={
                     "id": new_id("nr"),
                     "run_id": run.id,
                     "status": NodeStatus.skipped,
+                    "skipped_reason": "resume.reused_artifact_prefix",
                     "updated_at": utcnow(),
                 }
             )
             self.repository.node_runs[run.id].append(copied)
-            start_index = index + 1
-        return start_index
+        return reuse_plan.reused_count
 
     def _may_skip_without_running(self, node_id: str, state: RunState) -> bool:
         return (
@@ -1223,9 +1339,12 @@ def build_digital_human_workflow(
     *,
     provider_gateway: ProviderGateway | None = None,
     prompt_registry: PromptRegistry | None = None,
-) -> DigitalHumanWorkflow:
-    return DigitalHumanWorkflow(
+) -> LocalRuntimeAdapter:
+    return LocalRuntimeAdapter(
         repository,
         provider_gateway or ProviderGateway(repository),
         prompt_registry or PromptRegistry(repository),
     )
+
+
+DigitalHumanWorkflow = LocalRuntimeAdapter

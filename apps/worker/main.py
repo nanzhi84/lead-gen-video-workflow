@@ -1,14 +1,83 @@
 from __future__ import annotations
 
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+
+from temporalio.client import Client
+from temporalio.worker import Worker
+
+from packages.ai.gateway import ProviderGateway, SqlAlchemyProviderRuntimeRepository
+from packages.ai.prompts import PromptRegistry, SqlAlchemyPromptRuntimeRepository
 from packages.core.storage import Repository
+from packages.core.storage.bootstrap import (
+    bootstrap_sqlalchemy_storage_if_enabled,
+    get_sqlalchemy_session_factory_if_enabled,
+)
+from packages.core.storage.secret_store import LocalSecretStore
+from packages.core.workflow import load_workflow_runtime_settings
+from packages.core.workflow.temporal_adapter import (
+    TemporalActivityContext,
+    configure_temporal_activity_context,
+    temporal_activities,
+    temporal_workflows,
+)
+from packages.production import SqlAlchemyProductionRepository
 from packages.production.pipeline import build_digital_human_workflow
 
 
+async def async_main() -> None:
+    bootstrap_sqlalchemy_storage_if_enabled()
+    settings = load_workflow_runtime_settings()
+    session_factory = get_sqlalchemy_session_factory_if_enabled()
+    runtime_repository = Repository()
+    secret_store = LocalSecretStore()
+    provider_reader = (
+        SqlAlchemyProviderRuntimeRepository(session_factory) if session_factory is not None else None
+    )
+    prompt_reader = (
+        SqlAlchemyPromptRuntimeRepository(session_factory) if session_factory is not None else None
+    )
+    provider_gateway = ProviderGateway(
+        runtime_repository,
+        provider_reader=provider_reader,
+        secret_store=secret_store,
+    )
+    prompt_registry = PromptRegistry(runtime_repository, prompt_reader=prompt_reader)
+    local_runtime = build_digital_human_workflow(
+        runtime_repository,
+        provider_gateway=provider_gateway,
+        prompt_registry=prompt_registry,
+    )
+    production_repository = (
+        SqlAlchemyProductionRepository(session_factory) if session_factory is not None else None
+    )
+    configure_temporal_activity_context(
+        TemporalActivityContext(
+            repository=runtime_repository,
+            local_runtime=local_runtime,
+            production_repository=production_repository,
+        )
+    )
+    client = await Client.connect(
+        settings.temporal_address,
+        namespace=settings.temporal_namespace,
+    )
+    worker = Worker(
+        client,
+        task_queue=settings.temporal_task_queue,
+        workflows=temporal_workflows(),
+        activities=temporal_activities(),
+        activity_executor=ThreadPoolExecutor(max_workers=8),
+    )
+    print(
+        "Cutagent Temporal worker ready: "
+        f"{settings.temporal_namespace}/{settings.temporal_task_queue}"
+    )
+    await worker.run()
+
+
 def main() -> None:
-    workflow = build_digital_human_workflow(Repository())
-    node_count = len(workflow.template.nodes)
-    print(f"Cutagent worker ready: {workflow.template.workflow_template_id}@{workflow.template.version}")
-    print(f"Registered activity contracts: {node_count}")
+    asyncio.run(async_main())
 
 
 if __name__ == "__main__":

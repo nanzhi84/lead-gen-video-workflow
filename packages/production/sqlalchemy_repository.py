@@ -9,6 +9,7 @@ from packages.core.contracts import (
     Artifact,
     AnnotationBatchRequest,
     CaseAgentRunRequest,
+    CaseDetail,
     CasePerformanceResponse,
     CreateEditorHandoffRequest,
     CreateImportBatchRequest,
@@ -122,6 +123,21 @@ def artifact_row_to_contract(row: ArtifactRow) -> Artifact:
         payload_schema=row.payload_schema,
         payload=row.payload,
         created_by_node_run_id=row.created_by_node_run_id,
+        schema_version=row.schema_version,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def case_row_to_contract(row: CaseRow) -> CaseDetail:
+    return CaseDetail(
+        id=row.id,
+        name=row.name,
+        owner_user_id=row.owner_user_id,
+        description=row.description,
+        industry=row.industry,
+        product=row.product,
+        target_audience=row.target_audience,
         schema_version=row.schema_version,
         created_at=row.created_at,
         updated_at=row.updated_at,
@@ -378,6 +394,43 @@ class SqlAlchemyProductionRepository:
     def run_exists(self, run_id: str) -> bool:
         with self.session_factory() as session:
             return session.get(WorkflowRunRow, run_id) is not None
+
+    def hydrate_workflow_runtime_snapshot(self, repository: Repository, run_id: str) -> None:
+        with self.session_factory() as session:
+            run_row = session.get(WorkflowRunRow, run_id)
+            if run_row is None:
+                raise NodeExecutionError(ErrorCode.artifact_missing, f"Run {run_id} is missing.")
+            job_row = session.get(JobRow, run_row.job_id)
+            if job_row is None:
+                raise NodeExecutionError(ErrorCode.artifact_missing, f"Job {run_row.job_id} is missing.")
+            if run_row.case_id:
+                case_row = session.get(CaseRow, run_row.case_id)
+                if case_row is not None:
+                    repository.cases[case_row.id] = case_row_to_contract(case_row)
+
+            job = job_row_to_contract(job_row)
+            run = workflow_run_row_to_contract(run_row)
+            repository.jobs[job.id] = job
+            repository.runs[run.id] = run
+            run_ids = {run_id}
+            if run.resume_from_run_id:
+                source_row = session.get(WorkflowRunRow, run.resume_from_run_id)
+                if source_row is not None:
+                    source_run = workflow_run_row_to_contract(source_row)
+                    repository.runs[source_run.id] = source_run
+                    run_ids.add(source_run.id)
+            node_runs = [
+                node_run_row_to_contract(row)
+                for row in session.scalars(select(NodeRunRow).where(NodeRunRow.run_id.in_(run_ids)))
+            ]
+            repository.node_runs[run_id] = [node for node in node_runs if node.run_id == run_id]
+            if run.resume_from_run_id:
+                repository.node_runs[run.resume_from_run_id] = [
+                    node for node in node_runs if node.run_id == run.resume_from_run_id
+                ]
+            for artifact in session.scalars(select(ArtifactRow).where(ArtifactRow.run_id.in_(run_ids))):
+                contract = artifact_row_to_contract(artifact)
+                repository.artifacts[contract.id] = contract
 
     def job_detail(self, job_id: str, request_id: str) -> JobDetailResponse | None:
         with self.session_factory() as session:

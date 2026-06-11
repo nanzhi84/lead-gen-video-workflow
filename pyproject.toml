@@ -10,6 +10,7 @@ dependencies = [
   "alembic>=1.13",
   "argon2-cffi>=23.1",
   "psycopg[binary]>=3.2",
+  "temporalio>=1.28",
   "uvicorn>=0.34",
   "python-multipart>=0.0.20",
 ]

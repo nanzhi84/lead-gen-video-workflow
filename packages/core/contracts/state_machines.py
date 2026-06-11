@@ -14,7 +14,7 @@ JOB_TRANSITIONS: dict[JobStatus, frozenset[JobStatus]] = {
     JobStatus.draft: frozenset({JobStatus.queued, JobStatus.cancelled}),
     JobStatus.queued: frozenset({JobStatus.running, JobStatus.cancelled}),
     JobStatus.running: frozenset({JobStatus.succeeded, JobStatus.failed, JobStatus.cancelled}),
-    JobStatus.succeeded: frozenset({JobStatus.archived}),
+    JobStatus.succeeded: frozenset({JobStatus.queued, JobStatus.archived}),
     JobStatus.failed: frozenset({JobStatus.archived}),
     JobStatus.cancelled: frozenset({JobStatus.archived}),
     JobStatus.archived: frozenset(),

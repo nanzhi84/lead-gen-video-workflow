@@ -14,12 +14,11 @@ from packages.core.storage.secret_store import SecretStore
 from packages.core.storage.sqlalchemy_idempotency import SqlAlchemyIdempotencyRepository
 from packages.core.storage.sqlalchemy_secrets import SqlAlchemySecretRepository
 from packages.core.storage.sqlalchemy_uploads import SqlAlchemyUploadRepository
-from packages.core.workflow import NodeExecutionError
+from packages.core.workflow import NodeExecutionError, WorkflowRuntimeAdapter
 from packages.creative.cases import SqlAlchemyCaseLearningRepository, SqlAlchemyCaseRepository
 from packages.media import SqlAlchemyMediaRepository
 from packages.ops import SqlAlchemyOpsRepository
 from packages.production import SqlAlchemyProductionRepository
-from packages.production.pipeline import DigitalHumanWorkflow
 from packages.publishing import SqlAlchemyPublishingRepository
 
 REQUEST_ID_CONTEXT: ContextVar[str | None] = ContextVar("request_id", default=None)
@@ -48,7 +47,7 @@ def auth(request: Request) -> AuthService | SqlAlchemyAuthService:
     return request.app.state.auth_service
 
 
-def workflow_runtime(request: Request) -> DigitalHumanWorkflow:
+def workflow_runtime(request: Request) -> WorkflowRuntimeAdapter:
     return request.app.state.workflow
 
 

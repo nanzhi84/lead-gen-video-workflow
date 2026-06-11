@@ -127,3 +127,11 @@ label，processing 类 animate-spin）、InfiniteScrollSentinel、AudioPlayer/Vi
 
 后端缺口处理：缺的只读/操作 API 按 M6a-1 D3 规范补（契约 + routers/services + OpenAPI 同步），
 但不得实现假语义（如假 AI 分析）——没有的能力 UI 上显示「待接入」禁用态并注明依赖 M6b/M6d。
+
+## R3 验收记录（2026-06-12，验收官：Claude）
+
+**判定：通过**（merge 见 git log）。证据：四 tab Playwright 实测零控制台错误；标注编辑器（etag 乐观锁/两段式重分析/409 中文提示）结构与类型齐备；上传统一 UploadSession；「待接入」禁用项如实申报无假语义；后端 104 测试 + tsc/build 绿。
+
+两次验收干预：① 打回 2059 行 LibraryPage 单文件，返工拆为 LibraryLayout + 四 tab + 13 共享组件（最大 375 行）——这正是原版 Templates.tsx 6453 行教训的防复发；② 修复内部 `local://` URI 泄漏进 img/audio src（加 toDisplayUrl 边界净化 + 占位回退）。
+
+待办：R4 发布中心、R5 概览/数据统计/账户中心。

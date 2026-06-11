@@ -1,0 +1,436 @@
+- generic [ref=e151]:
+  - complementary [ref=e152]:
+    - link "树影 Cutagent" [ref=e153] [cursor=pointer]:
+      - /url: /
+      - img [ref=e155]
+      - generic [ref=e157]:
+        - generic [ref=e158]: 树影
+        - generic [ref=e159]: Cutagent
+    - navigation "主导航" [ref=e161]:
+      - link "概览" [ref=e162] [cursor=pointer]:
+        - /url: /
+        - img [ref=e164]
+        - generic [ref=e167]: 概览
+      - link "案例中心" [ref=e168] [cursor=pointer]:
+        - /url: /studio
+        - img [ref=e170]
+        - generic [ref=e172]: 案例中心
+      - link "素材库" [ref=e173] [cursor=pointer]:
+        - /url: /library
+        - img [ref=e175]
+        - generic [ref=e177]: 素材库
+      - link "数据统计" [ref=e178] [cursor=pointer]:
+        - /url: /analytics
+        - img [ref=e180]
+        - generic [ref=e182]: 数据统计
+      - link "账户中心" [ref=e183] [cursor=pointer]:
+        - /url: /account
+        - img [ref=e185]
+        - generic [ref=e189]: 账户中心
+      - link "设置" [ref=e190] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e192]
+        - generic [ref=e195]: 设置
+    - generic [ref=e196]:
+      - generic "网络在线" [ref=e197]:
+        - img [ref=e198]
+        - generic [ref=e202]: 实时连接待命
+      - generic [ref=e203]:
+        - generic [ref=e204]: L
+        - generic [ref=e205]:
+          - paragraph [ref=e206]: Local Admin
+          - paragraph [ref=e207]: 管理员
+        - button "退出登录" [ref=e208] [cursor=pointer]:
+          - img [ref=e209]
+  - main [ref=e8]:
+    - generic [ref=e10]: 树影 / 素材库
+    - generic [ref=e11]:
+      - generic [ref=e13]:
+        - heading "素材库" [level=1] [ref=e14]
+        - paragraph [ref=e15]: 管理音色、视频模板、字体与配乐素材。
+      - navigation "素材库分类" [ref=e16]:
+        - link "音色" [ref=e17] [cursor=pointer]:
+          - /url: /library/voices
+          - img [ref=e18]
+          - generic [ref=e22]: 音色
+        - link "视频模板" [ref=e23] [cursor=pointer]:
+          - /url: /library/templates
+          - img [ref=e24]
+          - generic [ref=e26]: 视频模板
+        - link "字体" [ref=e27] [cursor=pointer]:
+          - /url: /library/fonts
+          - img [ref=e28]
+          - generic [ref=e32]: 字体
+        - link "BGM" [ref=e33] [cursor=pointer]:
+          - /url: /library/bgm
+          - img [ref=e34]
+          - generic [ref=e39]: BGM
+      - generic [ref=e40]:
+        - complementary [ref=e41]:
+          - generic [ref=e42]:
+            - heading "案例" [level=2] [ref=e43]
+            - paragraph [ref=e44]: 模板与 B-roll 按案例归档。
+          - generic [ref=e45]:
+            - img
+            - textbox "搜索案例" [ref=e46]
+          - generic [ref=e47]:
+            - button "验收演示 Case 负责人 usr_admi..." [ref=e48] [cursor=pointer]:
+              - generic [ref=e49]: 验收演示 Case
+              - generic [ref=e50]: 负责人 usr_admi...
+            - button "Imported Case 8370fa91 负责人 usr_admi..." [ref=e51] [cursor=pointer]:
+              - generic [ref=e52]: Imported Case 8370fa91
+              - generic [ref=e53]: 负责人 usr_admi...
+            - button "Idempotent SQL Case 负责人 usr_admi..." [ref=e54] [cursor=pointer]:
+              - generic [ref=e55]: Idempotent SQL Case
+              - generic [ref=e56]: 负责人 usr_admi...
+            - button "Integration Case 负责人 usr_admi..." [ref=e57] [cursor=pointer]:
+              - generic [ref=e58]: Integration Case
+              - generic [ref=e59]: 负责人 usr_admi...
+            - button "Imported Case 848ddeba 负责人 usr_admi..." [ref=e60] [cursor=pointer]:
+              - generic [ref=e61]: Imported Case 848ddeba
+              - generic [ref=e62]: 负责人 usr_admi...
+            - button "Idempotent SQL Case 负责人 usr_admi..." [ref=e63] [cursor=pointer]:
+              - generic [ref=e64]: Idempotent SQL Case
+              - generic [ref=e65]: 负责人 usr_admi...
+            - button "Integration Case 负责人 usr_admi..." [ref=e66] [cursor=pointer]:
+              - generic [ref=e67]: Integration Case
+              - generic [ref=e68]: 负责人 usr_admi...
+            - button "Idempotent SQL Case 负责人 usr_admi..." [ref=e69] [cursor=pointer]:
+              - generic [ref=e70]: Idempotent SQL Case
+              - generic [ref=e71]: 负责人 usr_admi...
+            - button "Imported Case 45af3a7f 负责人 usr_admi..." [ref=e72] [cursor=pointer]:
+              - generic [ref=e73]: Imported Case 45af3a7f
+              - generic [ref=e74]: 负责人 usr_admi...
+            - button "Idempotent SQL Case 负责人 usr_admi..." [ref=e75] [cursor=pointer]:
+              - generic [ref=e76]: Idempotent SQL Case
+              - generic [ref=e77]: 负责人 usr_admi...
+            - button "Integration Case 负责人 usr_admi..." [ref=e78] [cursor=pointer]:
+              - generic [ref=e79]: Integration Case
+              - generic [ref=e80]: 负责人 usr_admi...
+            - button "Imported Case 0915e3fc 负责人 usr_admi..." [ref=e81] [cursor=pointer]:
+              - generic [ref=e82]: Imported Case 0915e3fc
+              - generic [ref=e83]: 负责人 usr_admi...
+            - button "Idempotent SQL Case 负责人 usr_admi..." [ref=e84] [cursor=pointer]:
+              - generic [ref=e85]: Idempotent SQL Case
+              - generic [ref=e86]: 负责人 usr_admi...
+            - button "Integration Case 负责人 usr_admi..." [ref=e87] [cursor=pointer]:
+              - generic [ref=e88]: Integration Case
+              - generic [ref=e89]: 负责人 usr_admi...
+            - button "Imported Case ad549d48 负责人 usr_admi..." [ref=e90] [cursor=pointer]:
+              - generic [ref=e91]: Imported Case ad549d48
+              - generic [ref=e92]: 负责人 usr_admi...
+            - button "Idempotent SQL Case 负责人 usr_admi..." [ref=e93] [cursor=pointer]:
+              - generic [ref=e94]: Idempotent SQL Case
+              - generic [ref=e95]: 负责人 usr_admi...
+            - button "Integration Case 负责人 usr_admi..." [ref=e96] [cursor=pointer]:
+              - generic [ref=e97]: Integration Case
+              - generic [ref=e98]: 负责人 usr_admi...
+            - button "Imported Case 9c13d515 负责人 usr_admi..." [ref=e99] [cursor=pointer]:
+              - generic [ref=e100]: Imported Case 9c13d515
+              - generic [ref=e101]: 负责人 usr_admi...
+            - button "Idempotent SQL Case 负责人 usr_admi..." [ref=e102] [cursor=pointer]:
+              - generic [ref=e103]: Idempotent SQL Case
+              - generic [ref=e104]: 负责人 usr_admi...
+            - button "Integration Case 负责人 usr_admi..." [ref=e105] [cursor=pointer]:
+              - generic [ref=e106]: Integration Case
+              - generic [ref=e107]: 负责人 usr_admi...
+            - button "Demo Case 负责人 usr_admi..." [active] [ref=e108] [cursor=pointer]:
+              - generic [ref=e109]: Demo Case
+              - generic [ref=e110]: 负责人 usr_admi...
+        - generic [ref=e111]:
+          - generic [ref=e112]:
+            - generic [ref=e113]:
+              - heading "Demo Case" [level=2] [ref=e212]
+              - paragraph [ref=e115]: 人像模板与 B-roll 共用上传与标注流程。
+            - generic [ref=e116]:
+              - button "批量操作" [ref=e117] [cursor=pointer]:
+                - img [ref=e118]
+                - generic [ref=e121]: 批量操作
+              - button "上传素材" [ref=e122] [cursor=pointer]:
+                - img [ref=e123]
+                - generic [ref=e126]: 上传素材
+          - generic [ref=e127]:
+            - button "人像模板 13" [ref=e213] [cursor=pointer]:
+              - img [ref=e129]
+              - generic [ref=e132]: 人像模板
+              - generic [ref=e133]: "13"
+            - button "B-roll 19" [ref=e214] [cursor=pointer]:
+              - img [ref=e135]
+              - generic [ref=e137]: B-roll
+              - generic [ref=e138]: "19"
+          - generic [ref=e139]:
+            - generic [ref=e140]:
+              - img
+              - textbox "搜索标题、ID 或标签" [ref=e141]
+            - combobox [ref=e142]:
+              - option "全部场景" [selected]
+              - option "portrait"
+              - option "seed"
+              - option "upload"
+              - option "usable"
+            - combobox [ref=e143]:
+              - option "全部标注状态" [selected]
+              - option "待标注"
+              - option "已标注"
+              - option "标注失败"
+          - generic [ref=e144]:
+            - article [ref=e215]:
+              - generic [ref=e218]: 预览
+              - generic [ref=e219]:
+                - generic [ref=e220]:
+                  - heading "clip.txt" [level=3] [ref=e221]
+                  - paragraph [ref=e222]: asset_0a202b...
+                - generic [ref=e223]: 待标注
+              - generic [ref=e224]:
+                - generic [ref=e225]: portrait
+                - generic [ref=e226]: upload
+              - generic [ref=e227]:
+                - button "重新分析" [ref=e228] [cursor=pointer]:
+                  - img [ref=e229]
+                - button "查看标注" [ref=e234] [cursor=pointer]:
+                  - img [ref=e235]
+                - link "下载" [ref=e238] [cursor=pointer]:
+                  - /url: local://media/asset_0a202b229831
+                  - img [ref=e239]
+                - button "后端暂无素材删除 API" [disabled] [ref=e242]:
+                  - img [ref=e243]
+            - article [ref=e246]:
+              - generic [ref=e249]: 预览
+              - generic [ref=e250]:
+                - generic [ref=e251]:
+                  - heading "clip.txt" [level=3] [ref=e252]
+                  - paragraph [ref=e253]: asset_3b2cdb...
+                - generic [ref=e254]: 待标注
+              - generic [ref=e255]:
+                - generic [ref=e256]: portrait
+                - generic [ref=e257]: upload
+              - generic [ref=e258]:
+                - button "重新分析" [ref=e259] [cursor=pointer]:
+                  - img [ref=e260]
+                - button "查看标注" [ref=e265] [cursor=pointer]:
+                  - img [ref=e266]
+                - link "下载" [ref=e269] [cursor=pointer]:
+                  - /url: local://media/asset_3b2cdb864df9
+                  - img [ref=e270]
+                - button "后端暂无素材删除 API" [disabled] [ref=e273]:
+                  - img [ref=e274]
+            - article [ref=e277]:
+              - generic [ref=e280]: 预览
+              - generic [ref=e281]:
+                - generic [ref=e282]:
+                  - heading "clip.txt" [level=3] [ref=e283]
+                  - paragraph [ref=e284]: asset_7c1b49...
+                - generic [ref=e285]: 待标注
+              - generic [ref=e286]:
+                - generic [ref=e287]: portrait
+                - generic [ref=e288]: upload
+              - generic [ref=e289]:
+                - button "重新分析" [ref=e290] [cursor=pointer]:
+                  - img [ref=e291]
+                - button "查看标注" [ref=e296] [cursor=pointer]:
+                  - img [ref=e297]
+                - link "下载" [ref=e300] [cursor=pointer]:
+                  - /url: local://media/asset_7c1b49ffd7b0
+                  - img [ref=e301]
+                - button "后端暂无素材删除 API" [disabled] [ref=e304]:
+                  - img [ref=e305]
+            - article [ref=e308]:
+              - generic [ref=e311]: 预览
+              - generic [ref=e312]:
+                - generic [ref=e313]:
+                  - heading "clip.txt" [level=3] [ref=e314]
+                  - paragraph [ref=e315]: asset_fa9396...
+                - generic [ref=e316]: 待标注
+              - generic [ref=e317]:
+                - generic [ref=e318]: portrait
+                - generic [ref=e319]: upload
+              - generic [ref=e320]:
+                - button "重新分析" [ref=e321] [cursor=pointer]:
+                  - img [ref=e322]
+                - button "查看标注" [ref=e327] [cursor=pointer]:
+                  - img [ref=e328]
+                - link "下载" [ref=e331] [cursor=pointer]:
+                  - /url: local://media/asset_fa93969e31aa
+                  - img [ref=e332]
+                - button "后端暂无素材删除 API" [disabled] [ref=e335]:
+                  - img [ref=e336]
+            - article [ref=e339]:
+              - generic [ref=e342]: 预览
+              - generic [ref=e343]:
+                - generic [ref=e344]:
+                  - heading "clip.txt" [level=3] [ref=e345]
+                  - paragraph [ref=e346]: asset_550c76...
+                - generic [ref=e347]: 待标注
+              - generic [ref=e348]:
+                - generic [ref=e349]: portrait
+                - generic [ref=e350]: upload
+              - generic [ref=e351]:
+                - button "重新分析" [ref=e352] [cursor=pointer]:
+                  - img [ref=e353]
+                - button "查看标注" [ref=e358] [cursor=pointer]:
+                  - img [ref=e359]
+                - link "下载" [ref=e362] [cursor=pointer]:
+                  - /url: local://media/asset_550c76a1993c
+                  - img [ref=e363]
+                - button "后端暂无素材删除 API" [disabled] [ref=e366]:
+                  - img [ref=e367]
+            - article [ref=e370]:
+              - generic [ref=e373]: 预览
+              - generic [ref=e374]:
+                - generic [ref=e375]:
+                  - heading "clip.txt" [level=3] [ref=e376]
+                  - paragraph [ref=e377]: asset_8b22e0...
+                - generic [ref=e378]: 待标注
+              - generic [ref=e379]:
+                - generic [ref=e380]: portrait
+                - generic [ref=e381]: upload
+              - generic [ref=e382]:
+                - button "重新分析" [ref=e383] [cursor=pointer]:
+                  - img [ref=e384]
+                - button "查看标注" [ref=e389] [cursor=pointer]:
+                  - img [ref=e390]
+                - link "下载" [ref=e393] [cursor=pointer]:
+                  - /url: local://media/asset_8b22e07f381d
+                  - img [ref=e394]
+                - button "后端暂无素材删除 API" [disabled] [ref=e397]:
+                  - img [ref=e398]
+            - article [ref=e401]:
+              - generic [ref=e404]: 预览
+              - generic [ref=e405]:
+                - generic [ref=e406]:
+                  - heading "clip.txt" [level=3] [ref=e407]
+                  - paragraph [ref=e408]: asset_672c3f...
+                - generic [ref=e409]: 待标注
+              - generic [ref=e410]:
+                - generic [ref=e411]: portrait
+                - generic [ref=e412]: upload
+              - generic [ref=e413]:
+                - button "重新分析" [ref=e414] [cursor=pointer]:
+                  - img [ref=e415]
+                - button "查看标注" [ref=e420] [cursor=pointer]:
+                  - img [ref=e421]
+                - link "下载" [ref=e424] [cursor=pointer]:
+                  - /url: local://media/asset_672c3fbc4c49
+                  - img [ref=e425]
+                - button "后端暂无素材删除 API" [disabled] [ref=e428]:
+                  - img [ref=e429]
+            - article [ref=e432]:
+              - generic [ref=e435]: 预览
+              - generic [ref=e436]:
+                - generic [ref=e437]:
+                  - heading "clip.txt" [level=3] [ref=e438]
+                  - paragraph [ref=e439]: asset_8ce0ac...
+                - generic [ref=e440]: 待标注
+              - generic [ref=e441]:
+                - generic [ref=e442]: portrait
+                - generic [ref=e443]: upload
+              - generic [ref=e444]:
+                - button "重新分析" [ref=e445] [cursor=pointer]:
+                  - img [ref=e446]
+                - button "查看标注" [ref=e451] [cursor=pointer]:
+                  - img [ref=e452]
+                - link "下载" [ref=e455] [cursor=pointer]:
+                  - /url: local://media/asset_8ce0ac2ad967
+                  - img [ref=e456]
+                - button "后端暂无素材删除 API" [disabled] [ref=e459]:
+                  - img [ref=e460]
+            - article [ref=e463]:
+              - generic [ref=e466]: 预览
+              - generic [ref=e467]:
+                - generic [ref=e468]:
+                  - heading "clip.txt" [level=3] [ref=e469]
+                  - paragraph [ref=e470]: asset_eeaaae...
+                - generic [ref=e471]: 待标注
+              - generic [ref=e472]:
+                - generic [ref=e473]: portrait
+                - generic [ref=e474]: upload
+              - generic [ref=e475]:
+                - button "重新分析" [ref=e476] [cursor=pointer]:
+                  - img [ref=e477]
+                - button "查看标注" [ref=e482] [cursor=pointer]:
+                  - img [ref=e483]
+                - link "下载" [ref=e486] [cursor=pointer]:
+                  - /url: local://media/asset_eeaaaeb12c39
+                  - img [ref=e487]
+                - button "后端暂无素材删除 API" [disabled] [ref=e490]:
+                  - img [ref=e491]
+            - article [ref=e494]:
+              - generic [ref=e497]: 预览
+              - generic [ref=e498]:
+                - generic [ref=e499]:
+                  - heading "clip.txt" [level=3] [ref=e500]
+                  - paragraph [ref=e501]: asset_9670a1...
+                - generic [ref=e502]: 待标注
+              - generic [ref=e503]:
+                - generic [ref=e504]: portrait
+                - generic [ref=e505]: upload
+              - generic [ref=e506]:
+                - button "重新分析" [ref=e507] [cursor=pointer]:
+                  - img [ref=e508]
+                - button "查看标注" [ref=e513] [cursor=pointer]:
+                  - img [ref=e514]
+                - link "下载" [ref=e517] [cursor=pointer]:
+                  - /url: local://media/asset_9670a1d2cfb6
+                  - img [ref=e518]
+                - button "后端暂无素材删除 API" [disabled] [ref=e521]:
+                  - img [ref=e522]
+            - article [ref=e525]:
+              - generic [ref=e528]: 预览
+              - generic [ref=e529]:
+                - generic [ref=e530]:
+                  - heading "clip.txt" [level=3] [ref=e531]
+                  - paragraph [ref=e532]: asset_392ff4...
+                - generic [ref=e533]: 待标注
+              - generic [ref=e534]:
+                - generic [ref=e535]: portrait
+                - generic [ref=e536]: upload
+              - generic [ref=e537]:
+                - button "重新分析" [ref=e538] [cursor=pointer]:
+                  - img [ref=e539]
+                - button "查看标注" [ref=e544] [cursor=pointer]:
+                  - img [ref=e545]
+                - link "下载" [ref=e548] [cursor=pointer]:
+                  - /url: local://media/asset_392ff4103823
+                  - img [ref=e549]
+                - button "后端暂无素材删除 API" [disabled] [ref=e552]:
+                  - img [ref=e553]
+            - article [ref=e556]:
+              - generic [ref=e559]: 预览
+              - generic [ref=e560]:
+                - generic [ref=e561]:
+                  - heading "clip.txt" [level=3] [ref=e562]
+                  - paragraph [ref=e563]: asset_2f10ef...
+                - generic [ref=e564]: 待标注
+              - generic [ref=e565]:
+                - generic [ref=e566]: portrait
+                - generic [ref=e567]: upload
+              - generic [ref=e568]:
+                - button "重新分析" [ref=e569] [cursor=pointer]:
+                  - img [ref=e570]
+                - button "查看标注" [ref=e575] [cursor=pointer]:
+                  - img [ref=e576]
+                - link "下载" [ref=e579] [cursor=pointer]:
+                  - /url: local://media/asset_2f10eff219a7
+                  - img [ref=e580]
+                - button "后端暂无素材删除 API" [disabled] [ref=e583]:
+                  - img [ref=e584]
+            - article [ref=e587]:
+              - generic [ref=e590]: 预览
+              - generic [ref=e591]:
+                - generic [ref=e592]:
+                  - heading "Demo portrait main track" [level=3] [ref=e593]
+                  - paragraph [ref=e594]: asset_portra...
+                - generic [ref=e595]: 已标注
+              - generic [ref=e596]:
+                - generic [ref=e597]: seed
+                - generic [ref=e598]: usable
+              - generic [ref=e599]:
+                - button "重新分析" [ref=e600] [cursor=pointer]:
+                  - img [ref=e601]
+                - button "查看标注" [ref=e606] [cursor=pointer]:
+                  - img [ref=e607]
+                - link "下载" [ref=e610] [cursor=pointer]:
+                  - /url: local://media/asset_portrait_demo
+                  - img [ref=e611]
+                - button "后端暂无素材删除 API" [disabled] [ref=e614]:
+                  - img [ref=e615]

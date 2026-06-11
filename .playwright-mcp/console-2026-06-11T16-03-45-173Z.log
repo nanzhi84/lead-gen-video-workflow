@@ -1,0 +1,16 @@
+[      80ms] [INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ http://127.0.0.1:5173/node_modules/.vite/deps/chunk-JTSFUJHW.js?v=ae86479d:21606
+[      99ms] [WARNING] ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition. @ http://127.0.0.1:5173/node_modules/.vite/deps/react-router-dom.js?v=1abccece:4424
+[      99ms] [WARNING] ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath. @ http://127.0.0.1:5173/node_modules/.vite/deps/react-router-dom.js?v=1abccece:4424
+[   24223ms] [ERROR] Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME @ local://media/asset_0a202b229831:0
+[   24226ms] [ERROR] Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME @ local://media/asset_3b2cdb864df9:0
+[   24227ms] [ERROR] Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME @ local://media/asset_7c1b49ffd7b0:0
+[   24228ms] [ERROR] Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME @ local://media/asset_fa93969e31aa:0
+[   24229ms] [ERROR] Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME @ local://media/asset_550c76a1993c:0
+[   24234ms] [ERROR] Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME @ local://media/asset_8b22e07f381d:0
+[   24234ms] [ERROR] Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME @ local://media/asset_672c3fbc4c49:0
+[   24236ms] [ERROR] Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME @ local://media/asset_8ce0ac2ad967:0
+[   24238ms] [ERROR] Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME @ local://media/asset_eeaaaeb12c39:0
+[   24238ms] [ERROR] Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME @ local://media/asset_9670a1d2cfb6:0
+[   24239ms] [ERROR] Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME @ local://media/asset_392ff4103823:0
+[   24242ms] [ERROR] Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME @ local://media/asset_2f10eff219a7:0
+[   24242ms] [ERROR] Failed to load resource: net::ERR_UNKNOWN_URL_SCHEME @ local://media/asset_portrait_demo:0

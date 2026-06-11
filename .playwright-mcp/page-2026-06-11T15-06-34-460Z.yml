@@ -1,0 +1,175 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - link "树影 Cutagent" [ref=e5] [cursor=pointer]:
+      - /url: /
+      - img [ref=e7]
+      - generic [ref=e9]:
+        - generic [ref=e10]: 树影
+        - generic [ref=e11]: Cutagent
+    - navigation "主导航" [ref=e13]:
+      - link "概览" [ref=e14] [cursor=pointer]:
+        - /url: /
+        - img [ref=e16]
+        - generic [ref=e19]: 概览
+      - link "案例中心" [ref=e20] [cursor=pointer]:
+        - /url: /studio
+        - img [ref=e22]
+        - generic [ref=e24]: 案例中心
+      - link "素材库" [ref=e25] [cursor=pointer]:
+        - /url: /library
+        - img [ref=e27]
+        - generic [ref=e29]: 素材库
+      - link "数据统计" [ref=e30] [cursor=pointer]:
+        - /url: /analytics
+        - img [ref=e32]
+        - generic [ref=e34]: 数据统计
+      - link "账户中心" [ref=e35] [cursor=pointer]:
+        - /url: /account
+        - img [ref=e37]
+        - generic [ref=e41]: 账户中心
+      - link "设置" [ref=e42] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e44]
+        - generic [ref=e47]: 设置
+    - generic [ref=e48]:
+      - generic "网络在线" [ref=e49]:
+        - img [ref=e50]
+        - generic [ref=e54]: 实时连接待命
+      - generic [ref=e55]:
+        - generic [ref=e56]: L
+        - generic [ref=e57]:
+          - paragraph [ref=e58]: Local Admin
+          - paragraph [ref=e59]: 管理员
+        - button "退出登录" [ref=e60] [cursor=pointer]:
+          - img [ref=e61]
+  - main [ref=e64]:
+    - generic [ref=e66]: 树影 / 案例工作台
+    - generic [ref=e71]:
+      - generic [ref=e73]:
+        - heading "Demo Case" [level=1] [ref=e74]
+        - paragraph [ref=e75]: Cutagent CleanSlate
+      - navigation "Case 工作台" [ref=e76]:
+        - link "创作" [ref=e77] [cursor=pointer]:
+          - /url: /studio/case_demo
+          - img [ref=e78]
+          - generic [ref=e80]: 创作
+        - link "成片" [ref=e81] [cursor=pointer]:
+          - /url: /studio/case_demo/outputs
+          - img [ref=e82]
+          - generic [ref=e84]: 成片
+        - link "发布" [ref=e85] [cursor=pointer]:
+          - /url: /studio/case_demo/publish
+          - img [ref=e86]
+          - generic [ref=e93]: 发布
+      - navigation "创作流程步骤" [ref=e95]:
+        - button "脚本" [ref=e190] [cursor=pointer]:
+          - img [ref=e191]
+          - generic [ref=e99]: 脚本
+        - generic [ref=e100]:
+          - generic [ref=e101]: →
+          - button "模板" [ref=e211] [cursor=pointer]:
+            - img [ref=e212]
+            - generic [ref=e104]: 模板
+        - generic [ref=e105]:
+          - generic [ref=e106]: →
+          - button "3 成片配置" [ref=e107] [cursor=pointer]:
+            - generic [ref=e108]: "3"
+            - generic [ref=e109]: 成片配置
+        - generic [ref=e110]:
+          - generic [ref=e111]: →
+          - button "4 后处理" [ref=e112] [cursor=pointer]:
+            - generic [ref=e113]: "4"
+            - generic [ref=e114]: 后处理
+        - generic [ref=e115]:
+          - generic [ref=e116]: →
+          - button "5 提交" [ref=e117] [cursor=pointer]:
+            - generic [ref=e118]: "5"
+            - generic [ref=e119]: 提交
+      - generic [ref=e120]:
+        - generic [ref=e121]:
+          - generic [ref=e214]:
+            - generic [ref=e215]:
+              - img [ref=e217]
+              - generic [ref=e221]:
+                - heading "成片配置" [level=2] [ref=e222]
+                - paragraph [ref=e223]: 配置声音、口型同步和 B-roll 策略。
+            - generic [ref=e224]:
+              - generic [ref=e225]: 声音
+              - combobox "声音" [ref=e226]:
+                - option "Sandbox Mandarin Voice" [selected]
+            - generic [ref=e227]:
+              - generic [ref=e228]:
+                - generic [ref=e229]: 语速
+                - spinbutton "语速" [ref=e230]: "1"
+              - generic [ref=e231]:
+                - generic [ref=e232]: 情绪
+                - combobox "情绪" [ref=e233]:
+                  - option "自然" [selected]
+                  - option "明快"
+                  - option "沉稳"
+                  - option "有力"
+            - switch "启用口型同步" [checked] [ref=e234] [cursor=pointer]:
+              - generic [ref=e235]: 启用口型同步
+            - generic [ref=e238]:
+              - generic [ref=e239]:
+                - button "标准均衡 通用场景默认策略，兼顾锁脸稳定性与匹配成功率。" [ref=e240] [cursor=pointer]:
+                  - text: 标准均衡
+                  - generic [ref=e241]: 通用场景默认策略，兼顾锁脸稳定性与匹配成功率。
+                - button "大幅头动 适合转头、抬头、位移较大场景，提高匹配宽容度。" [ref=e242] [cursor=pointer]:
+                  - text: 大幅头动
+                  - generic [ref=e243]: 适合转头、抬头、位移较大场景，提高匹配宽容度。
+                - button "严格锁脸 适合固定机位单人视频，减少误匹配。" [ref=e244] [cursor=pointer]:
+                  - text: 严格锁脸
+                  - generic [ref=e245]: 适合固定机位单人视频，减少误匹配。
+                - button "时长优先 音频较长时自动延长视频，避免尾部被截断。" [ref=e246] [cursor=pointer]:
+                  - text: 时长优先
+                  - generic [ref=e247]: 音频较长时自动延长视频，避免尾部被截断。
+              - switch "允许视频时长扩展" [ref=e248] [cursor=pointer]:
+                - generic [ref=e249]: 允许视频时长扩展
+              - generic [ref=e252]:
+                - generic [ref=e253]: 超时时间（分钟）
+                - spinbutton "超时时间（分钟）" [ref=e254]: "30"
+            - switch "启用 B-roll 插入" [checked] [ref=e255] [cursor=pointer]:
+              - generic [ref=e256]: 启用 B-roll 插入
+            - generic [ref=e259]:
+              - generic [ref=e260]: B-roll 最大插入数
+              - spinbutton "B-roll 最大插入数" [ref=e261]: "4"
+          - generic [ref=e139]:
+            - button "上一步" [ref=e140] [cursor=pointer]:
+              - img [ref=e141]
+              - generic [ref=e143]: 上一步
+            - button "下一步" [active] [ref=e144] [cursor=pointer]:
+              - generic [ref=e145]: 下一步
+              - img [ref=e146]
+        - complementary [ref=e148]:
+          - generic [ref=e149]:
+            - heading "配置摘要" [level=2] [ref=e150]
+            - paragraph [ref=e151]: 偏好会自动保存，刷新页面后继续沿用。
+          - generic [ref=e152]:
+            - img [ref=e153]
+            - generic [ref=e157]:
+              - paragraph [ref=e158]: 声音
+              - paragraph [ref=e159]: Sandbox Mandarin Voice · 1.0x
+          - generic [ref=e160]:
+            - img [ref=e161]
+            - generic [ref=e163]:
+              - paragraph [ref=e164]: 模板
+              - paragraph [ref=e165]: 自动模板 · 均衡
+          - generic [ref=e166]:
+            - img [ref=e167]
+            - generic [ref=e169]:
+              - paragraph [ref=e170]: 口型
+              - paragraph [ref=e171]: 标准均衡
+          - generic [ref=e172]:
+            - img [ref=e173]
+            - generic [ref=e176]:
+              - paragraph [ref=e177]: 字幕
+              - paragraph [ref=e178]: 抖音风 · 28px
+          - generic [ref=e179]:
+            - img [ref=e180]
+            - generic [ref=e184]:
+              - paragraph [ref=e185]: BGM
+              - paragraph [ref=e186]: 关闭
+          - generic [ref=e187]:
+            - paragraph [ref=e188]: 脚本字符数
+            - paragraph [ref=e189]: "42"

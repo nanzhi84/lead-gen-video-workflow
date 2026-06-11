@@ -1,0 +1,49 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - link "树影 Cutagent" [ref=e5] [cursor=pointer]:
+      - /url: /
+      - img [ref=e7]
+      - generic [ref=e9]:
+        - generic [ref=e10]: 树影
+        - generic [ref=e11]: Cutagent
+    - navigation "主导航" [ref=e13]:
+      - link "概览" [ref=e14] [cursor=pointer]:
+        - /url: /
+        - img [ref=e16]
+        - generic [ref=e19]: 概览
+      - link "案例中心" [ref=e20] [cursor=pointer]:
+        - /url: /studio
+        - img [ref=e22]
+        - generic [ref=e24]: 案例中心
+      - link "素材库" [ref=e25] [cursor=pointer]:
+        - /url: /library
+        - img [ref=e27]
+        - generic [ref=e29]: 素材库
+      - link "数据统计" [ref=e30] [cursor=pointer]:
+        - /url: /analytics
+        - img [ref=e32]
+        - generic [ref=e34]: 数据统计
+      - link "账户中心" [ref=e35] [cursor=pointer]:
+        - /url: /account
+        - img [ref=e37]
+        - generic [ref=e41]: 账户中心
+      - link "设置" [ref=e42] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e44]
+        - generic [ref=e47]: 设置
+    - generic [ref=e48]:
+      - generic "网络在线" [ref=e49]:
+        - img [ref=e50]
+        - generic [ref=e54]: 实时连接待命
+      - generic [ref=e55]:
+        - generic [ref=e56]: L
+        - generic [ref=e57]:
+          - paragraph [ref=e58]: Local Admin
+          - paragraph [ref=e59]: 管理员
+        - button "退出登录" [ref=e60] [cursor=pointer]:
+          - img [ref=e61]
+  - main [ref=e64]:
+    - generic [ref=e66]: 树影 / 案例工作台
+    - generic [ref=e67]:
+      - img [ref=e68]
+      - generic [ref=e70]: 加载中

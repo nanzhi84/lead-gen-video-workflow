@@ -1,0 +1,478 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - link "树影 Cutagent" [ref=e5] [cursor=pointer]:
+      - /url: /
+      - img [ref=e7]
+      - generic [ref=e9]:
+        - generic [ref=e10]: 树影
+        - generic [ref=e11]: Cutagent
+    - navigation "主导航" [ref=e13]:
+      - link "概览" [ref=e14] [cursor=pointer]:
+        - /url: /
+        - img [ref=e16]
+        - generic [ref=e19]: 概览
+      - link "案例中心" [ref=e20] [cursor=pointer]:
+        - /url: /studio
+        - img [ref=e22]
+        - generic [ref=e24]: 案例中心
+      - link "素材库" [ref=e25] [cursor=pointer]:
+        - /url: /library
+        - img [ref=e27]
+        - generic [ref=e29]: 素材库
+      - link "数据统计" [ref=e30] [cursor=pointer]:
+        - /url: /analytics
+        - img [ref=e32]
+        - generic [ref=e34]: 数据统计
+      - link "账户中心" [ref=e35] [cursor=pointer]:
+        - /url: /account
+        - img [ref=e37]
+        - generic [ref=e41]: 账户中心
+      - link "设置" [ref=e42] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e44]
+        - generic [ref=e47]: 设置
+    - generic [ref=e48]:
+      - generic "网络在线" [ref=e49]:
+        - img [ref=e50]
+        - generic [ref=e54]: 实时连接待命
+      - generic [ref=e55]:
+        - generic [ref=e56]: L
+        - generic [ref=e57]:
+          - paragraph [ref=e58]: Local Admin
+          - paragraph [ref=e59]: 管理员
+        - button "退出登录" [ref=e60] [cursor=pointer]:
+          - img [ref=e61]
+  - main [ref=e64]:
+    - generic [ref=e66]: 树影 / 案例中心
+    - generic [ref=e67]:
+      - generic [ref=e68]:
+        - generic [ref=e69]:
+          - heading "案例中心" [level=1] [ref=e70]
+          - paragraph [ref=e71]: 21 个案例工作空间，统一管理创作、成片和发布准备。
+        - button "新建案例" [ref=e72] [cursor=pointer]:
+          - img [ref=e73]
+          - generic [ref=e74]: 新建案例
+      - generic [ref=e76]:
+        - img
+        - textbox "搜索案例名称" [ref=e77]
+      - generic [ref=e78]:
+        - link "验收演示 Case 最近更新 55分钟前 0 活跃记忆 1 版本 已分配 负责人" [ref=e79] [cursor=pointer]:
+          - /url: /studio/case_fde8d2b7e168
+          - generic [ref=e80]:
+            - generic [ref=e81]:
+              - img [ref=e83]
+              - heading "验收演示 Case" [level=2] [ref=e85]
+              - paragraph [ref=e86]:
+                - text: 最近更新
+                - time [ref=e87]: 55分钟前
+            - img [ref=e89]
+          - generic [ref=e91]:
+            - generic [ref=e92]:
+              - generic [ref=e93]: "0"
+              - text: 活跃记忆
+            - generic [ref=e94]:
+              - generic [ref=e95]: "1"
+              - text: 版本
+            - generic [ref=e96]:
+              - generic [ref=e97]: 已分配
+              - text: 负责人
+        - link "Imported Case 8370fa91 最近更新 2小时前 0 活跃记忆 1 版本 已分配 负责人" [ref=e98] [cursor=pointer]:
+          - /url: /studio/case_301d582a6aa2
+          - generic [ref=e99]:
+            - generic [ref=e100]:
+              - img [ref=e102]
+              - heading "Imported Case 8370fa91" [level=2] [ref=e104]
+              - paragraph [ref=e105]:
+                - text: 最近更新
+                - time [ref=e106]: 2小时前
+            - img [ref=e108]
+          - generic [ref=e110]:
+            - generic [ref=e111]:
+              - generic [ref=e112]: "0"
+              - text: 活跃记忆
+            - generic [ref=e113]:
+              - generic [ref=e114]: "1"
+              - text: 版本
+            - generic [ref=e115]:
+              - generic [ref=e116]: 已分配
+              - text: 负责人
+        - link "Idempotent SQL Case 最近更新 2小时前 0 活跃记忆 1 版本 已分配 负责人" [ref=e117] [cursor=pointer]:
+          - /url: /studio/case_ba029a2ef3b6
+          - generic [ref=e118]:
+            - generic [ref=e119]:
+              - img [ref=e121]
+              - heading "Idempotent SQL Case" [level=2] [ref=e123]
+              - paragraph [ref=e124]:
+                - text: 最近更新
+                - time [ref=e125]: 2小时前
+            - img [ref=e127]
+          - generic [ref=e129]:
+            - generic [ref=e130]:
+              - generic [ref=e131]: "0"
+              - text: 活跃记忆
+            - generic [ref=e132]:
+              - generic [ref=e133]: "1"
+              - text: 版本
+            - generic [ref=e134]:
+              - generic [ref=e135]: 已分配
+              - text: 负责人
+        - link "Integration Case 最近更新 2小时前 0 活跃记忆 1 版本 已分配 负责人" [ref=e136] [cursor=pointer]:
+          - /url: /studio/case_d11d42710e33
+          - generic [ref=e137]:
+            - generic [ref=e138]:
+              - img [ref=e140]
+              - heading "Integration Case" [level=2] [ref=e142]
+              - paragraph [ref=e143]:
+                - text: 最近更新
+                - time [ref=e144]: 2小时前
+            - img [ref=e146]
+          - generic [ref=e148]:
+            - generic [ref=e149]:
+              - generic [ref=e150]: "0"
+              - text: 活跃记忆
+            - generic [ref=e151]:
+              - generic [ref=e152]: "1"
+              - text: 版本
+            - generic [ref=e153]:
+              - generic [ref=e154]: 已分配
+              - text: 负责人
+        - link "Imported Case 848ddeba 最近更新 2小时前 0 活跃记忆 1 版本 已分配 负责人" [ref=e155] [cursor=pointer]:
+          - /url: /studio/case_4e9381268cd9
+          - generic [ref=e156]:
+            - generic [ref=e157]:
+              - img [ref=e159]
+              - heading "Imported Case 848ddeba" [level=2] [ref=e161]
+              - paragraph [ref=e162]:
+                - text: 最近更新
+                - time [ref=e163]: 2小时前
+            - img [ref=e165]
+          - generic [ref=e167]:
+            - generic [ref=e168]:
+              - generic [ref=e169]: "0"
+              - text: 活跃记忆
+            - generic [ref=e170]:
+              - generic [ref=e171]: "1"
+              - text: 版本
+            - generic [ref=e172]:
+              - generic [ref=e173]: 已分配
+              - text: 负责人
+        - link "Idempotent SQL Case 最近更新 2小时前 0 活跃记忆 1 版本 已分配 负责人" [ref=e174] [cursor=pointer]:
+          - /url: /studio/case_2876aa01f24a
+          - generic [ref=e175]:
+            - generic [ref=e176]:
+              - img [ref=e178]
+              - heading "Idempotent SQL Case" [level=2] [ref=e180]
+              - paragraph [ref=e181]:
+                - text: 最近更新
+                - time [ref=e182]: 2小时前
+            - img [ref=e184]
+          - generic [ref=e186]:
+            - generic [ref=e187]:
+              - generic [ref=e188]: "0"
+              - text: 活跃记忆
+            - generic [ref=e189]:
+              - generic [ref=e190]: "1"
+              - text: 版本
+            - generic [ref=e191]:
+              - generic [ref=e192]: 已分配
+              - text: 负责人
+        - link "Integration Case 最近更新 2小时前 0 活跃记忆 1 版本 已分配 负责人" [ref=e193] [cursor=pointer]:
+          - /url: /studio/case_38edcbba0439
+          - generic [ref=e194]:
+            - generic [ref=e195]:
+              - img [ref=e197]
+              - heading "Integration Case" [level=2] [ref=e199]
+              - paragraph [ref=e200]:
+                - text: 最近更新
+                - time [ref=e201]: 2小时前
+            - img [ref=e203]
+          - generic [ref=e205]:
+            - generic [ref=e206]:
+              - generic [ref=e207]: "0"
+              - text: 活跃记忆
+            - generic [ref=e208]:
+              - generic [ref=e209]: "1"
+              - text: 版本
+            - generic [ref=e210]:
+              - generic [ref=e211]: 已分配
+              - text: 负责人
+        - link "Idempotent SQL Case 最近更新 2小时前 0 活跃记忆 1 版本 已分配 负责人" [ref=e212] [cursor=pointer]:
+          - /url: /studio/case_545e9a62eeb5
+          - generic [ref=e213]:
+            - generic [ref=e214]:
+              - img [ref=e216]
+              - heading "Idempotent SQL Case" [level=2] [ref=e218]
+              - paragraph [ref=e219]:
+                - text: 最近更新
+                - time [ref=e220]: 2小时前
+            - img [ref=e222]
+          - generic [ref=e224]:
+            - generic [ref=e225]:
+              - generic [ref=e226]: "0"
+              - text: 活跃记忆
+            - generic [ref=e227]:
+              - generic [ref=e228]: "1"
+              - text: 版本
+            - generic [ref=e229]:
+              - generic [ref=e230]: 已分配
+              - text: 负责人
+        - link "Imported Case 45af3a7f 最近更新 2小时前 0 活跃记忆 1 版本 已分配 负责人" [ref=e231] [cursor=pointer]:
+          - /url: /studio/case_999e5fd8961b
+          - generic [ref=e232]:
+            - generic [ref=e233]:
+              - img [ref=e235]
+              - heading "Imported Case 45af3a7f" [level=2] [ref=e237]
+              - paragraph [ref=e238]:
+                - text: 最近更新
+                - time [ref=e239]: 2小时前
+            - img [ref=e241]
+          - generic [ref=e243]:
+            - generic [ref=e244]:
+              - generic [ref=e245]: "0"
+              - text: 活跃记忆
+            - generic [ref=e246]:
+              - generic [ref=e247]: "1"
+              - text: 版本
+            - generic [ref=e248]:
+              - generic [ref=e249]: 已分配
+              - text: 负责人
+        - link "Idempotent SQL Case 最近更新 2小时前 0 活跃记忆 1 版本 已分配 负责人" [ref=e250] [cursor=pointer]:
+          - /url: /studio/case_d7043422f87f
+          - generic [ref=e251]:
+            - generic [ref=e252]:
+              - img [ref=e254]
+              - heading "Idempotent SQL Case" [level=2] [ref=e256]
+              - paragraph [ref=e257]:
+                - text: 最近更新
+                - time [ref=e258]: 2小时前
+            - img [ref=e260]
+          - generic [ref=e262]:
+            - generic [ref=e263]:
+              - generic [ref=e264]: "0"
+              - text: 活跃记忆
+            - generic [ref=e265]:
+              - generic [ref=e266]: "1"
+              - text: 版本
+            - generic [ref=e267]:
+              - generic [ref=e268]: 已分配
+              - text: 负责人
+        - link "Integration Case 最近更新 2小时前 0 活跃记忆 1 版本 已分配 负责人" [ref=e269] [cursor=pointer]:
+          - /url: /studio/case_a933230496b5
+          - generic [ref=e270]:
+            - generic [ref=e271]:
+              - img [ref=e273]
+              - heading "Integration Case" [level=2] [ref=e275]
+              - paragraph [ref=e276]:
+                - text: 最近更新
+                - time [ref=e277]: 2小时前
+            - img [ref=e279]
+          - generic [ref=e281]:
+            - generic [ref=e282]:
+              - generic [ref=e283]: "0"
+              - text: 活跃记忆
+            - generic [ref=e284]:
+              - generic [ref=e285]: "1"
+              - text: 版本
+            - generic [ref=e286]:
+              - generic [ref=e287]: 已分配
+              - text: 负责人
+        - link "Imported Case 0915e3fc 最近更新 2小时前 0 活跃记忆 1 版本 已分配 负责人" [ref=e288] [cursor=pointer]:
+          - /url: /studio/case_7926a05ad3d0
+          - generic [ref=e289]:
+            - generic [ref=e290]:
+              - img [ref=e292]
+              - heading "Imported Case 0915e3fc" [level=2] [ref=e294]
+              - paragraph [ref=e295]:
+                - text: 最近更新
+                - time [ref=e296]: 2小时前
+            - img [ref=e298]
+          - generic [ref=e300]:
+            - generic [ref=e301]:
+              - generic [ref=e302]: "0"
+              - text: 活跃记忆
+            - generic [ref=e303]:
+              - generic [ref=e304]: "1"
+              - text: 版本
+            - generic [ref=e305]:
+              - generic [ref=e306]: 已分配
+              - text: 负责人
+        - link "Idempotent SQL Case 最近更新 2小时前 0 活跃记忆 1 版本 已分配 负责人" [ref=e307] [cursor=pointer]:
+          - /url: /studio/case_802d02da5008
+          - generic [ref=e308]:
+            - generic [ref=e309]:
+              - img [ref=e311]
+              - heading "Idempotent SQL Case" [level=2] [ref=e313]
+              - paragraph [ref=e314]:
+                - text: 最近更新
+                - time [ref=e315]: 2小时前
+            - img [ref=e317]
+          - generic [ref=e319]:
+            - generic [ref=e320]:
+              - generic [ref=e321]: "0"
+              - text: 活跃记忆
+            - generic [ref=e322]:
+              - generic [ref=e323]: "1"
+              - text: 版本
+            - generic [ref=e324]:
+              - generic [ref=e325]: 已分配
+              - text: 负责人
+        - link "Integration Case 最近更新 2小时前 0 活跃记忆 1 版本 已分配 负责人" [ref=e326] [cursor=pointer]:
+          - /url: /studio/case_edc5638c0799
+          - generic [ref=e327]:
+            - generic [ref=e328]:
+              - img [ref=e330]
+              - heading "Integration Case" [level=2] [ref=e332]
+              - paragraph [ref=e333]:
+                - text: 最近更新
+                - time [ref=e334]: 2小时前
+            - img [ref=e336]
+          - generic [ref=e338]:
+            - generic [ref=e339]:
+              - generic [ref=e340]: "0"
+              - text: 活跃记忆
+            - generic [ref=e341]:
+              - generic [ref=e342]: "1"
+              - text: 版本
+            - generic [ref=e343]:
+              - generic [ref=e344]: 已分配
+              - text: 负责人
+        - link "Imported Case ad549d48 最近更新 3小时前 0 活跃记忆 1 版本 已分配 负责人" [ref=e345] [cursor=pointer]:
+          - /url: /studio/case_0541359524b1
+          - generic [ref=e346]:
+            - generic [ref=e347]:
+              - img [ref=e349]
+              - heading "Imported Case ad549d48" [level=2] [ref=e351]
+              - paragraph [ref=e352]:
+                - text: 最近更新
+                - time [ref=e353]: 3小时前
+            - img [ref=e355]
+          - generic [ref=e357]:
+            - generic [ref=e358]:
+              - generic [ref=e359]: "0"
+              - text: 活跃记忆
+            - generic [ref=e360]:
+              - generic [ref=e361]: "1"
+              - text: 版本
+            - generic [ref=e362]:
+              - generic [ref=e363]: 已分配
+              - text: 负责人
+        - link "Idempotent SQL Case 最近更新 3小时前 0 活跃记忆 1 版本 已分配 负责人" [ref=e364] [cursor=pointer]:
+          - /url: /studio/case_f2bdbfa084f0
+          - generic [ref=e365]:
+            - generic [ref=e366]:
+              - img [ref=e368]
+              - heading "Idempotent SQL Case" [level=2] [ref=e370]
+              - paragraph [ref=e371]:
+                - text: 最近更新
+                - time [ref=e372]: 3小时前
+            - img [ref=e374]
+          - generic [ref=e376]:
+            - generic [ref=e377]:
+              - generic [ref=e378]: "0"
+              - text: 活跃记忆
+            - generic [ref=e379]:
+              - generic [ref=e380]: "1"
+              - text: 版本
+            - generic [ref=e381]:
+              - generic [ref=e382]: 已分配
+              - text: 负责人
+        - link "Integration Case 最近更新 3小时前 0 活跃记忆 1 版本 已分配 负责人" [ref=e383] [cursor=pointer]:
+          - /url: /studio/case_1e667089545f
+          - generic [ref=e384]:
+            - generic [ref=e385]:
+              - img [ref=e387]
+              - heading "Integration Case" [level=2] [ref=e389]
+              - paragraph [ref=e390]:
+                - text: 最近更新
+                - time [ref=e391]: 3小时前
+            - img [ref=e393]
+          - generic [ref=e395]:
+            - generic [ref=e396]:
+              - generic [ref=e397]: "0"
+              - text: 活跃记忆
+            - generic [ref=e398]:
+              - generic [ref=e399]: "1"
+              - text: 版本
+            - generic [ref=e400]:
+              - generic [ref=e401]: 已分配
+              - text: 负责人
+        - link "Imported Case 9c13d515 最近更新 3小时前 0 活跃记忆 1 版本 已分配 负责人" [ref=e402] [cursor=pointer]:
+          - /url: /studio/case_5481bf9c5bd7
+          - generic [ref=e403]:
+            - generic [ref=e404]:
+              - img [ref=e406]
+              - heading "Imported Case 9c13d515" [level=2] [ref=e408]
+              - paragraph [ref=e409]:
+                - text: 最近更新
+                - time [ref=e410]: 3小时前
+            - img [ref=e412]
+          - generic [ref=e414]:
+            - generic [ref=e415]:
+              - generic [ref=e416]: "0"
+              - text: 活跃记忆
+            - generic [ref=e417]:
+              - generic [ref=e418]: "1"
+              - text: 版本
+            - generic [ref=e419]:
+              - generic [ref=e420]: 已分配
+              - text: 负责人
+        - link "Idempotent SQL Case 最近更新 3小时前 0 活跃记忆 1 版本 已分配 负责人" [ref=e421] [cursor=pointer]:
+          - /url: /studio/case_7f00ae52d87d
+          - generic [ref=e422]:
+            - generic [ref=e423]:
+              - img [ref=e425]
+              - heading "Idempotent SQL Case" [level=2] [ref=e427]
+              - paragraph [ref=e428]:
+                - text: 最近更新
+                - time [ref=e429]: 3小时前
+            - img [ref=e431]
+          - generic [ref=e433]:
+            - generic [ref=e434]:
+              - generic [ref=e435]: "0"
+              - text: 活跃记忆
+            - generic [ref=e436]:
+              - generic [ref=e437]: "1"
+              - text: 版本
+            - generic [ref=e438]:
+              - generic [ref=e439]: 已分配
+              - text: 负责人
+        - link "Integration Case 最近更新 3小时前 0 活跃记忆 1 版本 已分配 负责人" [ref=e440] [cursor=pointer]:
+          - /url: /studio/case_589be67f9c19
+          - generic [ref=e441]:
+            - generic [ref=e442]:
+              - img [ref=e444]
+              - heading "Integration Case" [level=2] [ref=e446]
+              - paragraph [ref=e447]:
+                - text: 最近更新
+                - time [ref=e448]: 3小时前
+            - img [ref=e450]
+          - generic [ref=e452]:
+            - generic [ref=e453]:
+              - generic [ref=e454]: "0"
+              - text: 活跃记忆
+            - generic [ref=e455]:
+              - generic [ref=e456]: "1"
+              - text: 版本
+            - generic [ref=e457]:
+              - generic [ref=e458]: 已分配
+              - text: 负责人
+        - link "Demo Case 最近更新 3小时前 0 活跃记忆 1 版本 已分配 负责人" [ref=e459] [cursor=pointer]:
+          - /url: /studio/case_demo
+          - generic [ref=e460]:
+            - generic [ref=e461]:
+              - img [ref=e463]
+              - heading "Demo Case" [level=2] [ref=e465]
+              - paragraph [ref=e466]:
+                - text: 最近更新
+                - time [ref=e467]: 3小时前
+            - img [ref=e469]
+          - generic [ref=e471]:
+            - generic [ref=e472]:
+              - generic [ref=e473]: "0"
+              - text: 活跃记忆
+            - generic [ref=e474]:
+              - generic [ref=e475]: "1"
+              - text: 版本
+            - generic [ref=e476]:
+              - generic [ref=e477]: 已分配
+              - text: 负责人

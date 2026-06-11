@@ -12,6 +12,10 @@ from functools import partial
 from urllib.parse import urlsplit
 import warnings
 
+import pytest
+
+from tests.fixtures.media import MediaFixtureFactory
+
 
 os.environ.setdefault("CUTAGENT_STORAGE_BACKEND", "memory")
 os.environ.setdefault("CUTAGENT_DISABLE_BACKGROUND_DISPATCHER", "1")
@@ -228,3 +232,8 @@ def pytest_configure() -> None:
     anyio.to_thread.run_sync = inline_run_sync
     fastapi.testclient.TestClient = _ASGISyncTestClient
     starlette.testclient.TestClient = _ASGISyncTestClient
+
+
+@pytest.fixture(scope="session")
+def media_fixture_factory(tmp_path_factory):
+    return MediaFixtureFactory(tmp_path_factory.mktemp("media-fixtures"))

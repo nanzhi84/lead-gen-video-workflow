@@ -12,6 +12,20 @@ from uuid import uuid4
 from packages.core.contracts import SignedUrlResponse, utcnow
 
 
+def _is_bucket_absent_error(exc: Exception) -> bool:
+    # head_bucket on a missing bucket raises ClientError with a 404 / NoSuchBucket
+    # code; anything else (auth, network) must propagate.
+    response = getattr(exc, "response", None)
+    if isinstance(response, dict):
+        error = response.get("Error", {}) if isinstance(response.get("Error"), dict) else {}
+        if str(error.get("Code")) in {"404", "NoSuchBucket", "NotFound"}:
+            return True
+        status = response.get("ResponseMetadata", {})
+        if isinstance(status, dict) and status.get("HTTPStatusCode") == 404:
+            return True
+    return False
+
+
 @dataclass(frozen=True)
 class ObjectRef:
     bucket: str
@@ -172,7 +186,7 @@ class S3ObjectStore(ObjectStore):
         try:
             self._client.head_bucket(Bucket=self.bucket)
         except Exception as exc:
-            if not _is_not_found_error(exc):
+            if not _is_bucket_absent_error(exc):
                 raise
             self._client.create_bucket(Bucket=self.bucket)
 
@@ -191,8 +205,17 @@ class S3ObjectStore(ObjectStore):
     ) -> Any:
         if client_factory is None:
             import boto3
+            from botocore.config import Config
 
-            client_factory = boto3.client
+            # Force SigV4 presigned URLs (current standard; SigV2 is deprecated).
+            return boto3.client(
+                "s3",
+                endpoint_url=endpoint_url,
+                aws_access_key_id=access_key,
+                aws_secret_access_key=secret_key,
+                region_name=region_name,
+                config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+            )
         return client_factory(
             "s3",
             endpoint_url=endpoint_url,

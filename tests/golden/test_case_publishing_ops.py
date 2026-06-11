@@ -34,7 +34,8 @@ def test_case_reflection_memory_approval_and_publish_flow():
                 "title": "Publishing seed",
                 "script": "用一个简短脚本补齐发布测试。",
                 "voice": {"voice_id": "voice_sandbox"},
-                "portrait": {"required": True},
+                "portrait": {"template_mode": "agent"},
+                "strictness": {"strict_timestamps": False},
             },
         )
         videos = client.get("/api/cases/case_demo/finished-videos").json()["items"]
@@ -47,7 +48,8 @@ def test_case_reflection_memory_approval_and_publish_flow():
         json={"publish_package_ids": [package["id"]], "platform_targets": ["xiaovmao"]},
     ).json()
     submitted = client.post(f"/api/publish/batches/{batch['id']}/submit", json={"dry_run": False}).json()
-    assert submitted["status"] == "published"
+    assert submitted["status"] == "completed"
+    assert submitted["items"][0]["status"] == "published"
 
     ops = client.get("/api/ops/dashboard").json()
     assert "usage" in ops

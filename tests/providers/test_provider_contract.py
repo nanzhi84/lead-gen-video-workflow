@@ -15,10 +15,10 @@ def gateway() -> tuple[Repository, ProviderGateway]:
 
 def test_provider_capability_schema_is_registered():
     repository, _ = gateway()
-    capabilities = {(item.provider_id, item.capability_id) for item in repository.provider_capabilities.values()}
-    assert ("sandbox", "tts") in capabilities
-    assert ("sandbox", "lipsync") in capabilities
-    assert ("sandbox", "llm") in capabilities
+    capabilities = {(item.provider_id, item.capability) for item in repository.provider_capabilities.values()}
+    assert ("sandbox", "tts.speech") in capabilities
+    assert ("sandbox", "lipsync.video") in capabilities
+    assert ("sandbox", "llm.chat") in capabilities
 
 
 def test_provider_option_validation_rejects_capability_mismatch():
@@ -26,7 +26,7 @@ def test_provider_option_validation_rejects_capability_mismatch():
     invocation, result = gw.invoke(
         ProviderCall(
             provider_profile_id="sandbox.tts.default",
-            capability_id="lipsync",
+            capability_id="lipsync.video",
             input={},
         )
     )
@@ -41,7 +41,7 @@ def test_provider_secret_missing_is_auth_failure():
         id="sandbox.secret.tts",
         provider_id="sandbox",
         model_id="tts.local",
-        capability="tts",
+        capability="tts.speech",
         display_name="Secret TTS",
         environment="local",
         secret_ref="missing_secret",
@@ -49,7 +49,7 @@ def test_provider_secret_missing_is_auth_failure():
     )
     repository.provider_profiles[profile.id] = profile
     invocation, result = gw.invoke(
-        ProviderCall(provider_profile_id=profile.id, capability_id="tts", input={"text": "hello"})
+        ProviderCall(provider_profile_id=profile.id, capability_id="tts.speech", input={"text": "hello"})
     )
     assert result is None
     assert invocation.error
@@ -67,7 +67,7 @@ def test_provider_quota_timeout_and_remote_failed_are_reported():
         invocation, result = gw.invoke(
             ProviderCall(
                 provider_profile_id="sandbox.tts.default",
-                capability_id="tts",
+                capability_id="tts.speech",
                 input={"text": "hello", "simulate": simulate},
             )
         )
@@ -82,13 +82,14 @@ def test_provider_cost_unpriced_is_recorded_without_blocking_result():
     invocation, result = gw.invoke(
         ProviderCall(
             provider_profile_id="sandbox.tts.default",
-            capability_id="tts",
+            capability_id="tts.speech",
             input={"text": "hello"},
         )
     )
     assert result is not None
-    assert invocation.status == ProviderStatus.cost_unpriced
+    assert invocation.status == ProviderStatus.succeeded
+    assert invocation.billing_status == "unpriced"
+    assert invocation.price_item_id is None
     usage = next(item for item in repository.usage_records.values() if item.provider_invocation_id == invocation.id)
-    assert usage.cost_unpriced is True
+    assert invocation.usage == usage
     assert any(alert.code == "provider.cost_unpriced" for alert in repository.alerts.values())
-

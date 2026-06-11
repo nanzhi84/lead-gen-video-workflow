@@ -33,6 +33,7 @@ from packages.core.storage.database import (
 )
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
+from packages.core.contracts.state_machines import assert_transition
 
 
 def prompt_template_row_to_contract(row: PromptTemplateRow) -> PromptTemplate:
@@ -282,6 +283,12 @@ class SqlAlchemyPromptRepository:
             version = session.get(PromptVersionRow, version_id)
             if template is None or version is None or version.prompt_template_id != template_id:
                 raise NodeExecutionError(ErrorCode.validation_invalid_options, "Prompt version not found.")
+            if "status" in updates:
+                if version.status == "draft" and updates["status"] == "approved":
+                    assert_transition("prompt_version", version.status, "reviewing")
+                    version.status = "reviewing"
+                    version.updated_at = utcnow()
+                assert_transition("prompt_version", version.status, updates["status"])
             for key, value in updates.items():
                 setattr(version, key, value)
             version.updated_at = utcnow()

@@ -40,6 +40,7 @@ from packages.core.storage.database import (
     VideoVersionRow,
 )
 from packages.core.storage.repository import new_id
+from packages.core.contracts.state_machines import assert_transition
 
 
 def source_binding_row_to_contract(row: CaseAgentSourceBindingRow) -> CaseAgentSourceBinding:
@@ -383,6 +384,10 @@ class SqlAlchemyCaseLearningRepository:
             if memory is not None:
                 if memory.case_id != case_id:
                     return None
+                if memory.status == "proposed":
+                    assert_transition("case_memory", memory.status, "approved")
+                    memory.status = "approved"
+                assert_transition("case_memory", memory.status, "active")
                 memory.status = "active"
                 memory.updated_at = utcnow()
                 session.commit()
@@ -392,7 +397,9 @@ class SqlAlchemyCaseLearningRepository:
             proposal = session.get(MemoryProposalRow, memory_id)
             if proposal is None or proposal.case_id != case_id:
                 return None
-            proposal.status = "active"
+            assert_transition("case_memory", proposal.status, "approved")
+            proposal.status = "approved"
+            assert_transition("case_memory", proposal.status, "active")
             proposal.updated_at = utcnow()
             memory = CaseMemoryRow(
                 id=proposal.id,

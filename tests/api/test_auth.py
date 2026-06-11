@@ -17,6 +17,8 @@ def test_login_sets_httponly_cookie_and_session_reads_user():
     session = client.get("/api/auth/session")
     assert session.status_code == 200, session.text
     assert session.json()["user"]["email"] == "admin@local.cutagent"
+    assert session.json()["user"]["status"] == "active"
+    assert session.json()["session_id"].startswith("sess_")
 
 
 def test_bad_login_is_unauthorized():
@@ -50,10 +52,10 @@ def test_viewer_cannot_use_operator_or_admin_routes():
     prepare_upload = client.post(
         "/api/uploads/prepare",
         json={
+            "kind": "broll",
             "filename": "viewer.txt",
-            "mime_type": "text/plain",
+            "content_type": "text/plain",
             "size_bytes": 1,
-            "purpose": "import",
         },
     )
     assert prepare_upload.status_code == 403

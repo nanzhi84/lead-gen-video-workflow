@@ -109,7 +109,8 @@ def test_prompt_invocation_links_to_provider_invocation_in_video_workflow():
             "title": "Prompt linkage",
             "script": "验证 prompt 调用和 provider 调用的关联。",
             "voice": {"voice_id": "voice_sandbox"},
-            "portrait": {"required": True},
+            "portrait": {"template_mode": "agent"},
+            "strictness": {"strict_timestamps": False},
         },
     )
     assert response.status_code == 201, response.text

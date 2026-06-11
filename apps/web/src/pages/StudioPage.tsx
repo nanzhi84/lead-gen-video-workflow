@@ -23,7 +23,7 @@ export default function StudioPage() {
         portrait: { required: true },
         broll: { enabled: true, max_inserts: 2 },
         bgm: { enabled: false },
-        subtitles: { enabled: true },
+        subtitle: { enabled: true },
       }),
     onSuccess: (data) => {
       setLastRun(data.initial_run ?? null);
@@ -73,4 +73,3 @@ export default function StudioPage() {
     </section>
   );
 }
-

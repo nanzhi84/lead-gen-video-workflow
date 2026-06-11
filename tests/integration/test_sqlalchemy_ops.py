@@ -72,14 +72,15 @@ def test_sqlalchemy_ops_budget_alert_cost_and_dashboard_flow_is_persisted():
             },
         )
         assert upserted.status_code == 201, upserted.text
-        assert upserted.json()["limit"]["amount"] == 100
+        assert upserted.json()["limit"]["amount"] == "100"
+        assert upserted.json()["limit"]["amount_micro"] == 100_000_000
 
         patched = client.patch(
             f"/api/ops/budgets/{budget_id}",
             json={"limit": {"currency": "CNY", "amount": 250}, "enabled": False},
         )
         assert patched.status_code == 200, patched.text
-        assert patched.json()["limit"]["amount"] == 250
+        assert patched.json()["limit"]["amount"] == "250"
         assert patched.json()["enabled"] is False
 
         listed_budgets = client.get("/api/ops/budgets")
@@ -124,7 +125,7 @@ def test_sqlalchemy_ops_budget_alert_cost_and_dashboard_flow_is_persisted():
         alert_row = session.get(OpsAlertEventRow, "alert_unpriced")
         cost_row = session.get(CostRollupRow, "cost_current_all")
         assert budget_row is not None
-        assert budget_row.limit == {"currency": "CNY", "amount": 250.0}
+        assert budget_row.limit == {"currency": "CNY", "amount": "250", "amount_micro": 250_000_000}
         assert budget_row.enabled is False
         assert alert_row is not None
         assert alert_row.status == "resolved"

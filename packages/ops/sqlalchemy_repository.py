@@ -170,11 +170,18 @@ class SqlAlchemyOpsRepository:
             if window_end:
                 statement = statement.where(ProviderInvocationRow.created_at <= window_end)
             rows = list(session.scalars(statement))
-        estimated = sum(Money.model_validate(row.estimated_cost).amount for row in rows)
-        unpriced = len([row for row in rows if row.status == "cost_unpriced"])
+        estimated = sum(
+            (
+                Money.model_validate(row.estimated_cost).amount
+                for row in rows
+                if row.estimated_cost is not None
+            ),
+            Money(amount=0, currency="CNY").amount,
+        )
+        unpriced = len([row for row in rows if row.billing_status == "unpriced"])
         return ProviderUsageReport(
             invocations=len(rows),
-            estimated_cost=Money(amount=estimated),
+            estimated_cost=Money(amount=estimated, currency="CNY"),
             unpriced_invocation_count=unpriced,
         )
 

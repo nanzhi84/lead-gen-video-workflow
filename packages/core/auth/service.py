@@ -28,6 +28,10 @@ ROLE_RANK = {
 }
 
 
+def create_password_hasher() -> PasswordHasher:
+    return PasswordHasher(type=Type.ID, time_cost=1, memory_cost=1024, parallelism=1)
+
+
 @dataclass
 class AuthService:
     repository: Repository
@@ -87,7 +91,7 @@ class AuthService:
         user = next((item for item in self.repository.users.values() if item.email == email), None)
         if user is None or not self.verify_password(user.id, password):
             raise NodeExecutionError(ErrorCode.auth_invalid_credentials, "Invalid credentials.")
-        if user.disabled:
+        if user.status == "disabled":
             raise NodeExecutionError(ErrorCode.auth_user_disabled, "User is disabled.")
         return self._auth_response(user)
 
@@ -102,7 +106,7 @@ class AuthService:
             self.repository.sessions.pop(token, None)
             raise NodeExecutionError(ErrorCode.auth_unauthorized, "Session expired.")
         user = self.repository.users.get(session["user_id"])
-        if user is None or user.disabled:
+        if user is None or user.status == "disabled":
             raise NodeExecutionError(ErrorCode.auth_unauthorized, "User is not available.")
         return user
 
@@ -115,18 +119,31 @@ class AuthService:
             raise NodeExecutionError(ErrorCode.auth_forbidden, "Permission denied.")
 
     def session_info(self, user: AuthUser, request_id: str) -> SessionInfo:
-        return SessionInfo(user=user, expires_at=utcnow() + self.session_ttl, request_id=request_id)
+        token = next(
+            (
+                session_id
+                for session_id, session in self.repository.sessions.items()
+                if session["user_id"] == user.id and session["expires_at"] >= utcnow()
+            ),
+            "",
+        )
+        return SessionInfo(
+            user=user,
+            session_id=token,
+            expires_at=utcnow() + self.session_ttl,
+            request_id=request_id,
+        )
 
     def _auth_response(self, user: AuthUser) -> tuple[AuthResponse, str]:
         token = new_id("sess")
         expires_at = utcnow() + self.session_ttl
         self.repository.sessions[token] = {"user_id": user.id, "expires_at": expires_at}
         request_id = "req_local"
-        session = SessionInfo(user=user, expires_at=expires_at, request_id=request_id)
+        session = SessionInfo(user=user, session_id=token, expires_at=expires_at, request_id=request_id)
         return AuthResponse(user=user, session=session, request_id=request_id), token
 
 
-_AUTH_SERVICE = AuthService(get_repository(), PasswordHasher(type=Type.ID))
+_AUTH_SERVICE = AuthService(get_repository(), create_password_hasher())
 
 
 def get_auth_service() -> AuthService:

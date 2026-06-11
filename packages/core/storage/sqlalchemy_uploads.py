@@ -12,18 +12,21 @@ from packages.core.contracts import (
 )
 from packages.core.storage.database import ArtifactRow, UploadSessionRow
 from packages.core.storage.repository import new_id
+from packages.core.contracts.state_machines import assert_transition
 
 
 def upload_row_to_contract(row: UploadSessionRow) -> UploadSession:
     return UploadSession(
         id=row.id,
+        kind=row.kind,
+        case_id=row.case_id,
         filename=row.filename,
-        mime_type=row.mime_type,
+        content_type=row.content_type,
         size_bytes=row.size_bytes,
         sha256=row.sha256,
         status=UploadStatus(row.status),
-        purpose=row.purpose,
         upload_url=row.object_uri,
+        local_temp_path=row.local_temp_path,
         object_uri=row.object_uri,
         expires_at=row.expires_at,
         schema_version=row.schema_version,
@@ -40,6 +43,11 @@ def artifact_row_to_contract(row: ArtifactRow) -> Artifact:
         node_run_id=row.node_run_id,
         kind=ArtifactKind(row.kind),
         uri=row.uri,
+        local_path=row.local_path,
+        oss_uri=row.oss_uri,
+        size_bytes=row.size_bytes,
+        immutable=row.immutable,
+        retention_policy=row.retention_policy,
         sha256=row.sha256,
         media_info=row.media_info,
         payload_schema=row.payload_schema,
@@ -59,13 +67,15 @@ class SqlAlchemyUploadRepository:
         with self.session_factory() as session:
             row = UploadSessionRow(
                 id=upload.id,
+                kind=upload.kind.value,
+                case_id=upload.case_id,
                 filename=upload.filename,
-                mime_type=upload.mime_type,
+                content_type=upload.content_type,
                 size_bytes=upload.size_bytes,
                 sha256=upload.sha256,
                 status=upload.status.value,
-                purpose=upload.purpose,
                 object_uri=upload.object_uri,
+                local_temp_path=upload.local_temp_path,
                 expires_at=upload.expires_at,
                 schema_version=upload.schema_version,
                 created_at=upload.created_at,
@@ -89,6 +99,8 @@ class SqlAlchemyUploadRepository:
             for key, value in updates.items():
                 if key == "status" and isinstance(value, UploadStatus):
                     value = value.value
+                if key == "status":
+                    assert_transition("upload_session", row.status, value)
                 setattr(row, key, value)
             row.updated_at = utcnow()
             session.commit()
@@ -101,6 +113,7 @@ class SqlAlchemyUploadRepository:
                 id=new_id("art"),
                 kind=ArtifactKind.uploaded_file.value,
                 uri=upload.object_uri,
+                size_bytes=upload.size_bytes,
                 sha256=upload.sha256,
                 payload_schema="UploadedFileArtifact.v1",
                 payload=upload.model_dump(mode="json"),
@@ -118,7 +131,7 @@ class SqlAlchemyUploadRepository:
             return ArtifactRef(
                 artifact_id=row.id,
                 kind=ArtifactKind(row.kind),
+                uri=row.uri or f"artifact://{row.id}",
                 schema_version=row.schema_version,
                 sha256=row.sha256,
             )
-

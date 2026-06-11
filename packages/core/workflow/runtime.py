@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from packages.core.contracts import (
     Artifact,
-    DegradationCode,
+    DegradationNotice,
     ErrorCode,
     NodeError,
     NodeStatus,
@@ -49,7 +49,7 @@ class NodeOutput(BaseModel):
     status: NodeStatus = NodeStatus.succeeded
     artifacts: list[Artifact] = Field(default_factory=list)
     warnings: list[WarningCode] = Field(default_factory=list)
-    degradations: list[DegradationCode] = Field(default_factory=list)
+    degradations: list[DegradationNotice] = Field(default_factory=list)
     provider_invocation_ids: list[str] = Field(default_factory=list)
 
 

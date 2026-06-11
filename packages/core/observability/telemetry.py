@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from packages.core.contracts import RunStatus
+from packages.core.contracts import ProviderStatus, RunStatus
 from packages.core.storage import Repository
 
 
@@ -27,8 +27,9 @@ def metric_snapshot(repository: Repository) -> str:
     provider_invocations = list(repository.provider_invocations.values())
     failed_runs = len([run for run in runs if run.status == RunStatus.failed])
     failed_nodes = len([node for node in node_runs if node.status == "failed"])
-    failed_providers = len([item for item in provider_invocations if item.status in {"failed", "timeout", "quota_exceeded"}])
-    estimated_cost = sum(item.estimated_cost.amount for item in provider_invocations)
+    failed_provider_statuses = {ProviderStatus.failed, ProviderStatus.timed_out}
+    failed_providers = len([item for item in provider_invocations if item.status in failed_provider_statuses])
+    estimated_cost = sum(item.estimated_cost.amount for item in provider_invocations if item.estimated_cost)
     lines = [
         "# HELP api_request_duration_seconds API request duration placeholder.",
         "# TYPE api_request_duration_seconds histogram",
@@ -56,7 +57,7 @@ def metric_snapshot(repository: Repository) -> str:
         f"provider_cost_estimated_total {estimated_cost}",
         "# HELP provider_unpriced_invocations_total Unpriced provider invocations.",
         "# TYPE provider_unpriced_invocations_total counter",
-        "provider_unpriced_invocations_total 0",
+        f"provider_unpriced_invocations_total {len([item for item in provider_invocations if item.billing_status == 'unpriced'])}",
         "# HELP yield_funnel_events_total Yield funnel events.",
         "# TYPE yield_funnel_events_total counter",
         f"yield_funnel_events_total {len(runs)}",
@@ -68,4 +69,3 @@ def metric_snapshot(repository: Repository) -> str:
         f"temporal_activity_failures_total {failed_nodes + failed_runs}",
     ]
     return "\n".join(lines) + "\n"
-

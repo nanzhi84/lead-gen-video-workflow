@@ -44,7 +44,7 @@ export const api = {
     portrait: { required: boolean };
     broll?: { enabled: boolean; max_inserts?: number };
     bgm?: { enabled: boolean };
-    subtitles?: { enabled: boolean };
+    subtitle?: { enabled: boolean };
   }) => request<CreateJobResponse>("/api/jobs/digital-human-video", { method: "POST", body: JSON.stringify(payload) }),
   runReport: (runId: string) => request<{ public_report: { status: string; degradations: string[]; warnings: string[]; summary: string } }>(`/api/runs/${runId}/report`),
   assets: () => request<PageResponse<MediaAssetCard>>("/api/media/assets"),

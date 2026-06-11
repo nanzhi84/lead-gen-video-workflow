@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from argon2 import PasswordHasher, Type
 from sqlalchemy.orm import Session
 
+from packages.core.auth.service import create_password_hasher
 from packages.core.storage.database import (
     CaseRow,
     MediaAssetRow,
@@ -25,7 +25,7 @@ from packages.core.storage.repository import Repository
 
 def seed_rows(repository: Repository | None = None) -> list[object]:
     source = repository or Repository()
-    password_hasher = PasswordHasher(type=Type.ID)
+    password_hasher = create_password_hasher()
     rows: list[object] = []
     rows.extend(
         [
@@ -37,7 +37,7 @@ def seed_rows(repository: Repository | None = None) -> list[object]:
                     "local-admin" if user.id == "usr_admin" else "local-viewer"
                 ),
                 role=user.role.value,
-                disabled=user.disabled,
+                status=user.status,
                 schema_version=user.schema_version,
                 created_at=user.created_at,
                 updated_at=user.updated_at,
@@ -122,9 +122,14 @@ def seed_rows(repository: Repository | None = None) -> list[object]:
                 display_name=profile.display_name,
                 environment=profile.environment,
                 secret_ref=profile.secret_ref,
+                concurrency_key=profile.concurrency_key,
+                timeout_sec=profile.timeout_sec,
+                retry_policy=profile.retry_policy.model_dump(mode="json"),
+                cost_policy_id=profile.cost_policy_id,
                 options_schema_ref=profile.options_schema_ref.model_dump(mode="json"),
                 default_options=profile.default_options,
                 enabled=profile.enabled,
+                version=profile.version,
                 schema_version=profile.schema_version,
                 created_at=profile.created_at,
                 updated_at=profile.updated_at,
@@ -137,9 +142,29 @@ def seed_rows(repository: Repository | None = None) -> list[object]:
             ProviderCapabilityRow(
                 id=capability.id,
                 provider_id=capability.provider_id,
-                capability_id=capability.capability_id,
-                input_schema_ref=capability.input_schema_ref.model_dump(mode="json"),
-                output_schema_ref=capability.output_schema_ref.model_dump(mode="json"),
+                capability_id=capability.capability,
+                model_id=capability.model_id,
+                display_name=capability.display_name,
+                input_schema_id=capability.input_schema_id,
+                output_schema_id=capability.output_schema_id,
+                options_schema_id=capability.options_schema_id,
+                supports_async_job=capability.supports_async_job,
+                supports_cancel=capability.supports_cancel,
+                max_payload_bytes=capability.max_payload_bytes,
+                max_duration_sec=capability.max_duration_sec,
+                default_timeout_sec=capability.default_timeout_sec,
+                input_schema_ref={
+                    "schema_id": capability.input_schema_id,
+                    "schema_version": "v1",
+                    "dialect": "pydantic",
+                    "sha256": "dev-unpinned",
+                },
+                output_schema_ref={
+                    "schema_id": capability.output_schema_id,
+                    "schema_version": "v1",
+                    "dialect": "pydantic",
+                    "sha256": "dev-unpinned",
+                },
                 enabled=True,
                 schema_version=capability.schema_version,
                 created_at=capability.created_at,
@@ -257,6 +282,7 @@ def seed_database(session: Session, rows: Iterable[object] | None = None) -> int
         if existing is None:
             session.add(row)
             inserted += 1
+        elif isinstance(row, UserRow) and row.id in {"usr_admin", "usr_viewer"}:
+            existing.password_hash = row.password_hash
     session.commit()
     return inserted
-

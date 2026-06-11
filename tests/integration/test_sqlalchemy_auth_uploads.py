@@ -67,11 +67,11 @@ def test_sqlalchemy_upload_and_artifact_flow_are_persisted():
         prepared = client.post(
             "/api/uploads/prepare",
             json={
+                "kind": "broll",
                 "filename": "db-sample.txt",
-                "mime_type": "text/plain",
+                "content_type": "text/plain",
                 "size_bytes": len(content),
                 "sha256": digest,
-                "purpose": "import",
             },
         )
         assert prepared.status_code == 201, prepared.text
@@ -88,7 +88,7 @@ def test_sqlalchemy_upload_and_artifact_flow_are_persisted():
             files={"file": ("db-sample.txt", content, "text/plain")},
         )
         assert uploaded.status_code == 200, uploaded.text
-        assert uploaded.json()["status"] == "uploaded"
+        assert uploaded.json()["status"] == "uploading"
 
         completed = client.post(
             "/api/uploads/complete",
@@ -143,10 +143,10 @@ def test_sqlalchemy_auth_admin_users_and_registration_codes_are_persisted():
 
         patched_user = client.patch(
             f"/api/auth/users/{user['id']}",
-            json={"display_name": "Disabled Operator", "disabled": True},
+            json={"display_name": "Disabled Operator", "status": "disabled"},
         )
         assert patched_user.status_code == 200, patched_user.text
-        assert patched_user.json()["disabled"] is True
+        assert patched_user.json()["status"] == "disabled"
 
         listed_users = client.get("/api/auth/users", params={"limit": 200})
         assert listed_users.status_code == 200, listed_users.text
@@ -176,7 +176,7 @@ def test_sqlalchemy_auth_admin_users_and_registration_codes_are_persisted():
         code_row = session.get(RegistrationCodeRow, code["id"])
         assert user_row is not None
         assert user_row.display_name == "Disabled Operator"
-        assert user_row.disabled is True
+        assert user_row.status == "disabled"
         assert code_row is not None
         assert code_row.status == "disabled"
 
@@ -216,7 +216,7 @@ def test_sqlalchemy_auth_me_update_and_change_password_are_persisted():
 
         changed = client.post(
             "/api/auth/me/change-password",
-            json={"current_password": old_password, "new_password": new_password},
+            json={"old_password": old_password, "new_password": new_password},
         )
         assert changed.status_code == 200, changed.text
 

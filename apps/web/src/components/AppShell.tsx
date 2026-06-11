@@ -4,6 +4,7 @@ import {
   KeyRound,
   Library,
   LogOut,
+  Send,
   Sparkles,
   UserCircle2,
 } from "lucide-react";
@@ -17,6 +18,7 @@ const mainNav = [
   { to: routes.overview(), label: "概览", icon: Home, end: true },
   { to: routes.studio(), label: "案例中心", icon: Sparkles },
   { to: routes.library(), label: "素材库", icon: Library },
+  { to: routes.publishCenter(), label: "发布中心", icon: Send },
   { to: routes.analytics(), label: "数据统计", icon: BarChart3 },
   { to: routes.account(), label: "账户中心", icon: UserCircle2 },
   { to: routes.settings(), label: "设置", icon: KeyRound },
@@ -46,6 +48,8 @@ function Breadcrumbs() {
     parts.push("设置");
   } else if (location.pathname.startsWith("/library")) {
     parts.push("素材库");
+  } else if (location.pathname.startsWith("/publish-center")) {
+    parts.push("发布中心");
   } else if (location.pathname.startsWith("/analytics")) {
     parts.push("数据统计");
   } else if (location.pathname.startsWith("/account")) {

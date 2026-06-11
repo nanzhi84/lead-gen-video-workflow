@@ -66,6 +66,37 @@ def create_publish_package(payload: c.CreatePublishPackageRequest, request: Requ
     return package
 
 
+def patch_publish_package(
+    package_id: str, payload: c.PatchPublishPackageRequest, request: Request
+) -> c.PublishPackage | JSONResponse:
+    if publishing_repository(request) is not None:
+        package = publishing_repository(request).patch_package(package_id, payload)
+        if package is None:
+            return not_found_response("Publish package not found")
+        return package
+    package = repository(request).publish_packages.get(package_id)
+    if package is None:
+        return not_found_response("Publish package not found")
+    updates = {}
+    if {"title", "description"} & payload.model_fields_set:
+        defaults_updates = {}
+        if "title" in payload.model_fields_set and payload.title is not None:
+            defaults_updates["title"] = payload.title
+        if "description" in payload.model_fields_set and payload.description is not None:
+            defaults_updates["description"] = payload.description
+        if defaults_updates:
+            updates["platform_defaults"] = package.platform_defaults.model_copy(update=defaults_updates)
+    if "cover_artifact_id" in payload.model_fields_set:
+        updates["cover_artifact"] = (
+            ensure_artifact_ref(request, payload.cover_artifact_id) if payload.cover_artifact_id else None
+        )
+    if updates:
+        updates["updated_at"] = c.utcnow()
+    updated = package.model_copy(update=updates)
+    repository(request).publish_packages[package_id] = updated
+    return updated
+
+
 def publish_batches(request: Request, limit: int = 50) -> c.PageResponse[c.PublishBatchVm]:
 
     if publishing_repository(request) is not None:
@@ -91,6 +122,42 @@ def publish_batch_detail(request: Request, batch_id: str) -> c.PublishBatchVm | 
     if batch is None:
         return not_found_response("Publish batch not found")
     return batch
+
+
+def publish_batch_attempts(
+    request: Request, batch_id: str, limit: int = 50
+) -> c.PageResponse[c.PublishAttempt] | JSONResponse:
+    if publishing_repository(request) is not None:
+        if publishing_repository(request).get_batch(batch_id) is None:
+            return not_found_response("Publish batch not found")
+        values = publishing_repository(request).list_attempts(batch_id, limit=limit)
+        return c.PageResponse(items=values, total_hint=len(values), request_id=request_id())
+    if batch_id not in repository(request).publish_batches:
+        return not_found_response("Publish batch not found")
+    values = [
+        attempt
+        for attempt in repository(request).publish_attempts.values()
+        if attempt.batch_id == batch_id
+    ]
+    values.sort(key=lambda item: item.created_at, reverse=True)
+    return c.PageResponse(items=values[:limit], total_hint=len(values), request_id=request_id())
+
+
+def delete_publish_batch(batch_id: str, request: Request) -> c.OkResponse | JSONResponse:
+    if publishing_repository(request) is not None:
+        deleted = publishing_repository(request).delete_batch(batch_id)
+        if not deleted:
+            return not_found_response("Publish batch not found")
+        return c.OkResponse(request_id=request_id())
+    if batch_id not in repository(request).publish_batches:
+        return not_found_response("Publish batch not found")
+    repository(request).publish_batches.pop(batch_id, None)
+    repository(request).publish_attempts = {
+        attempt_id: attempt
+        for attempt_id, attempt in repository(request).publish_attempts.items()
+        if attempt.batch_id != batch_id
+    }
+    return c.OkResponse(request_id=request_id())
 
 
 def submit_publish_batch(
@@ -233,6 +300,28 @@ def patch_publish_item(
                 items[index] = updated
                 repository(request).publish_batches[batch.id] = batch.model_copy(update={"items": items})
                 return updated
+    return not_found_response("Publish item not found")
+
+
+def delete_publish_item(item_id: str, request: Request) -> c.OkResponse | JSONResponse:
+    if publishing_repository(request) is not None:
+        deleted = publishing_repository(request).delete_item(item_id)
+        if not deleted:
+            return not_found_response("Publish item not found")
+        return c.OkResponse(request_id=request_id())
+    for batch in repository(request).publish_batches.values():
+        items = [item for item in batch.items if item.id != item_id]
+        if len(items) == len(batch.items):
+            continue
+        repository(request).publish_batches[batch.id] = batch.model_copy(
+            update={"items": items, "updated_at": c.utcnow()}
+        )
+        repository(request).publish_attempts = {
+            attempt_id: attempt
+            for attempt_id, attempt in repository(request).publish_attempts.items()
+            if attempt.item_id != item_id
+        }
+        return c.OkResponse(request_id=request_id())
     return not_found_response("Publish item not found")
 
 

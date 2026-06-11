@@ -1600,6 +1600,16 @@ class CreatePublishPackageRequest(ContractModel):
     description: str = ""
 
 
+class PatchPublishPackageRequest(ContractModel):
+    title: str | None = None
+    description: str | None = None
+    cover_artifact_id: str | None = None
+
+
+class DeletePublishResourceRequest(ContractModel):
+    reason: str | None = None
+
+
 class PublishBatchStatus(str, Enum):
     draft = "draft"
     processing = "processing"

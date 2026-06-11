@@ -1536,6 +1536,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/publish/packages/{package_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Patch Publish Package */
+        patch: operations["patch_publish_package_api_publish_packages__package_id__patch"];
+        trace?: never;
+    };
     "/api/publish/batches": {
         parameters: {
             query?: never;
@@ -1563,6 +1580,24 @@ export interface paths {
         };
         /** Publish Batch Detail */
         get: operations["publish_batch_detail_api_publish_batches__batch_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Publish Batch */
+        delete: operations["delete_publish_batch_api_publish_batches__batch_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/publish/batches/{batch_id}/attempts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Publish Batch Attempts */
+        get: operations["publish_batch_attempts_api_publish_batches__batch_id__attempts_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1615,7 +1650,8 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        delete?: never;
+        /** Delete Publish Item */
+        delete: operations["delete_publish_item_api_publish_items__item_id__delete"];
         options?: never;
         head?: never;
         /** Patch Publish Item */
@@ -2993,6 +3029,11 @@ export interface components {
                 [key: string]: components["schemas"]["JsonValue"];
             };
         };
+        /** DeletePublishResourceRequest */
+        DeletePublishResourceRequest: {
+            /** Reason */
+            reason?: string | null;
+        };
         /** DesignVoiceRequest */
         DesignVoiceRequest: {
             /** Display Name */
@@ -3858,6 +3899,17 @@ export interface components {
             /** Request Id */
             request_id: string;
         };
+        /** PageResponse[PublishAttempt] */
+        PageResponse_PublishAttempt_: {
+            /** Items */
+            items: components["schemas"]["PublishAttempt"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Total Hint */
+            total_hint?: number | null;
+            /** Request Id */
+            request_id: string;
+        };
         /** PageResponse[PublishBatchVm] */
         PageResponse_PublishBatchVm_: {
             /** Items */
@@ -4008,6 +4060,15 @@ export interface components {
             description?: string | null;
             /** Selected */
             selected?: boolean | null;
+        };
+        /** PatchPublishPackageRequest */
+        PatchPublishPackageRequest: {
+            /** Title */
+            title?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Cover Artifact Id */
+            cover_artifact_id?: string | null;
         };
         /** PatchVoiceRequest */
         PatchVoiceRequest: {
@@ -9391,6 +9452,41 @@ export interface operations {
             };
         };
     };
+    patch_publish_package_api_publish_packages__package_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                package_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchPublishPackageRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublishPackage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     publish_batches_api_publish_batches_get: {
         parameters: {
             query?: {
@@ -9486,6 +9582,74 @@ export interface operations {
             };
         };
     };
+    delete_publish_batch_api_publish_batches__batch_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DeletePublishResourceRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    publish_batch_attempts_api_publish_batches__batch_id__attempts_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageResponse_PublishAttempt_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     submit_publish_batch_api_publish_batches__batch_id__submit_post: {
         parameters: {
             query?: never;
@@ -9540,6 +9704,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PublishBatchItemVm"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_publish_item_api_publish_items__item_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DeletePublishResourceRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
                 };
             };
             /** @description Validation Error */

@@ -23,6 +23,14 @@ def create_publish_package(payload: c.CreatePublishPackageRequest, request: Requ
     return service.create_publish_package(payload, request)
 
 
+@router.patch("/api/publish/packages/{package_id}", response_model=c.PublishPackage)
+def patch_publish_package(
+    package_id: str, payload: c.PatchPublishPackageRequest, request: Request
+) -> c.PublishPackage | JSONResponse:
+    require_role(request, c.UserRole.operator)
+    return service.patch_publish_package(package_id, payload, request)
+
+
 @router.get("/api/publish/batches", response_model=c.PageResponse[c.PublishBatchVm])
 def publish_batches(request: Request, limit: int = 50) -> c.PageResponse[c.PublishBatchVm]:
 
@@ -39,6 +47,19 @@ def create_publish_batch(payload: c.CreatePublishBatchRequest, request: Request)
 def publish_batch_detail(request: Request, batch_id: str) -> c.PublishBatchVm | JSONResponse:
 
     return service.publish_batch_detail(request, batch_id)
+
+
+@router.get("/api/publish/batches/{batch_id}/attempts", response_model=c.PageResponse[c.PublishAttempt])
+def publish_batch_attempts(request: Request, batch_id: str, limit: int = 50) -> c.PageResponse[c.PublishAttempt] | JSONResponse:
+    return service.publish_batch_attempts(request, batch_id, limit)
+
+
+@router.delete("/api/publish/batches/{batch_id}", response_model=c.OkResponse)
+def delete_publish_batch(
+    batch_id: str, request: Request, payload: c.DeletePublishResourceRequest | None = None
+) -> c.OkResponse | JSONResponse:
+    require_role(request, c.UserRole.operator)
+    return service.delete_publish_batch(batch_id, request)
 
 
 @router.post("/api/publish/batches/{batch_id}/submit", response_model=c.PublishBatchVm, status_code=202)
@@ -64,6 +85,14 @@ def patch_publish_item(
 ) -> c.PublishBatchItemVm | JSONResponse:
     require_role(request, c.UserRole.operator)
     return service.patch_publish_item(item_id, payload, request)
+
+
+@router.delete("/api/publish/items/{item_id}", response_model=c.OkResponse)
+def delete_publish_item(
+    item_id: str, request: Request, payload: c.DeletePublishResourceRequest | None = None
+) -> c.OkResponse | JSONResponse:
+    require_role(request, c.UserRole.operator)
+    return service.delete_publish_item(item_id, request)
 
 
 @router.get("/api/publish/attempts/{attempt_id}", response_model=c.PublishAttemptDetail)

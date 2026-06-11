@@ -326,12 +326,78 @@ export const api = {
       ),
   },
   publishing: {
+    packages: (query: QueryParams<operations["publish_packages_api_publish_packages_get"]> = {}) =>
+      fetchJson<JsonResponse<operations["publish_packages_api_publish_packages_get"]>>("/api/publish/packages", {
+        query,
+      }),
     createPackage: (payload: JsonRequest<operations["create_publish_package_api_publish_packages_post"]>) =>
       fetchJson<JsonResponse<operations["create_publish_package_api_publish_packages_post"]>>("/api/publish/packages", {
         method: "POST",
         body: payload,
         idempotencyKey: createIdempotencyKey("publish_package"),
       }),
+    patchPackage: (
+      packageId: string,
+      payload: JsonRequest<operations["patch_publish_package_api_publish_packages__package_id__patch"]>,
+    ) =>
+      fetchJson<JsonResponse<operations["patch_publish_package_api_publish_packages__package_id__patch"]>>(
+        `/api/publish/packages/${enc(packageId)}`,
+        { method: "PATCH", body: payload, idempotencyKey: createIdempotencyKey("publish_package_patch") },
+      ),
+    batches: (query: QueryParams<operations["publish_batches_api_publish_batches_get"]> = {}) =>
+      fetchJson<JsonResponse<operations["publish_batches_api_publish_batches_get"]>>("/api/publish/batches", {
+        query,
+      }),
+    createBatch: (payload: JsonRequest<operations["create_publish_batch_api_publish_batches_post"]>) =>
+      fetchJson<JsonResponse<operations["create_publish_batch_api_publish_batches_post"]>>("/api/publish/batches", {
+        method: "POST",
+        body: payload,
+        idempotencyKey: createIdempotencyKey("publish_batch"),
+      }),
+    batch: (batchId: string) =>
+      fetchJson<JsonResponse<operations["publish_batch_detail_api_publish_batches__batch_id__get"]>>(
+        `/api/publish/batches/${enc(batchId)}`,
+      ),
+    attempts: (
+      batchId: string,
+      query: QueryParams<operations["publish_batch_attempts_api_publish_batches__batch_id__attempts_get"]> = {},
+    ) =>
+      fetchJson<JsonResponse<operations["publish_batch_attempts_api_publish_batches__batch_id__attempts_get"]>>(
+        `/api/publish/batches/${enc(batchId)}/attempts`,
+        { query },
+      ),
+    deleteBatch: (batchId: string) =>
+      fetchJson<JsonResponse<operations["delete_publish_batch_api_publish_batches__batch_id__delete"]>>(
+        `/api/publish/batches/${enc(batchId)}`,
+        { method: "DELETE", idempotencyKey: createIdempotencyKey("publish_batch_delete") },
+      ),
+    submitBatch: (
+      batchId: string,
+      payload: JsonRequest<operations["submit_publish_batch_api_publish_batches__batch_id__submit_post"]>,
+    ) =>
+      fetchJson<JsonResponse<operations["submit_publish_batch_api_publish_batches__batch_id__submit_post"]>>(
+        `/api/publish/batches/${enc(batchId)}/submit`,
+        { method: "POST", body: payload, idempotencyKey: createIdempotencyKey("publish_submit") },
+      ),
+    retryItem: (batchId: string, itemId: string) =>
+      fetchJson<JsonResponse<operations["retry_publish_item_api_publish_batches__batch_id__items__item_id__retry_publish_post"]>>(
+        `/api/publish/batches/${enc(batchId)}/items/${enc(itemId)}/retry-publish`,
+        { method: "POST", idempotencyKey: createIdempotencyKey("publish_retry") },
+      ),
+    patchItem: (itemId: string, payload: JsonRequest<operations["patch_publish_item_api_publish_items__item_id__patch"]>) =>
+      fetchJson<JsonResponse<operations["patch_publish_item_api_publish_items__item_id__patch"]>>(
+        `/api/publish/items/${enc(itemId)}`,
+        { method: "PATCH", body: payload, idempotencyKey: createIdempotencyKey("publish_item_patch") },
+      ),
+    deleteItem: (itemId: string) =>
+      fetchJson<JsonResponse<operations["delete_publish_item_api_publish_items__item_id__delete"]>>(
+        `/api/publish/items/${enc(itemId)}`,
+        { method: "DELETE", idempotencyKey: createIdempotencyKey("publish_item_delete") },
+      ),
+    attempt: (attemptId: string) =>
+      fetchJson<JsonResponse<operations["publish_attempt_api_publish_attempts__attempt_id__get"]>>(
+        `/api/publish/attempts/${enc(attemptId)}`,
+      ),
   },
   providers: {
     profiles: (query: QueryParams<operations["provider_profiles_api_providers_profiles_get"]> = {}) =>
@@ -434,6 +500,11 @@ export type MediaAssetCard = components["schemas"]["MediaAssetCard"];
 export type MediaAssetRecord = components["schemas"]["MediaAssetRecord"];
 export type AnnotationEditorVm = components["schemas"]["AnnotationEditorVm"];
 export type FinishedVideo = components["schemas"]["FinishedVideo"];
+export type PublishAttempt = components["schemas"]["PublishAttempt"];
+export type PublishAttemptDetail = components["schemas"]["PublishAttemptDetail"];
+export type PublishBatch = components["schemas"]["PublishBatchVm"];
+export type PublishBatchItem = components["schemas"]["PublishBatchItemVm"];
+export type PublishPackage = components["schemas"]["PublishPackage"];
 export type ProviderProfile = components["schemas"]["ProviderProfile"];
 export type SecretPreview = components["schemas"]["SecretPreview"];
 export type ProviderPriceCatalog = components["schemas"]["ProviderPriceCatalog"];

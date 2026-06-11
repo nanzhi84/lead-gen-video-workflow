@@ -51,6 +51,7 @@ PATH_VALUES = {
     "memory_id": "mem_missing",
     "video_version_id": "vv_missing",
     "id": "missing",
+    "package_id": "pkg_missing",
     "batch_id": "pub_batch_missing",
     "item_id": "pub_item_missing",
     "attempt_id": "pub_attempt_missing",

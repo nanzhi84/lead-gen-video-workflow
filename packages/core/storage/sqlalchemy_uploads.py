@@ -1,0 +1,124 @@
+from __future__ import annotations
+
+from sqlalchemy.orm import Session, sessionmaker
+
+from packages.core.contracts import (
+    Artifact,
+    ArtifactKind,
+    ArtifactRef,
+    UploadSession,
+    UploadStatus,
+    utcnow,
+)
+from packages.core.storage.database import ArtifactRow, UploadSessionRow
+from packages.core.storage.repository import new_id
+
+
+def upload_row_to_contract(row: UploadSessionRow) -> UploadSession:
+    return UploadSession(
+        id=row.id,
+        filename=row.filename,
+        mime_type=row.mime_type,
+        size_bytes=row.size_bytes,
+        sha256=row.sha256,
+        status=UploadStatus(row.status),
+        purpose=row.purpose,
+        upload_url=row.object_uri,
+        object_uri=row.object_uri,
+        expires_at=row.expires_at,
+        schema_version=row.schema_version,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def artifact_row_to_contract(row: ArtifactRow) -> Artifact:
+    return Artifact(
+        id=row.id,
+        case_id=row.case_id,
+        run_id=row.run_id,
+        node_run_id=row.node_run_id,
+        kind=ArtifactKind(row.kind),
+        uri=row.uri,
+        sha256=row.sha256,
+        media_info=row.media_info,
+        payload_schema=row.payload_schema,
+        payload=row.payload,
+        created_by_node_run_id=row.created_by_node_run_id,
+        schema_version=row.schema_version,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+class SqlAlchemyUploadRepository:
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self.session_factory = session_factory
+
+    def create_upload(self, upload: UploadSession) -> UploadSession:
+        with self.session_factory() as session:
+            row = UploadSessionRow(
+                id=upload.id,
+                filename=upload.filename,
+                mime_type=upload.mime_type,
+                size_bytes=upload.size_bytes,
+                sha256=upload.sha256,
+                status=upload.status.value,
+                purpose=upload.purpose,
+                object_uri=upload.object_uri,
+                expires_at=upload.expires_at,
+                schema_version=upload.schema_version,
+                created_at=upload.created_at,
+                updated_at=upload.updated_at,
+            )
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+            return upload_row_to_contract(row)
+
+    def get_upload(self, upload_session_id: str) -> UploadSession | None:
+        with self.session_factory() as session:
+            row = session.get(UploadSessionRow, upload_session_id)
+            return upload_row_to_contract(row) if row else None
+
+    def patch_upload(self, upload_session_id: str, updates: dict) -> UploadSession:
+        with self.session_factory() as session:
+            row = session.get(UploadSessionRow, upload_session_id)
+            if row is None:
+                raise KeyError(upload_session_id)
+            for key, value in updates.items():
+                if key == "status" and isinstance(value, UploadStatus):
+                    value = value.value
+                setattr(row, key, value)
+            row.updated_at = utcnow()
+            session.commit()
+            session.refresh(row)
+            return upload_row_to_contract(row)
+
+    def create_artifact_from_upload(self, upload: UploadSession) -> Artifact:
+        with self.session_factory() as session:
+            row = ArtifactRow(
+                id=new_id("art"),
+                kind=ArtifactKind.uploaded_file.value,
+                uri=upload.object_uri,
+                sha256=upload.sha256,
+                payload_schema="UploadedFileArtifact.v1",
+                payload=upload.model_dump(mode="json"),
+            )
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+            return artifact_row_to_contract(row)
+
+    def artifact_ref(self, artifact_id: str) -> ArtifactRef:
+        with self.session_factory() as session:
+            row = session.get(ArtifactRow, artifact_id)
+            if row is None:
+                raise KeyError(artifact_id)
+            return ArtifactRef(
+                artifact_id=row.id,
+                kind=ArtifactKind(row.kind),
+                schema_version=row.schema_version,
+                sha256=row.sha256,
+            )
+

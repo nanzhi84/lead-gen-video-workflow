@@ -1,0 +1,711 @@
+from __future__ import annotations
+
+import os
+from datetime import datetime
+
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    MetaData,
+    String,
+    Text,
+    UniqueConstraint,
+    create_engine,
+    func,
+)
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
+from sqlalchemy.types import UserDefinedType
+
+
+NAMING_CONVENTION = {
+    "ix": "ix_%(column_0_label)s",
+    "uq": "uq_%(table_name)s_%(column_0_name)s",
+    "ck": "ck_%(table_name)s_%(constraint_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    "pk": "pk_%(table_name)s",
+}
+
+
+class Vector(UserDefinedType):
+    cache_ok = True
+
+    def __init__(self, dimensions: int = 1536) -> None:
+        self.dimensions = dimensions
+
+    def get_col_spec(self, **_: object) -> str:
+        return f"vector({self.dimensions})"
+
+
+class Base(DeclarativeBase):
+    metadata = MetaData(naming_convention=NAMING_CONVENTION)
+
+
+class TimestampMixin:
+    schema_version: Mapped[str] = mapped_column(String(16), nullable=False, default="v1")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class UserRow(TimestampMixin, Base):
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    email: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    display_name: Mapped[str] = mapped_column(String, nullable=False)
+    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    role: Mapped[str] = mapped_column(String, nullable=False)
+    disabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class SessionRow(TimestampMixin, Base):
+    __tablename__ = "sessions"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class RegistrationCodeRow(TimestampMixin, Base):
+    __tablename__ = "registration_codes"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    role: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    max_uses: Mapped[int | None] = mapped_column(Integer)
+    used_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class UploadSessionRow(TimestampMixin, Base):
+    __tablename__ = "upload_sessions"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    filename: Mapped[str] = mapped_column(String, nullable=False)
+    mime_type: Mapped[str] = mapped_column(String, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256: Mapped[str | None] = mapped_column(String)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    purpose: Mapped[str] = mapped_column(String, nullable=False)
+    object_uri: Mapped[str | None] = mapped_column(Text)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class SecretRow(TimestampMixin, Base):
+    __tablename__ = "secrets"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    provider_id: Mapped[str] = mapped_column(String, nullable=False)
+    environment: Mapped[str] = mapped_column(String, nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    encrypted_value: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="active")
+    rotated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class CaseRow(TimestampMixin, Base):
+    __tablename__ = "cases"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    owner_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    description: Mapped[str | None] = mapped_column(Text)
+    industry: Mapped[str | None] = mapped_column(String)
+    product: Mapped[str | None] = mapped_column(String)
+    target_audience: Mapped[str | None] = mapped_column(Text)
+
+
+class ArtifactRow(TimestampMixin, Base):
+    __tablename__ = "artifacts"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    case_id: Mapped[str | None] = mapped_column(ForeignKey("cases.id", ondelete="SET NULL"))
+    run_id: Mapped[str | None] = mapped_column(String)
+    node_run_id: Mapped[str | None] = mapped_column(String)
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    uri: Mapped[str | None] = mapped_column(Text)
+    sha256: Mapped[str | None] = mapped_column(String)
+    media_info: Mapped[dict | None] = mapped_column(JSONB)
+    payload_schema: Mapped[str] = mapped_column(String, nullable=False)
+    payload: Mapped[dict | list | str | int | float | bool | None] = mapped_column(JSONB)
+    created_by_node_run_id: Mapped[str | None] = mapped_column(String)
+
+
+class JobRow(TimestampMixin, Base):
+    __tablename__ = "jobs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    type: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    case_id: Mapped[str | None] = mapped_column(ForeignKey("cases.id", ondelete="SET NULL"))
+    created_by_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    request_schema: Mapped[str] = mapped_column(String, nullable=False)
+    request: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    current_run_id: Mapped[str | None] = mapped_column(String)
+
+
+class WorkflowRunRow(TimestampMixin, Base):
+    __tablename__ = "workflow_runs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
+    case_id: Mapped[str | None] = mapped_column(ForeignKey("cases.id", ondelete="SET NULL"))
+    workflow_template_id: Mapped[str] = mapped_column(String, nullable=False)
+    workflow_version: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    run_attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    resume_from_run_id: Mapped[str | None] = mapped_column(String)
+    retry_from_run_id: Mapped[str | None] = mapped_column(String)
+    public_report_artifact_id: Mapped[str | None] = mapped_column(ForeignKey("artifacts.id"))
+    debug_report_artifact_id: Mapped[str | None] = mapped_column(ForeignKey("artifacts.id"))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class NodeRunRow(TimestampMixin, Base):
+    __tablename__ = "node_runs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("workflow_runs.id", ondelete="CASCADE"), nullable=False)
+    node_id: Mapped[str] = mapped_column(String, nullable=False)
+    node_version: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    input_manifest_hash: Mapped[str | None] = mapped_column(String)
+    output_artifact_ids: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    provider_invocation_ids: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    error: Mapped[dict | None] = mapped_column(JSONB)
+    warnings: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    degradations: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class MediaAssetRow(TimestampMixin, Base):
+    __tablename__ = "media_assets"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    case_id: Mapped[str | None] = mapped_column(ForeignKey("cases.id", ondelete="SET NULL"))
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    source_artifact_id: Mapped[str | None] = mapped_column(ForeignKey("artifacts.id"))
+    tags: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    annotation_status: Mapped[str] = mapped_column(String, nullable=False)
+    usable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class AnnotationRow(TimestampMixin, Base):
+    __tablename__ = "annotations"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    asset_id: Mapped[str] = mapped_column(ForeignKey("media_assets.id", ondelete="CASCADE"), nullable=False)
+    etag: Mapped[str] = mapped_column(String, nullable=False)
+    canonical_schema: Mapped[str] = mapped_column(String, nullable=False)
+    canonical: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    projection_schema: Mapped[str] = mapped_column(String, nullable=False)
+    projection: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    editable_paths: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+
+
+class VoiceProfileRow(TimestampMixin, Base):
+    __tablename__ = "voice_profiles"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    display_name: Mapped[str] = mapped_column(String, nullable=False)
+    source: Mapped[str] = mapped_column(String, nullable=False)
+    provider_profile_id: Mapped[str | None] = mapped_column(String)
+    preview_artifact_id: Mapped[str | None] = mapped_column(ForeignKey("artifacts.id"))
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class ProviderProfileRow(TimestampMixin, Base):
+    __tablename__ = "provider_profiles"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    provider_id: Mapped[str] = mapped_column(String, nullable=False)
+    model_id: Mapped[str] = mapped_column(String, nullable=False)
+    capability: Mapped[str] = mapped_column(String, nullable=False)
+    display_name: Mapped[str] = mapped_column(String, nullable=False)
+    environment: Mapped[str] = mapped_column(String, nullable=False)
+    secret_ref: Mapped[str | None] = mapped_column(String)
+    options_schema_ref: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    default_options: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class ProviderCapabilityRow(TimestampMixin, Base):
+    __tablename__ = "provider_capabilities"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    provider_id: Mapped[str] = mapped_column(String, nullable=False)
+    capability_id: Mapped[str] = mapped_column(String, nullable=False)
+    input_schema_ref: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    output_schema_ref: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    __table_args__ = (UniqueConstraint("provider_id", "capability_id"),)
+
+
+class ProviderInvocationRow(TimestampMixin, Base):
+    __tablename__ = "provider_invocations"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    case_id: Mapped[str | None] = mapped_column(ForeignKey("cases.id", ondelete="SET NULL"))
+    run_id: Mapped[str | None] = mapped_column(ForeignKey("workflow_runs.id", ondelete="SET NULL"))
+    node_run_id: Mapped[str | None] = mapped_column(ForeignKey("node_runs.id", ondelete="SET NULL"))
+    provider_id: Mapped[str] = mapped_column(String, nullable=False)
+    model_id: Mapped[str] = mapped_column(String, nullable=False)
+    provider_profile_id: Mapped[str] = mapped_column(String, nullable=False)
+    capability_id: Mapped[str] = mapped_column(String, nullable=False)
+    prompt_version_id: Mapped[str | None] = mapped_column(String)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    media_seconds: Mapped[float] = mapped_column(Float, nullable=False, default=0)
+    estimated_cost: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    actual_cost: Mapped[dict | None] = mapped_column(JSONB)
+    request_artifact_id: Mapped[str | None] = mapped_column(ForeignKey("artifacts.id"))
+    response_artifact_id: Mapped[str | None] = mapped_column(ForeignKey("artifacts.id"))
+    error: Mapped[dict | None] = mapped_column(JSONB)
+
+
+class UsageMeterRecordRow(TimestampMixin, Base):
+    __tablename__ = "usage_meter_records"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    provider_invocation_id: Mapped[str] = mapped_column(
+        ForeignKey("provider_invocations.id", ondelete="CASCADE"), nullable=False
+    )
+    provider_id: Mapped[str] = mapped_column(String, nullable=False)
+    model_id: Mapped[str] = mapped_column(String, nullable=False)
+    capability_id: Mapped[str] = mapped_column(String, nullable=False)
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    media_seconds: Mapped[float] = mapped_column(Float, nullable=False, default=0)
+    estimated_cost: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    actual_cost: Mapped[dict | None] = mapped_column(JSONB)
+    cost_unpriced: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class ProviderPriceCatalogRow(TimestampMixin, Base):
+    __tablename__ = "provider_price_catalogs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    provider_id: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+
+
+class ProviderPriceItemRow(TimestampMixin, Base):
+    __tablename__ = "provider_price_items"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    catalog_id: Mapped[str] = mapped_column(
+        ForeignKey("provider_price_catalogs.id", ondelete="CASCADE"), nullable=False
+    )
+    provider_id: Mapped[str] = mapped_column(String, nullable=False)
+    model_id: Mapped[str] = mapped_column(String, nullable=False)
+    capability_id: Mapped[str] = mapped_column(String, nullable=False)
+    unit: Mapped[str] = mapped_column(String, nullable=False)
+    unit_price: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    active_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    active_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PromptTemplateRow(TimestampMixin, Base):
+    __tablename__ = "prompt_templates"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    purpose: Mapped[str] = mapped_column(String, nullable=False)
+    variables_schema_ref: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    output_schema_ref: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class PromptVersionRow(TimestampMixin, Base):
+    __tablename__ = "prompt_versions"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    prompt_template_id: Mapped[str] = mapped_column(
+        ForeignKey("prompt_templates.id", ondelete="CASCADE"), nullable=False
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    changelog: Mapped[str | None] = mapped_column(Text)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PromptBindingRow(TimestampMixin, Base):
+    __tablename__ = "prompt_bindings"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    prompt_template_id: Mapped[str] = mapped_column(ForeignKey("prompt_templates.id"), nullable=False)
+    prompt_version_id: Mapped[str] = mapped_column(ForeignKey("prompt_versions.id"), nullable=False)
+    case_id: Mapped[str | None] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"))
+    node_id: Mapped[str | None] = mapped_column(String)
+    provider_profile_id: Mapped[str | None] = mapped_column(String)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class PromptInvocationRow(TimestampMixin, Base):
+    __tablename__ = "prompt_invocations"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    prompt_template_id: Mapped[str] = mapped_column(ForeignKey("prompt_templates.id"), nullable=False)
+    prompt_version_id: Mapped[str] = mapped_column(ForeignKey("prompt_versions.id"), nullable=False)
+    case_id: Mapped[str | None] = mapped_column(ForeignKey("cases.id", ondelete="SET NULL"))
+    run_id: Mapped[str | None] = mapped_column(ForeignKey("workflow_runs.id", ondelete="SET NULL"))
+    node_run_id: Mapped[str | None] = mapped_column(ForeignKey("node_runs.id", ondelete="SET NULL"))
+    provider_invocation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("provider_invocations.id", ondelete="SET NULL")
+    )
+    variables_artifact_id: Mapped[str | None] = mapped_column(ForeignKey("artifacts.id"))
+    output_artifact_id: Mapped[str | None] = mapped_column(ForeignKey("artifacts.id"))
+    status: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class PromptExperimentRow(TimestampMixin, Base):
+    __tablename__ = "prompt_experiments"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    prompt_template_id: Mapped[str] = mapped_column(ForeignKey("prompt_templates.id"), nullable=False)
+    variants: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False)
+    traffic_split: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    scope: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ScriptVersionRow(TimestampMixin, Base):
+    __tablename__ = "script_versions"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    case_id: Mapped[str] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"), nullable=False)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    script: Mapped[str] = mapped_column(Text, nullable=False)
+    creative_intent_artifact_id: Mapped[str | None] = mapped_column(ForeignKey("artifacts.id"))
+    adopted_from_draft_id: Mapped[str | None] = mapped_column(String)
+
+
+class VideoVersionRow(TimestampMixin, Base):
+    __tablename__ = "video_versions"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    case_id: Mapped[str] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"), nullable=False)
+    script_version_id: Mapped[str | None] = mapped_column(ForeignKey("script_versions.id"))
+    finished_video_id: Mapped[str | None] = mapped_column(String)
+    timeline_plan_artifact_id: Mapped[str] = mapped_column(String, nullable=False)
+    style_plan_artifact_id: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class CaseAgentSourceBindingRow(TimestampMixin, Base):
+    __tablename__ = "case_agent_source_bindings"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    case_id: Mapped[str] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"), nullable=False)
+    source_type: Mapped[str] = mapped_column(String, nullable=False)
+    source_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str | None] = mapped_column(String)
+
+
+class CaseAgentRunRow(TimestampMixin, Base):
+    __tablename__ = "case_agent_runs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    case_id: Mapped[str] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"), nullable=False)
+    goal: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    source_binding_ids: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+
+
+class CreativeBriefRow(TimestampMixin, Base):
+    __tablename__ = "creative_briefs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    case_id: Mapped[str] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    source_binding_ids: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+
+
+class ScriptDraftRow(TimestampMixin, Base):
+    __tablename__ = "script_drafts"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    case_id: Mapped[str] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"), nullable=False)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    script: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    memory_ids: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+
+
+class CaseMemoryRow(TimestampMixin, Base):
+    __tablename__ = "case_memories"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    case_id: Mapped[str] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"), nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    scope: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    insight: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    embedding: Mapped[object | None] = mapped_column(Vector(1536))
+
+    __table_args__ = (CheckConstraint("confidence >= 0 AND confidence <= 1", name="confidence_range"),)
+
+
+class MemoryProposalRow(TimestampMixin, Base):
+    __tablename__ = "memory_proposals"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    case_id: Mapped[str] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"), nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    scope: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    insight: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    proposed_by_reflection_run_id: Mapped[str | None] = mapped_column(String)
+
+
+class ReflectionRunRow(TimestampMixin, Base):
+    __tablename__ = "reflection_runs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    case_id: Mapped[str] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"), nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    window: Mapped[str] = mapped_column(String, nullable=False)
+    report_artifact_id: Mapped[str | None] = mapped_column(ForeignKey("artifacts.id"))
+
+
+class PublishRecordRow(TimestampMixin, Base):
+    __tablename__ = "publish_records"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    case_id: Mapped[str] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"), nullable=False)
+    video_version_id: Mapped[str | None] = mapped_column(ForeignKey("video_versions.id"))
+    publish_package_id: Mapped[str | None] = mapped_column(String)
+    publish_batch_id: Mapped[str | None] = mapped_column(String)
+    platform: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    cover_artifact_id: Mapped[str | None] = mapped_column(ForeignKey("artifacts.id"))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PerformanceObservationRow(TimestampMixin, Base):
+    __tablename__ = "performance_observations"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    case_id: Mapped[str] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"), nullable=False)
+    publish_record_id: Mapped[str] = mapped_column(String, nullable=False)
+    metric_name: Mapped[str] = mapped_column(String, nullable=False)
+    metric_value: Mapped[float] = mapped_column(Float, nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class FinishedVideoRow(TimestampMixin, Base):
+    __tablename__ = "finished_videos"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    case_id: Mapped[str] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"), nullable=False)
+    run_id: Mapped[str | None] = mapped_column(ForeignKey("workflow_runs.id"))
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    video_artifact: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    cover_artifact: Mapped[dict | None] = mapped_column(JSONB)
+    subtitle_artifact: Mapped[dict | None] = mapped_column(JSONB)
+    duration_sec: Mapped[float] = mapped_column(Float, nullable=False, default=0)
+    qc_status: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class PublishPackageRow(TimestampMixin, Base):
+    __tablename__ = "publish_packages"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    case_id: Mapped[str | None] = mapped_column(ForeignKey("cases.id", ondelete="SET NULL"))
+    source_finished_video_id: Mapped[str | None] = mapped_column(ForeignKey("finished_videos.id"))
+    upload_artifact_id: Mapped[str | None] = mapped_column(ForeignKey("artifacts.id"))
+    video_artifact: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    cover_artifact: Mapped[dict | None] = mapped_column(JSONB)
+    platform_defaults: Mapped[dict] = mapped_column(JSONB, nullable=False)
+
+
+class PublishBatchRow(TimestampMixin, Base):
+    __tablename__ = "publish_batches"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class PublishBatchItemRow(TimestampMixin, Base):
+    __tablename__ = "publish_batch_items"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    batch_id: Mapped[str] = mapped_column(ForeignKey("publish_batches.id", ondelete="CASCADE"), nullable=False)
+    publish_package_id: Mapped[str] = mapped_column(ForeignKey("publish_packages.id"), nullable=False)
+    platform: Mapped[str] = mapped_column(String, nullable=False)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    selected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class PublishAttemptRow(TimestampMixin, Base):
+    __tablename__ = "publish_attempts"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    item_id: Mapped[str] = mapped_column(ForeignKey("publish_batch_items.id"), nullable=False)
+    platform: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    error: Mapped[dict | None] = mapped_column(JSONB)
+
+
+class YieldFunnelEventRow(TimestampMixin, Base):
+    __tablename__ = "yield_funnel_events"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    case_id: Mapped[str | None] = mapped_column(ForeignKey("cases.id", ondelete="SET NULL"))
+    run_id: Mapped[str | None] = mapped_column(ForeignKey("workflow_runs.id", ondelete="SET NULL"))
+    event_name: Mapped[str] = mapped_column(String, nullable=False)
+    affects_true_yield: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class CostRollupRow(TimestampMixin, Base):
+    __tablename__ = "cost_rollups"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    group_key: Mapped[str] = mapped_column(String, nullable=False)
+    group_by: Mapped[str | None] = mapped_column(String)
+    estimated_cost: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    actual_cost: Mapped[dict | None] = mapped_column(JSONB)
+    invocations: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class BudgetRow(TimestampMixin, Base):
+    __tablename__ = "budgets"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    scope_type: Mapped[str] = mapped_column(String, nullable=False)
+    scope_id: Mapped[str | None] = mapped_column(String)
+    limit: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    alert_threshold: Mapped[float] = mapped_column(Float, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class OpsAlertEventRow(TimestampMixin, Base):
+    __tablename__ = "ops_alert_events"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    code: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    severity: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class ProductionQualityCheckRow(TimestampMixin, Base):
+    __tablename__ = "production_quality_checks"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    target_type: Mapped[str] = mapped_column(String, nullable=False)
+    target_id: Mapped[str] = mapped_column(String, nullable=False)
+    check_type: Mapped[str] = mapped_column(String, nullable=False)
+    result: Mapped[str] = mapped_column(String, nullable=False)
+    reason_code: Mapped[str | None] = mapped_column(String)
+    evidence_artifact_id: Mapped[str | None] = mapped_column(ForeignKey("artifacts.id"))
+    affects_true_yield: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class ApprovalRequestRow(TimestampMixin, Base):
+    __tablename__ = "approval_requests"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    resource_type: Mapped[str] = mapped_column(String, nullable=False)
+    resource_id: Mapped[str | None] = mapped_column(String)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text)
+
+
+class AuditEventRow(TimestampMixin, Base):
+    __tablename__ = "audit_events"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    actor: Mapped[str | None] = mapped_column(String)
+    action: Mapped[str] = mapped_column(String, nullable=False)
+    resource_type: Mapped[str] = mapped_column(String, nullable=False)
+    resource_id: Mapped[str | None] = mapped_column(String)
+    details: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+
+class ImportBatchReportRow(TimestampMixin, Base):
+    __tablename__ = "import_batch_reports"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    import_type: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    created_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    skipped_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    results: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    mapping_artifact_id: Mapped[str | None] = mapped_column(ForeignKey("artifacts.id"))
+
+
+class OutboxEventRow(TimestampMixin, Base):
+    __tablename__ = "outbox_events"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    topic: Mapped[str] = mapped_column(String, nullable=False)
+    aggregate_type: Mapped[str] = mapped_column(String, nullable=False)
+    aggregate_id: Mapped[str] = mapped_column(String, nullable=False)
+    dedupe_key: Mapped[str | None] = mapped_column(String)
+    payload_schema: Mapped[str] = mapped_column(String, nullable=False)
+    payload: Mapped[dict | list | str | int | float | bool] = mapped_column(JSONB, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+
+    __table_args__ = (
+        UniqueConstraint("aggregate_type", "aggregate_id", "topic", "dedupe_key"),
+    )
+
+
+Index("idx_artifacts_case_run", ArtifactRow.case_id, ArtifactRow.run_id)
+Index("idx_node_runs_run", NodeRunRow.run_id)
+Index("idx_provider_invocations_case", ProviderInvocationRow.case_id, ProviderInvocationRow.provider_id)
+Index("idx_usage_meter_provider", UsageMeterRecordRow.provider_id, UsageMeterRecordRow.capability_id)
+Index("idx_case_memories_case_status", CaseMemoryRow.case_id, CaseMemoryRow.status)
+Index("idx_performance_case_metric", PerformanceObservationRow.case_id, PerformanceObservationRow.metric_name)
+Index("idx_outbox_pending", OutboxEventRow.status, OutboxEventRow.available_at, OutboxEventRow.created_at, OutboxEventRow.id)
+
+
+def database_url() -> str:
+    return os.getenv(
+        "CUTAGENT_DATABASE_URL",
+        "postgresql+psycopg://cutagent:cutagent@127.0.0.1:55432/cutagent",
+    )
+
+
+def create_database_engine(url: str | None = None) -> Engine:
+    return create_engine(url or database_url(), pool_pre_ping=True)
+
+
+def create_session_factory(engine: Engine | None = None) -> sessionmaker:
+    return sessionmaker(bind=engine or create_database_engine(), expire_on_commit=False)
+
+
+def table_names() -> set[str]:
+    return set(Base.metadata.tables)

@@ -88,3 +88,17 @@ sandbox 仍可跑（测试默认 sandbox，真插件用门控变量）。
 4. 一批素材真实自动标注，标注失败的进 annotation_failed。
 5. 数据统计页显示真实 provider 成本（非 ¥0）。
 6. 全量 + DB + Temporal 三套绿。
+
+---
+
+## 验收记录（2026-06-12，验收官：Claude）
+
+**判定：主体通过并合入**（merge 见 git log），**真连通部分遗留 M6d-fix**。
+
+通过证据：sandbox 默认路径不变（116 单测绿）；重建 schema 后 23 DB 集成绿（seed 21→47 行，含 5 真 profile + 6 价格条目）；**MiniMax TTS 真 key live 连通通过**（真调 API、真音频产出，3s）；5 插件 mock 单测齐全；估算端点按实际 provider 选价（集成修复，见 M6d-fix(estimate) commit）。
+
+真连通遗留（→ M6d-fix）：
+- **DashScope ASR 真连通失败**：插件调了虚构同步端点 `/api/v1/services/audio/asr/recognition`，但 Paraformer 录音文件识别是**异步任务 API**（提交 task→轮询→下载结果 JSON）。mock 只验形状测不出，真 key live 抓到。修复须参照原版 `backend/app/services/asr_service.py` 的调通实现。这是「strict 字幕修真」的关键能力，优先级高。
+- VLM（qwen-vl，OpenAI 兼容 chat，疑同步可能 OK）、HeyGem（已是异步轮询架构）真连通待真素材逐个验。
+
+验收方法论价值：真连通验证（真 key + 真素材 live 门控）抓到了 mock 单测无法发现的 API 契约级 bug——这类 provider 接入必须真 key 验收，不能只信 mock。

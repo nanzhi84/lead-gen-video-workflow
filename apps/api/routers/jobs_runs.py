@@ -11,6 +11,11 @@ from packages.core import contracts as c
 
 router = APIRouter()
 
+@router.get("/api/cases/{case_id}/runs", response_model=c.PageResponse[c.RunCard])
+def case_run_cards(request: Request, case_id: str, limit: int = 50) -> c.PageResponse[c.RunCard]:
+    return service.case_run_cards(request, case_id, limit)
+
+
 @router.post("/api/jobs/digital-human-video", response_model=c.CreateJobResponse, status_code=201)
 def create_digital_human_job(
     payload: c.CreateDigitalHumanVideoJobRequest, request: Request

@@ -1066,6 +1066,55 @@
         }
       }
     },
+    "/api/cases/{case_id}/runs": {
+      "get": {
+        "summary": "Case Run Cards",
+        "operationId": "case_run_cards_api_cases__case_id__runs_get",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Case Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageResponse_RunCard_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/jobs/digital-human-video": {
       "post": {
         "summary": "Create Digital Human Job",
@@ -3095,6 +3144,55 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProviderPriceCatalog"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/providers/price-catalogs/{catalog_id}/items": {
+      "get": {
+        "summary": "Price Catalog Items",
+        "operationId": "price_catalog_items_api_providers_price_catalogs__catalog_id__items_get",
+        "parameters": [
+          {
+            "name": "catalog_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Catalog Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 200,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageResponse_ProviderPriceItem_"
                 }
               }
             }
@@ -11100,6 +11198,50 @@
         ],
         "title": "PageResponse[ProviderPriceCatalog]"
       },
+      "PageResponse_ProviderPriceItem_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderPriceItem-Output"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "total_hint": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Hint"
+          },
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "request_id"
+        ],
+        "title": "PageResponse[ProviderPriceItem]"
+      },
       "PageResponse_ProviderProfile_": {
         "properties": {
           "items": {
@@ -11275,6 +11417,50 @@
           "request_id"
         ],
         "title": "PageResponse[RegistrationCodePreview]"
+      },
+      "PageResponse_RunCard_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RunCard"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "total_hint": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Hint"
+          },
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "request_id"
+        ],
+        "title": "PageResponse[RunCard]"
       },
       "PageResponse_ScriptDraft_": {
         "properties": {
@@ -13009,7 +13195,7 @@
         ],
         "title": "ProviderPriceCatalog"
       },
-      "ProviderPriceItem": {
+      "ProviderPriceItem-Input": {
         "properties": {
           "id": {
             "type": "string",
@@ -13074,6 +13260,103 @@
           },
           "unit_price": {
             "$ref": "#/components/schemas/Money-Input"
+          },
+          "active_from": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Active From"
+          },
+          "active_to": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active To"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "catalog_id",
+          "provider_id",
+          "model_id",
+          "capability_id",
+          "unit",
+          "unit_price"
+        ],
+        "title": "ProviderPriceItem"
+      },
+      "ProviderPriceItem-Output": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
+          },
+          "schema_version": {
+            "type": "string",
+            "title": "Schema Version",
+            "default": "v1"
+          },
+          "catalog_id": {
+            "type": "string",
+            "title": "Catalog Id"
+          },
+          "provider_id": {
+            "type": "string",
+            "title": "Provider Id"
+          },
+          "model_id": {
+            "type": "string",
+            "title": "Model Id"
+          },
+          "capability_id": {
+            "type": "string",
+            "title": "Capability Id"
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "input_token",
+              "output_token",
+              "media_second",
+              "call"
+            ],
+            "title": "Unit"
+          },
+          "unit_price": {
+            "$ref": "#/components/schemas/Money-Output"
           },
           "active_from": {
             "type": "string",
@@ -14320,6 +14603,114 @@
         ],
         "title": "RunArtifactsResponse"
       },
+      "RunCard": {
+        "properties": {
+          "runId": {
+            "type": "string",
+            "title": "Runid"
+          },
+          "jobId": {
+            "type": "string",
+            "title": "Jobid"
+          },
+          "caseId": {
+            "type": "string",
+            "title": "Caseid"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunStatus"
+          },
+          "progress": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Progress"
+          },
+          "currentNodeLabel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currentnodelabel"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "previewUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previewurl"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "canResume": {
+            "type": "boolean",
+            "title": "Canresume"
+          },
+          "canRetry": {
+            "type": "boolean",
+            "title": "Canretry"
+          },
+          "canPublish": {
+            "type": "boolean",
+            "title": "Canpublish"
+          },
+          "startedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startedat"
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updatedat"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "runId",
+          "jobId",
+          "caseId",
+          "status",
+          "progress",
+          "title",
+          "canResume",
+          "canRetry",
+          "canPublish"
+        ],
+        "title": "RunCard"
+      },
       "RunDebugReportArtifact": {
         "properties": {
           "run_id": {
@@ -15237,7 +15628,7 @@
           },
           "items": {
             "items": {
-              "$ref": "#/components/schemas/ProviderPriceItem"
+              "$ref": "#/components/schemas/ProviderPriceItem-Input"
             },
             "type": "array",
             "title": "Items"

@@ -98,6 +98,30 @@ def test_minimal_success_video_creates_finished_video_and_report():
     assert videos
 
 
+def test_case_run_cards_list_recent_runs_for_case():
+    with fresh_client() as active_client:
+        login_admin_for(active_client)
+        response = active_client.post(
+            "/api/jobs/digital-human-video",
+            json=video_payload(title="Run card list"),
+        )
+        assert response.status_code == 201, response.text
+        run = response.json()["initial_run"]
+
+        listed = active_client.get("/api/cases/case_demo/runs")
+        assert listed.status_code == 200, listed.text
+        body = listed.json()
+        card = body["items"][0]
+        assert card["runId"] == run["id"]
+        assert card["jobId"] == run["job_id"]
+        assert card["caseId"] == "case_demo"
+        assert card["title"] == "Run card list"
+        assert card["progress"] == 1
+        assert card["canPublish"] is True
+        assert card["canRetry"] is False
+        assert "warnings" in card
+
+
 def test_spec_20_2_2_broll_enabled_success_creates_non_empty_plan():
     """Spec 20.2 #2: B-roll enabled success."""
     with fresh_client() as active_client:

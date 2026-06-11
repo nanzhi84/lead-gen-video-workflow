@@ -12,7 +12,7 @@ dependencies = [
   "psycopg[binary]>=3.2",
   "temporalio>=1.28",
   "prometheus-client>=0.25",
-  "uvicorn>=0.34",
+  "uvicorn[standard]>=0.34",
   "python-multipart>=0.0.20",
 ]
 

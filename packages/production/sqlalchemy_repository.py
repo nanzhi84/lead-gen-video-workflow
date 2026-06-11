@@ -34,6 +34,7 @@ from packages.core.contracts import (
     NodeStatus,
     NodeError,
     OutboxEvent,
+    PageResponse,
     PerformanceAttributionResponse,
     PerformanceMetricView,
     PerformanceObservation,
@@ -45,6 +46,7 @@ from packages.core.contracts import (
     PublishPackage,
     PublishRecord,
     RunArtifactsResponse,
+    RunCard,
     RunDebugReportArtifact,
     RunDetailResponse,
     RunPublicReportArtifact,
@@ -96,6 +98,103 @@ SUPPORTED_IMPORT_TYPES = {
     "prompt_seed",
     "provider_price",
 }
+
+NODE_LABELS = {
+    "ValidateRequest": "校验请求",
+    "LoadCaseContext": "加载 Case 上下文",
+    "ResolveCreativeIntent": "解析创作意图",
+    "TTS": "生成配音",
+    "MaterialPackPlanning": "规划素材包",
+    "NarrationAlignment": "对齐旁白",
+    "PortraitPlanning": "规划数字人镜头",
+    "BrollPlanning": "规划 B-roll",
+    "StylePlanning": "规划字幕与包装",
+    "TimelinePlanning": "规划时间线",
+    "PortraitTrackBuild": "生成数字人轨道",
+    "LipSync": "口型同步",
+    "RenderFinalTimeline": "渲染主时间线",
+    "SubtitleAndBgmMix": "混合字幕与 BGM",
+    "ExportFinishedVideo": "导出成片",
+    "FinalizeRunReport": "生成 Run 报告",
+}
+
+
+def _node_label(node_id: str | None) -> str | None:
+    if not node_id:
+        return None
+    return NODE_LABELS.get(node_id, node_id)
+
+
+def _run_progress(run: WorkflowRun, node_runs: list[NodeRun]) -> float:
+    if run.status in {RunStatus.succeeded, RunStatus.failed, RunStatus.cancelled}:
+        return 1.0
+    if not node_runs:
+        return 0.05 if run.status in {RunStatus.created, RunStatus.admitted} else 0.1
+    terminal = {NodeStatus.succeeded, NodeStatus.skipped, NodeStatus.degraded}
+    completed = len([node for node in node_runs if node.status in terminal])
+    running_bonus = 0.5 if any(node.status == NodeStatus.running for node in node_runs) else 0
+    return min(0.95, max(0.05, (completed + running_bonus) / max(len(node_runs), 1)))
+
+
+def _current_node_label(node_runs: list[NodeRun]) -> str | None:
+    running = next((node for node in reversed(node_runs) if node.status == NodeStatus.running), None)
+    if running is not None:
+        return _node_label(running.node_id)
+    latest = next((node for node in reversed(node_runs) if node.status != NodeStatus.pending), None)
+    return _node_label(latest.node_id if latest else None)
+
+
+def _run_title(job: Job) -> str:
+    if isinstance(job.request, DigitalHumanVideoRequest):
+        return job.request.title or job.request.script[:28] or job.id
+    return job.id
+
+
+def _run_warnings(node_runs: list[NodeRun]) -> list[str]:
+    values: list[str] = []
+    for node in node_runs:
+        values.extend([warning.value if hasattr(warning, "value") else str(warning) for warning in node.warnings])
+        values.extend(
+            [
+                notice.code.value if hasattr(notice.code, "value") else str(notice.code)
+                for notice in node.degradations
+            ]
+        )
+    return sorted(set(values))
+
+
+def _run_has_retryable_failure(run: WorkflowRun, node_runs: list[NodeRun]) -> bool:
+    if run.status != RunStatus.failed:
+        return False
+    return any(
+        bool(node.error and node.error.retryable)
+        for node in node_runs
+        if node.status == NodeStatus.failed
+    )
+
+
+def _run_card_from_parts(
+    *,
+    run: WorkflowRun,
+    job: Job,
+    node_runs: list[NodeRun],
+    has_finished_video: bool,
+) -> RunCard:
+    return RunCard(
+        run_id=run.id,
+        job_id=run.job_id,
+        case_id=run.case_id or job.case_id or "",
+        status=run.status,
+        progress=_run_progress(run, node_runs),
+        current_node_label=_current_node_label(node_runs),
+        title=_run_title(job),
+        warnings=_run_warnings(node_runs),
+        can_resume=run.status == RunStatus.succeeded or _run_has_retryable_failure(run, node_runs),
+        can_retry=run.status in {RunStatus.failed, RunStatus.cancelled},
+        can_publish=run.status == RunStatus.succeeded and has_finished_video,
+        started_at=run.started_at,
+        updated_at=run.updated_at,
+    )
 
 
 def artifact_ref_from_row(row: ArtifactRow) -> ArtifactRef:
@@ -398,6 +497,50 @@ class SqlAlchemyProductionRepository:
                 if getattr(event, "run_id", None) == run.id:
                     session.merge(self._yield_funnel_event_row(event, run.case_id))
             session.commit()
+
+    def case_run_cards(self, *, case_id: str, request_id: str, limit: int = 50) -> PageResponse[RunCard] | None:
+        with self.session_factory() as session:
+            if session.get(CaseRow, case_id) is None:
+                return None
+            run_rows = list(
+                session.scalars(
+                    select(WorkflowRunRow)
+                    .where(WorkflowRunRow.case_id == case_id)
+                    .order_by(WorkflowRunRow.updated_at.desc())
+                    .limit(limit)
+                )
+            )
+            items: list[RunCard] = []
+            for run_row in run_rows:
+                job_row = session.get(JobRow, run_row.job_id)
+                if job_row is None:
+                    continue
+                run = workflow_run_row_to_contract(run_row)
+                node_runs = [
+                    node_run_row_to_contract(row)
+                    for row in session.scalars(
+                        select(NodeRunRow)
+                        .where(NodeRunRow.run_id == run.id)
+                        .order_by(NodeRunRow.created_at.asc())
+                    )
+                ]
+                has_finished_video = (
+                    session.scalar(
+                        select(FinishedVideoRow.id)
+                        .where(FinishedVideoRow.run_id == run.id)
+                        .limit(1)
+                    )
+                    is not None
+                )
+                items.append(
+                    _run_card_from_parts(
+                        run=run,
+                        job=job_row_to_contract(job_row),
+                        node_runs=node_runs,
+                        has_finished_video=has_finished_video,
+                    )
+                )
+            return PageResponse(items=items, total_hint=len(items), request_id=request_id)
 
     def run_exists(self, run_id: str) -> bool:
         with self.session_factory() as session:

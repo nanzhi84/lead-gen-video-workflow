@@ -159,6 +159,11 @@ def test_sqlalchemy_provider_configuration_and_price_catalog_flow_is_persisted()
         assert upserted.status_code == 201, upserted.text
         assert upserted.json()["status"] == "draft"
 
+        item_list = client.get(f"/api/providers/price-catalogs/{catalog_id}/items")
+        assert item_list.status_code == 200, item_list.text
+        assert item_list.json()["items"][0]["id"] == item_id
+        assert item_list.json()["items"][0]["unit_price"]["amount"] == "0.5"
+
         approved = client.post(
             f"/api/providers/price-catalogs/{catalog_id}/approve",
             json={"reason": "integration approve"},

@@ -250,6 +250,16 @@ class SqlAlchemyProviderRepository:
             statement = statement.order_by(ProviderPriceCatalogRow.updated_at.desc()).limit(limit)
             return [price_catalog_row_to_contract(row) for row in session.scalars(statement)]
 
+    def list_price_items(self, *, catalog_id: str, limit: int = 200) -> list[ProviderPriceItem]:
+        with self.session_factory() as session:
+            statement = (
+                select(ProviderPriceItemRow)
+                .where(ProviderPriceItemRow.catalog_id == catalog_id)
+                .order_by(ProviderPriceItemRow.created_at.asc())
+                .limit(limit)
+            )
+            return [price_item_row_to_contract(row) for row in session.scalars(statement)]
+
     def upsert_price_catalog(self, payload: UpsertPriceCatalogRequest) -> ProviderPriceCatalog:
         catalog = payload.catalog
         with self.session_factory() as session:

@@ -841,6 +841,23 @@ class RunDetailResponse(ContractModel):
     request_id: str = "req_local"
 
 
+class RunCard(ContractModel):
+    run_id: str = Field(alias="runId")
+    job_id: str = Field(alias="jobId")
+    case_id: str = Field(alias="caseId")
+    status: RunStatus
+    progress: float = Field(ge=0, le=1)
+    current_node_label: str | None = Field(default=None, alias="currentNodeLabel")
+    title: str
+    preview_url: str | None = Field(default=None, alias="previewUrl")
+    warnings: list[str] = Field(default_factory=list)
+    can_resume: bool = Field(alias="canResume")
+    can_retry: bool = Field(alias="canRetry")
+    can_publish: bool = Field(alias="canPublish")
+    started_at: datetime | None = Field(default=None, alias="startedAt")
+    updated_at: datetime | None = Field(default=None, alias="updatedAt")
+
+
 class RunActionResponse(ContractModel):
     run: WorkflowRun
     accepted: bool

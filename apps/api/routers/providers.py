@@ -60,6 +60,11 @@ def price_catalogs(
     return service.price_catalogs(request, limit, provider_id, active_only)
 
 
+@router.get("/api/providers/price-catalogs/{catalog_id}/items", response_model=c.PageResponse[c.ProviderPriceItem])
+def price_catalog_items(request: Request, catalog_id: str, limit: int = 200) -> c.PageResponse[c.ProviderPriceItem]:
+    return service.price_catalog_items(request, catalog_id, limit)
+
+
 @router.post("/api/providers/price-catalogs", response_model=c.ProviderPriceCatalog, status_code=201)
 def upsert_price_catalog(payload: c.UpsertPriceCatalogRequest, request: Request) -> c.ProviderPriceCatalog:
     require_role(request, c.UserRole.admin)

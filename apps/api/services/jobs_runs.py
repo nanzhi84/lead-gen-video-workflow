@@ -44,6 +44,26 @@ from packages.production.pipeline import ReusePlan, ReuseSourceRun, compute_reus
 from packages.production.pipeline.digital_human import digital_human_template
 
 
+NODE_LABELS = {
+    "ValidateRequest": "校验请求",
+    "LoadCaseContext": "加载 Case 上下文",
+    "ResolveCreativeIntent": "解析创作意图",
+    "TTS": "生成配音",
+    "MaterialPackPlanning": "规划素材包",
+    "NarrationAlignment": "对齐旁白",
+    "PortraitPlanning": "规划数字人镜头",
+    "BrollPlanning": "规划 B-roll",
+    "StylePlanning": "规划字幕与包装",
+    "TimelinePlanning": "规划时间线",
+    "PortraitTrackBuild": "生成数字人轨道",
+    "LipSync": "口型同步",
+    "RenderFinalTimeline": "渲染主时间线",
+    "SubtitleAndBgmMix": "混合字幕与 BGM",
+    "ExportFinishedVideo": "导出成片",
+    "FinalizeRunReport": "生成 Run 报告",
+}
+
+
 def _sync_workflow_snapshot(request: Request, run: c.WorkflowRun) -> None:
     if production_repository(request) is not None:
         production_repository(request).sync_workflow_snapshot(
@@ -127,6 +147,92 @@ def _run_has_retryable_failure(repo, run_id: str) -> bool:
         bool(node.error and node.error.retryable)
         for node in repo.node_runs.get(run_id, [])
         if node.status == c.NodeStatus.failed
+    )
+
+
+def _node_label(node_id: str | None) -> str | None:
+    if not node_id:
+        return None
+    return NODE_LABELS.get(node_id, node_id)
+
+
+def _run_progress(run: c.WorkflowRun, node_runs: list[c.NodeRun]) -> float:
+    if run.status in {c.RunStatus.succeeded, c.RunStatus.failed, c.RunStatus.cancelled}:
+        return 1.0
+    if not node_runs:
+        return 0.05 if run.status in {c.RunStatus.created, c.RunStatus.admitted} else 0.1
+    terminal = {c.NodeStatus.succeeded, c.NodeStatus.skipped, c.NodeStatus.degraded}
+    completed = len([node for node in node_runs if node.status in terminal])
+    running_bonus = 0.5 if any(node.status == c.NodeStatus.running for node in node_runs) else 0
+    return min(0.95, max(0.05, (completed + running_bonus) / max(len(node_runs), 1)))
+
+
+def _current_node_label(node_runs: list[c.NodeRun]) -> str | None:
+    running = next((node for node in reversed(node_runs) if node.status == c.NodeStatus.running), None)
+    if running is not None:
+        return _node_label(running.node_id)
+    latest = next((node for node in reversed(node_runs) if node.status != c.NodeStatus.pending), None)
+    return _node_label(latest.node_id if latest else None)
+
+
+def _run_title(job: c.Job) -> str:
+    request_payload = job.request
+    if isinstance(request_payload, c.DigitalHumanVideoRequest):
+        return request_payload.title or request_payload.script[:28] or job.id
+    return job.id
+
+
+def _run_warnings(node_runs: list[c.NodeRun]) -> list[str]:
+    values: list[str] = []
+    for node in node_runs:
+        values.extend([warning.value if hasattr(warning, "value") else str(warning) for warning in node.warnings])
+        values.extend(
+            [
+                notice.code.value if hasattr(notice.code, "value") else str(notice.code)
+                for notice in node.degradations
+            ]
+        )
+    return sorted(set(values))
+
+
+def _run_card(repo, run: c.WorkflowRun) -> c.RunCard:
+    job = repo.jobs[run.job_id]
+    node_runs = list(repo.node_runs.get(run.id, []))
+    has_finished_video = any(video.run_id == run.id for video in repo.finished_videos.values())
+    can_resume = run.status == c.RunStatus.succeeded or _run_has_retryable_failure(repo, run.id)
+    return c.RunCard(
+        run_id=run.id,
+        job_id=run.job_id,
+        case_id=run.case_id or job.case_id or "",
+        status=run.status,
+        progress=_run_progress(run, node_runs),
+        current_node_label=_current_node_label(node_runs),
+        title=_run_title(job),
+        warnings=_run_warnings(node_runs),
+        can_resume=can_resume,
+        can_retry=run.status in {c.RunStatus.failed, c.RunStatus.cancelled},
+        can_publish=run.status == c.RunStatus.succeeded and has_finished_video,
+        started_at=run.started_at,
+        updated_at=run.updated_at,
+    )
+
+
+def case_run_cards(request: Request, case_id: str, limit: int = 50) -> c.PageResponse[c.RunCard]:
+    if production_repository(request) is not None:
+        response = production_repository(request).case_run_cards(case_id=case_id, request_id=request_id(), limit=limit)
+        if response is not None:
+            return response
+    get_case(request, case_id)
+    repo = repository(request)
+    runs = sorted(
+        [run for run in repo.runs.values() if run.case_id == case_id],
+        key=lambda run: run.updated_at,
+        reverse=True,
+    )[:limit]
+    return c.PageResponse(
+        items=[_run_card(repo, run) for run in runs],
+        total_hint=len(runs),
+        request_id=request_id(),
     )
 
 

@@ -1,56 +1,33 @@
-import { NavLink, Route, Routes } from "react-router-dom";
-import { Boxes, BrainCircuit, BriefcaseBusiness, Clapperboard, Gauge, KeyRound, Library, RadioTower } from "lucide-react";
-import CasesPage from "./pages/CasesPage";
-import StudioPage from "./pages/StudioPage";
-import AssetsPage from "./pages/AssetsPage";
-import PublishPage from "./pages/PublishPage";
-import OpsPage from "./pages/OpsPage";
-import SettingsPage from "./pages/SettingsPage";
+import { Navigate, Route, Routes } from "react-router-dom";
+import { AppShell } from "./components/AppShell";
+import { RequireAuth } from "./components/RequireAuth";
+import LoginPage from "./pages/auth/LoginPage";
+import CaseListPage from "./pages/studio/CaseListPage";
+import StudioCreatePage from "./pages/studio/StudioCreatePage";
+import RunsPage from "./pages/studio/RunsPage";
+import FinishedVideosPage from "./pages/studio/FinishedVideosPage";
+import SettingsPage from "./pages/settings/SettingsPage";
+import PlaceholderPage from "./pages/PlaceholderPage";
+import { routePatterns, routes } from "./routes";
 
-const nav = [
-  { to: "/", label: "Cases", icon: BriefcaseBusiness },
-  { to: "/studio", label: "Studio", icon: BrainCircuit },
-  { to: "/runs", label: "Runs", icon: RadioTower },
-  { to: "/assets", label: "Assets", icon: Library },
-  { to: "/publish", label: "Publish", icon: Clapperboard },
-  { to: "/ops", label: "Ops", icon: Gauge },
-  { to: "/settings", label: "Settings", icon: KeyRound },
-];
-
-function Shell() {
+export default function App() {
   return (
-    <div className="shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <Boxes size={22} />
-          <span>Cutagent</span>
-        </div>
-        <nav className="nav">
-          {nav.map((item) => {
-            const Icon = item.icon;
-            return (
-              <NavLink key={item.to} to={item.to} end={item.to === "/"} className="navItem">
-                <Icon size={18} />
-                <span>{item.label}</span>
-              </NavLink>
-            );
-          })}
-        </nav>
-      </aside>
-      <main className="main">
-        <Routes>
-          <Route path="/" element={<CasesPage />} />
-          <Route path="/studio" element={<StudioPage />} />
-          <Route path="/runs" element={<OpsPage mode="runs" />} />
-          <Route path="/assets" element={<AssetsPage />} />
-          <Route path="/publish" element={<PublishPage />} />
-          <Route path="/ops" element={<OpsPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-        </Routes>
-      </main>
-    </div>
+    <Routes>
+      <Route path={routePatterns.login} element={<LoginPage />} />
+      <Route element={<RequireAuth />}>
+        <Route element={<AppShell />}>
+          <Route index element={<Navigate to={routes.studio()} replace />} />
+          <Route path={routePatterns.studio} element={<CaseListPage />} />
+          <Route path={routePatterns.caseStudio} element={<StudioCreatePage />} />
+          <Route path={routePatterns.caseRuns} element={<RunsPage />} />
+          <Route path={routePatterns.caseFinishedVideos} element={<FinishedVideosPage />} />
+          <Route path={routePatterns.casePublish} element={<PlaceholderPage title="发布中心" />} />
+          <Route path={routePatterns.settings} element={<SettingsPage />} />
+          <Route path={routePatterns.library} element={<PlaceholderPage title="素材库" />} />
+          <Route path={routePatterns.ops} element={<PlaceholderPage title="Ops" />} />
+        </Route>
+      </Route>
+      <Route path="*" element={<Navigate to={routes.studio()} replace />} />
+    </Routes>
   );
 }
-
-export default Shell;
-

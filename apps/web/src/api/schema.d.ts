@@ -384,6 +384,23 @@ export interface paths {
         patch: operations["patch_case_api_cases__case_id__patch"];
         trace?: never;
     };
+    "/api/cases/{case_id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Case Run Cards */
+        get: operations["case_run_cards_api_cases__case_id__runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/jobs/digital-human-video": {
         parameters: {
             query?: never;
@@ -965,6 +982,23 @@ export interface paths {
         put?: never;
         /** Upsert Price Catalog */
         post: operations["upsert_price_catalog_api_providers_price_catalogs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/providers/price-catalogs/{catalog_id}/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Price Catalog Items */
+        get: operations["price_catalog_items_api_providers_price_catalogs__catalog_id__items_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3802,6 +3836,17 @@ export interface components {
             /** Request Id */
             request_id: string;
         };
+        /** PageResponse[ProviderPriceItem] */
+        PageResponse_ProviderPriceItem_: {
+            /** Items */
+            items: components["schemas"]["ProviderPriceItem-Output"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Total Hint */
+            total_hint?: number | null;
+            /** Request Id */
+            request_id: string;
+        };
         /** PageResponse[ProviderProfile] */
         PageResponse_ProviderProfile_: {
             /** Items */
@@ -3839,6 +3884,17 @@ export interface components {
         PageResponse_RegistrationCodePreview_: {
             /** Items */
             items: components["schemas"]["RegistrationCodePreview"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Total Hint */
+            total_hint?: number | null;
+            /** Request Id */
+            request_id: string;
+        };
+        /** PageResponse[RunCard] */
+        PageResponse_RunCard_: {
+            /** Items */
+            items: components["schemas"]["RunCard"][];
             /** Next Cursor */
             next_cursor?: string | null;
             /** Total Hint */
@@ -4499,7 +4555,7 @@ export interface components {
             currency: string;
         };
         /** ProviderPriceItem */
-        ProviderPriceItem: {
+        "ProviderPriceItem-Input": {
             /** Id */
             id: string;
             /**
@@ -4538,6 +4594,54 @@ export interface components {
              */
             unit: "input_token" | "output_token" | "media_second" | "call";
             unit_price: components["schemas"]["Money-Input"];
+            /**
+             * Active From
+             * Format: date-time
+             */
+            active_from?: string;
+            /** Active To */
+            active_to?: string | null;
+        };
+        /** ProviderPriceItem */
+        "ProviderPriceItem-Output": {
+            /** Id */
+            id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at?: string;
+            /** Created By */
+            created_by?: string | null;
+            /**
+             * Version
+             * @default 1
+             */
+            version: number;
+            /**
+             * Schema Version
+             * @default v1
+             */
+            schema_version: string;
+            /** Catalog Id */
+            catalog_id: string;
+            /** Provider Id */
+            provider_id: string;
+            /** Model Id */
+            model_id: string;
+            /** Capability Id */
+            capability_id: string;
+            /**
+             * Unit
+             * @enum {string}
+             */
+            unit: "input_token" | "output_token" | "media_second" | "call";
+            unit_price: components["schemas"]["Money-Output"];
             /**
              * Active From
              * Format: date-time
@@ -5072,6 +5176,36 @@ export interface components {
             /** Request Id */
             request_id: string;
         };
+        /** RunCard */
+        RunCard: {
+            /** Runid */
+            runId: string;
+            /** Jobid */
+            jobId: string;
+            /** Caseid */
+            caseId: string;
+            status: components["schemas"]["RunStatus"];
+            /** Progress */
+            progress: number;
+            /** Currentnodelabel */
+            currentNodeLabel?: string | null;
+            /** Title */
+            title: string;
+            /** Previewurl */
+            previewUrl?: string | null;
+            /** Warnings */
+            warnings?: string[];
+            /** Canresume */
+            canResume: boolean;
+            /** Canretry */
+            canRetry: boolean;
+            /** Canpublish */
+            canPublish: boolean;
+            /** Startedat */
+            startedAt?: string | null;
+            /** Updatedat */
+            updatedAt?: string | null;
+        };
         /** RunDebugReportArtifact */
         RunDebugReportArtifact: {
             /** Run Id */
@@ -5471,7 +5605,7 @@ export interface components {
         UpsertPriceCatalogRequest: {
             catalog: components["schemas"]["ProviderPriceCatalog"];
             /** Items */
-            items: components["schemas"]["ProviderPriceItem"][];
+            items: components["schemas"]["ProviderPriceItem-Input"][];
         };
         /**
          * UserRole
@@ -6585,6 +6719,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CaseDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    case_run_cards_api_cases__case_id__runs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                case_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageResponse_RunCard_"];
                 };
             };
             /** @description Validation Error */
@@ -8007,6 +8174,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProviderPriceCatalog"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    price_catalog_items_api_providers_price_catalogs__catalog_id__items_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                catalog_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageResponse_ProviderPriceItem_"];
                 };
             };
             /** @description Validation Error */

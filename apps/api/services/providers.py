@@ -114,6 +114,14 @@ def price_catalogs(
     return page(values, limit)
 
 
+def price_catalog_items(request: Request, catalog_id: str, limit: int = 200) -> c.PageResponse[c.ProviderPriceItem]:
+    if provider_repository(request) is not None:
+        values = provider_repository(request).list_price_items(catalog_id=catalog_id, limit=limit)
+        return c.PageResponse(items=values, total_hint=len(values), request_id=request_id())
+    values = [item for item in repository(request).price_items.values() if item.catalog_id == catalog_id]
+    return page(values, limit)
+
+
 def upsert_price_catalog(payload: c.UpsertPriceCatalogRequest, request: Request) -> c.ProviderPriceCatalog:
     if provider_repository(request) is not None:
         return provider_repository(request).upsert_price_catalog(payload)

@@ -345,6 +345,7 @@ def estimate_digital_human_video_cost(
         unit=TTS_UNIT,
         quantity=Decimal(tts_characters),
         price_items=price_items,
+        preferred_provider_id=_provider_id_from_profile(payload.voice.provider_profile_id),
     )
     video = _estimate_line(
         label="视频秒数",
@@ -352,6 +353,7 @@ def estimate_digital_human_video_cost(
         unit=VIDEO_UNIT,
         quantity=Decimal(estimated_video_seconds),
         price_items=price_items,
+        preferred_provider_id=_provider_id_from_profile(payload.lipsync.provider_profile_id),
     )
     total_amount = tts.estimated_cost.amount + video.estimated_cost.amount
     total = c.CostEstimateLine(
@@ -386,6 +388,16 @@ def _active_price_items(request: Request) -> list[c.ProviderPriceItem]:
     return [item for item in repository(request).price_items.values() if item.catalog_id in published_catalog_ids]
 
 
+def _provider_id_from_profile(profile_id: str | None) -> str:
+    # Profile ids follow the "{provider}.{capability}.{env}" convention
+    # (e.g. minimax.tts.prod, runninghub.heygem.default, sandbox.tts.default).
+    # The estimate must price against the provider the run will actually call,
+    # not whichever catalog entry happens to match the capability first.
+    if not profile_id:
+        return "sandbox"
+    return profile_id.split(".", 1)[0] or "sandbox"
+
+
 def _estimate_line(
     *,
     label: str,
@@ -393,14 +405,16 @@ def _estimate_line(
     unit: str,
     quantity: Decimal,
     price_items: list[c.ProviderPriceItem],
+    preferred_provider_id: str = "sandbox",
 ) -> c.CostEstimateLine:
+    candidates = [
+        item
+        for item in price_items
+        if item.unit == unit and item.capability_id in {capability_id, "*"}
+    ]
     price_item = next(
-        (
-            item
-            for item in price_items
-            if item.unit == unit and item.capability_id in {capability_id, "*"}
-        ),
-        None,
+        (item for item in candidates if item.provider_id == preferred_provider_id),
+        next(iter(candidates), None),
     )
     if price_item is None:
         return c.CostEstimateLine(

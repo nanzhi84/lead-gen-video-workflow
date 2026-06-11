@@ -300,6 +300,228 @@ def test_minimax_voice_design_stores_inline_preview_audio(tmp_path, media_fixtur
     assert artifact.media_info.media_type == "audio"
 
 
+def test_dashscope_asr_uses_async_transcription_task_and_downloads_alignment(tmp_path):
+    requests: list[str] = []
+    poll_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal poll_count
+        requests.append(f"{request.method} {request.url.path}")
+        if request.url.path == "/api/v1/services/audio/asr/transcription":
+            assert request.method == "POST"
+            assert request.headers["authorization"] == "Bearer dashscope-key"
+            assert request.headers["x-dashscope-async"] == "enable"
+            body = __import__("json").loads(request.content)
+            assert body == {
+                "model": "paraformer-v2",
+                "input": {"file_urls": ["https://media.example/speech.wav"]},
+                "parameters": {
+                    "language_hints": ["zh"],
+                    "timestamp_alignment_enabled": True,
+                },
+            }
+            return httpx.Response(200, json={"output": {"task_id": "asr-task-1", "task_status": "PENDING"}})
+        if request.url.path == "/api/v1/tasks/asr-task-1":
+            assert request.method == "GET"
+            assert request.headers["authorization"] == "Bearer dashscope-key"
+            poll_count += 1
+            if poll_count == 1:
+                return httpx.Response(200, json={"output": {"task_id": "asr-task-1", "task_status": "RUNNING"}})
+            return httpx.Response(
+                200,
+                json={
+                    "output": {
+                        "task_id": "asr-task-1",
+                        "task_status": "SUCCEEDED",
+                        "results": [{"transcription_url": "https://files.example/asr-result.json"}],
+                    },
+                    "usage": {"duration": 2100},
+                },
+            )
+        if str(request.url) == "https://files.example/asr-result.json":
+            assert request.method == "GET"
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "file_url": "https://media.example/speech.wav",
+                        "transcripts": [
+                            {
+                                "channel_id": 0,
+                                "content": "你好世界。",
+                                "sentences": [
+                                    {"begin_time": 0, "end_time": 900, "text": "你好"},
+                                    {"begin_time": 900, "end_time": 2100, "text": "世界。"},
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            )
+        return httpx.Response(404, text=str(request.url))
+
+    repository, gateway = _gateway(tmp_path, httpx.MockTransport(handler))
+    secret_ref = gateway.secret_store.put("dashscope-key")  # type: ignore[union-attr]
+    profile = _profile(
+        repository,
+        provider_id="dashscope.asr",
+        capability="asr.transcribe",
+        model_id="paraformer-v2",
+        secret_ref=secret_ref,
+        default_options={"poll_interval": 0, "poll_max_attempts": 2},
+    )
+
+    invocation, result = gateway.invoke(
+        ProviderCall(
+            case_id="case_demo",
+            provider_profile_id=profile.id,
+            capability_id="asr.transcribe",
+            input={"audio_uri": "https://media.example/speech.wav", "language_hints": ["zh"]},
+        )
+    )
+
+    assert invocation.status == ProviderStatus.succeeded
+    assert invocation.external_job_id == "asr-task-1"
+    assert result is not None
+    assert result.output == {
+        "text": "你好世界。",
+        "segments": [
+            {"start": 0.0, "end": 0.9, "text": "你好"},
+            {"start": 0.9, "end": 2.1, "text": "世界。"},
+        ],
+        "source": "asr",
+    }
+    assert result.audio_seconds == 2.1
+    assert requests == [
+        "POST /api/v1/services/audio/asr/transcription",
+        "GET /api/v1/tasks/asr-task-1",
+        "GET /api/v1/tasks/asr-task-1",
+        "GET /asr-result.json",
+    ]
+
+
+def test_dashscope_llm_uses_compatible_chat_base_url_and_options(tmp_path):
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/compatible-mode/v1/chat/completions"
+        assert request.headers["authorization"] == "Bearer dashscope-key"
+        body = __import__("json").loads(request.content)
+        assert body == {
+            "model": "qwen-plus",
+            "messages": [{"role": "user", "content": "Return JSON."}],
+            "temperature": 0.7,
+            "max_tokens": 2000,
+            "response_format": {"type": "json_object"},
+        }
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": '{"ok": true}'}}],
+                "usage": {"prompt_tokens": 11, "completion_tokens": 7},
+            },
+        )
+
+    repository, gateway = _gateway(tmp_path, httpx.MockTransport(handler))
+    secret_ref = gateway.secret_store.put("dashscope-key")  # type: ignore[union-attr]
+    profile = _profile(
+        repository,
+        provider_id="dashscope.llm",
+        capability="llm.chat",
+        model_id="qwen-plus",
+        secret_ref=secret_ref,
+        default_options={
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "temperature": 0.7,
+            "max_tokens": 2000,
+        },
+    )
+
+    invocation, result = gateway.invoke(
+        ProviderCall(
+            provider_profile_id=profile.id,
+            capability_id="llm.chat",
+            input={
+                "messages": [{"role": "user", "content": "Return JSON."}],
+                "response_format": {"type": "json_object"},
+            },
+        )
+    )
+
+    assert invocation.status == ProviderStatus.succeeded
+    assert result is not None
+    assert result.output["intent"] == {"ok": True}
+    assert result.input_tokens == 11
+    assert result.output_tokens == 7
+
+
+def test_dashscope_vlm_uses_openai_compatible_multimodal_payload(tmp_path):
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/compatible-mode/v1/chat/completions"
+        assert request.headers["authorization"] == "Bearer dashscope-key"
+        body = __import__("json").loads(request.content)
+        assert body == {
+            "model": "qwen-vl-max-latest",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Return canonical JSON."},
+                        {"type": "image_url", "image_url": {"url": "https://media.example/frame.jpg"}},
+                    ],
+                }
+            ],
+            "temperature": 0.2,
+            "max_tokens": 1200,
+        }
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": '{"labels": ["broll"], "quality": {"valid": true, "issues": []}}'
+                        }
+                    }
+                ],
+                "usage": {"prompt_tokens": 21, "completion_tokens": 13},
+            },
+        )
+
+    repository, gateway = _gateway(tmp_path, httpx.MockTransport(handler))
+    secret_ref = gateway.secret_store.put("dashscope-key")  # type: ignore[union-attr]
+    profile = _profile(
+        repository,
+        provider_id="dashscope.vlm",
+        capability="vlm.annotation",
+        model_id="qwen-vl-max-latest",
+        secret_ref=secret_ref,
+        default_options={
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "temperature": 0.2,
+            "max_tokens": 1200,
+        },
+    )
+
+    invocation, result = gateway.invoke(
+        ProviderCall(
+            provider_profile_id=profile.id,
+            capability_id="vlm.annotation",
+            input={
+                "asset_kind": "image",
+                "asset_uri": "https://media.example/frame.jpg",
+                "prompt": "Return canonical JSON.",
+            },
+        )
+    )
+
+    assert invocation.status == ProviderStatus.succeeded
+    assert result is not None
+    assert result.output["canonical"]["quality"]["valid"] is True
+    assert result.input_tokens == 21
+    assert result.output_tokens == 13
+
+
 def test_runninghub_heygem_records_external_job_and_stores_polled_video(
     tmp_path, media_fixture_factory
 ):
@@ -370,3 +592,262 @@ def test_runninghub_heygem_records_external_job_and_stores_polled_video(
     assert artifact.media_info.media_type == "video"
     assert "POST /task/openapi/status" in requests
     assert "POST /task/openapi/outputs" in requests
+
+
+def test_runninghub_heygem_discovers_node_mapping_when_not_configured(
+    tmp_path, media_fixture_factory
+):
+    result_video = media_fixture_factory.video(duration_sec=1.0, filename="heygem-result.mp4")
+    source_video = media_fixture_factory.video(duration_sec=1.0, filename="portrait.mp4")
+    source_audio = media_fixture_factory.audio(duration_sec=1.0, filename="speech.wav")
+    requests: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(f"{request.method} {request.url.path}")
+        if request.url.path == "/openapi/v2/media/upload/binary":
+            if requests.count("POST /openapi/v2/media/upload/binary") == 1:
+                return httpx.Response(200, json={"data": {"fileName": "portrait.mp4"}})
+            return httpx.Response(200, json={"data": {"fileName": "speech.wav"}})
+        if request.url.path == "/api/webapp/apiCallDemo":
+            assert request.method == "GET"
+            assert request.url.params["apiKey"] == "runninghub-key"
+            assert request.url.params["webappId"] == "webapp-1"
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "nodes": [
+                            {"nodeId": "video-node", "fieldName": "video", "fieldType": "video"},
+                            {"nodeId": "audio-node", "fieldName": "audio", "fieldType": "audio"},
+                        ]
+                    }
+                },
+            )
+        if request.url.path == "/task/openapi/ai-app/run":
+            body = __import__("json").loads(request.content)
+            assert body["nodeInfoList"] == [
+                {"nodeId": "video-node", "fieldName": "video", "fieldValue": "portrait.mp4"},
+                {"nodeId": "audio-node", "fieldName": "audio", "fieldValue": "speech.wav"},
+            ]
+            return httpx.Response(200, json={"data": {"taskId": "rh-job-1"}})
+        if request.url.path == "/task/openapi/status":
+            return httpx.Response(200, json={"data": {"status": "success"}})
+        if request.url.path == "/task/openapi/outputs":
+            return httpx.Response(200, json={"data": {"fileUrl": "https://files.example/heygem-result.mp4"}})
+        if str(request.url) == "https://files.example/heygem-result.mp4":
+            return httpx.Response(200, content=result_video.read_bytes())
+        return httpx.Response(404, text=str(request.url))
+
+    repository, gateway = _gateway(tmp_path, httpx.MockTransport(handler))
+    video_stored = store_file(gateway.object_store, source_video, purpose="test-video")  # type: ignore[arg-type]
+    audio_stored = store_file(gateway.object_store, source_audio, purpose="test-audio")  # type: ignore[arg-type]
+    secret_ref = gateway.secret_store.put("runninghub-key")  # type: ignore[union-attr]
+    profile = _profile(
+        repository,
+        provider_id="runninghub.heygem",
+        capability="lipsync.video",
+        model_id="heygem-webapp",
+        secret_ref=secret_ref,
+        default_options={
+            "base_url": "https://www.runninghub.ai",
+            "webapp_id": "webapp-1",
+            "poll_interval": 0,
+            "poll_max_attempts": 1,
+        },
+    )
+
+    invocation, result = gateway.invoke(
+        ProviderCall(
+            case_id="case_demo",
+            provider_profile_id=profile.id,
+            capability_id="lipsync.video",
+            input={
+                "portrait_uri": video_stored.ref.uri,
+                "audio_uri": audio_stored.ref.uri,
+                "duration_sec": 1.0,
+            },
+        )
+    )
+
+    assert invocation.status == ProviderStatus.succeeded
+    assert result is not None
+    assert result.output["external_job_id"] == "rh-job-1"
+    assert "GET /api/webapp/apiCallDemo" in requests
+
+
+def test_runninghub_heygem_retries_status_disconnect(tmp_path, media_fixture_factory):
+    result_video = media_fixture_factory.video(duration_sec=1.0, filename="heygem-result.mp4")
+    source_video = media_fixture_factory.video(duration_sec=1.0, filename="portrait.mp4")
+    source_audio = media_fixture_factory.audio(duration_sec=1.0, filename="speech.wav")
+    status_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal status_calls
+        if request.url.path == "/openapi/v2/media/upload/binary":
+            return httpx.Response(200, json={"data": {"fileName": f"{request.url.params.get('kind', 'media')}.bin"}})
+        if request.url.path == "/task/openapi/ai-app/run":
+            return httpx.Response(200, json={"data": {"taskId": "rh-job-1"}})
+        if request.url.path == "/task/openapi/status":
+            status_calls += 1
+            if status_calls == 1:
+                raise httpx.TransportError("server disconnected", request=request)
+            return httpx.Response(200, json={"data": {"status": "success"}})
+        if request.url.path == "/task/openapi/outputs":
+            return httpx.Response(200, json={"data": {"fileUrl": "https://files.example/heygem-result.mp4"}})
+        if str(request.url) == "https://files.example/heygem-result.mp4":
+            return httpx.Response(200, content=result_video.read_bytes())
+        return httpx.Response(404, text=str(request.url))
+
+    repository, gateway = _gateway(tmp_path, httpx.MockTransport(handler))
+    video_stored = store_file(gateway.object_store, source_video, purpose="test-video")  # type: ignore[arg-type]
+    audio_stored = store_file(gateway.object_store, source_audio, purpose="test-audio")  # type: ignore[arg-type]
+    secret_ref = gateway.secret_store.put("runninghub-key")  # type: ignore[union-attr]
+    profile = _profile(
+        repository,
+        provider_id="runninghub.heygem",
+        capability="lipsync.video",
+        model_id="heygem-webapp",
+        secret_ref=secret_ref,
+        default_options={
+            "base_url": "https://www.runninghub.ai",
+            "webapp_id": "webapp-1",
+            "video_node_id": "video-node",
+            "audio_node_id": "audio-node",
+            "poll_interval": 0,
+            "poll_max_attempts": 1,
+            "retry_base_delay": 0,
+        },
+    )
+
+    invocation, result = gateway.invoke(
+        ProviderCall(
+            case_id="case_demo",
+            provider_profile_id=profile.id,
+            capability_id="lipsync.video",
+            input={
+                "portrait_uri": video_stored.ref.uri,
+                "audio_uri": audio_stored.ref.uri,
+                "duration_sec": 1.0,
+            },
+        )
+    )
+
+    assert invocation.status == ProviderStatus.succeeded
+    assert result is not None
+    assert status_calls == 2
+
+
+def test_runninghub_heygem_retries_upload_disconnect(tmp_path, media_fixture_factory):
+    result_video = media_fixture_factory.video(duration_sec=1.0, filename="heygem-result.mp4")
+    source_video = media_fixture_factory.video(duration_sec=1.0, filename="portrait.mp4")
+    source_audio = media_fixture_factory.audio(duration_sec=1.0, filename="speech.wav")
+    upload_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal upload_calls
+        if request.url.path == "/openapi/v2/media/upload/binary":
+            upload_calls += 1
+            if upload_calls == 1:
+                raise httpx.TransportError("server disconnected", request=request)
+            if upload_calls == 2:
+                return httpx.Response(200, json={"data": {"fileName": "portrait.mp4"}})
+            return httpx.Response(200, json={"data": {"fileName": "speech.wav"}})
+        if request.url.path == "/task/openapi/ai-app/run":
+            return httpx.Response(200, json={"data": {"taskId": "rh-job-1"}})
+        if request.url.path == "/task/openapi/status":
+            return httpx.Response(200, json={"data": {"status": "success"}})
+        if request.url.path == "/task/openapi/outputs":
+            return httpx.Response(200, json={"data": {"fileUrl": "https://files.example/heygem-result.mp4"}})
+        if str(request.url) == "https://files.example/heygem-result.mp4":
+            return httpx.Response(200, content=result_video.read_bytes())
+        return httpx.Response(404, text=str(request.url))
+
+    repository, gateway = _gateway(tmp_path, httpx.MockTransport(handler))
+    video_stored = store_file(gateway.object_store, source_video, purpose="test-video")  # type: ignore[arg-type]
+    audio_stored = store_file(gateway.object_store, source_audio, purpose="test-audio")  # type: ignore[arg-type]
+    secret_ref = gateway.secret_store.put("runninghub-key")  # type: ignore[union-attr]
+    profile = _profile(
+        repository,
+        provider_id="runninghub.heygem",
+        capability="lipsync.video",
+        model_id="heygem-webapp",
+        secret_ref=secret_ref,
+        default_options={
+            "base_url": "https://www.runninghub.ai",
+            "webapp_id": "webapp-1",
+            "video_node_id": "video-node",
+            "audio_node_id": "audio-node",
+            "poll_interval": 0,
+            "poll_max_attempts": 1,
+            "retry_base_delay": 0,
+        },
+    )
+
+    invocation, result = gateway.invoke(
+        ProviderCall(
+            case_id="case_demo",
+            provider_profile_id=profile.id,
+            capability_id="lipsync.video",
+            input={
+                "portrait_uri": video_stored.ref.uri,
+                "audio_uri": audio_stored.ref.uri,
+                "duration_sec": 1.0,
+            },
+        )
+    )
+
+    assert invocation.status == ProviderStatus.succeeded
+    assert result is not None
+    assert upload_calls == 3
+
+
+def test_runninghub_heygem_failed_status_reports_task_id(tmp_path, media_fixture_factory):
+    source_video = media_fixture_factory.video(duration_sec=1.0, filename="portrait.mp4")
+    source_audio = media_fixture_factory.audio(duration_sec=1.0, filename="speech.wav")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/openapi/v2/media/upload/binary":
+            return httpx.Response(200, json={"data": {"fileName": "input.bin"}})
+        if request.url.path == "/task/openapi/ai-app/run":
+            return httpx.Response(200, json={"data": {"taskId": "rh-job-123"}})
+        if request.url.path == "/task/openapi/status":
+            return httpx.Response(200, json={"code": 0, "msg": "success", "data": "FAILED"})
+        return httpx.Response(404, text=str(request.url))
+
+    repository, gateway = _gateway(tmp_path, httpx.MockTransport(handler))
+    video_stored = store_file(gateway.object_store, source_video, purpose="test-video")  # type: ignore[arg-type]
+    audio_stored = store_file(gateway.object_store, source_audio, purpose="test-audio")  # type: ignore[arg-type]
+    secret_ref = gateway.secret_store.put("runninghub-key")  # type: ignore[union-attr]
+    profile = _profile(
+        repository,
+        provider_id="runninghub.heygem",
+        capability="lipsync.video",
+        model_id="heygem-webapp",
+        secret_ref=secret_ref,
+        default_options={
+            "base_url": "https://www.runninghub.ai",
+            "webapp_id": "webapp-1",
+            "video_node_id": "video-node",
+            "audio_node_id": "audio-node",
+            "poll_interval": 0,
+            "poll_max_attempts": 1,
+        },
+    )
+
+    invocation, result = gateway.invoke(
+        ProviderCall(
+            case_id="case_demo",
+            provider_profile_id=profile.id,
+            capability_id="lipsync.video",
+            input={
+                "portrait_uri": video_stored.ref.uri,
+                "audio_uri": audio_stored.ref.uri,
+                "duration_sec": 1.0,
+            },
+        )
+    )
+
+    assert result is None
+    assert invocation.error
+    assert "rh-job-123" in invocation.error.message
+    assert "FAILED" in invocation.error.message

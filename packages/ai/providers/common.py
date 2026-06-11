@@ -74,12 +74,17 @@ def request(
 
 
 def response_json(response: httpx.Response) -> dict[str, Any]:
+    payload = response_json_value(response)
+    if not isinstance(payload, dict):
+        raise ProviderRuntimeError(ErrorCode.provider_remote_failed, "Provider returned non-object JSON.")
+    return payload
+
+
+def response_json_value(response: httpx.Response) -> Any:
     try:
         payload = response.json()
     except json.JSONDecodeError as exc:
         raise ProviderRuntimeError(ErrorCode.provider_remote_failed, "Provider returned invalid JSON.") from exc
-    if not isinstance(payload, dict):
-        raise ProviderRuntimeError(ErrorCode.provider_remote_failed, "Provider returned non-object JSON.")
     return payload
 
 

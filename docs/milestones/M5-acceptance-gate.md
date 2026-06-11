@@ -78,3 +78,13 @@ CI 流水线（真 Postgres + 真 Temporal）让门控测试必跑、OpenAPI dif
 2. contract matrix 实际遍历的写接口数 ≥ OpenAPI 写接口总数的 90%，豁免表合理。
 3. `scripts/ci_gate.sh` 在本机真环境全绿走通。
 4. 全量 + DB + Temporal 三套全绿。
+
+---
+
+## 验收记录（2026-06-11，验收官：Claude）
+
+**判定：通过**。证据：102 单测 + 23 DB 集成 + 4 Temporal 集成全绿；`scripts/ci_gate.sh` 本机实弹 exit 0（含 npm ci + 前端构建 + OpenAPI 同步检查 + 真 DB/Temporal 集成段）；golden 对照 spec 20.2 #1-#16 逐条点名、断言具体 Warning/ErrorCode；contract matrix 覆盖 74 个写端点（豁免表合理：login/register 公开、multipart 上传不适用 422 泛化）。
+
+验收裁决 1 处：idempotency 重放状态码——Codex 曾把中间件与三处测试改成"回放原始状态码（201/202）"，与 spec 32.11「命中：200」冲突；已裁决恢复 200 + `Idempotency-Replayed: true`，并记入 docs/spec-questions.md。此类对既定契约语义的单方修改是验收重点盯防项。
+
+GitHub Actions YAML 已就位但仓库尚无 remote，hosting 待用户裁决（spec-questions 有记录）。

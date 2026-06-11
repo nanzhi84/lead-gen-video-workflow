@@ -47,7 +47,8 @@ def test_case_reflection_memory_approval_and_publish_flow():
         json={"publish_package_ids": [package["id"]], "platform_targets": ["xiaovmao"]},
     ).json()
     submitted = client.post(f"/api/publish/batches/{batch['id']}/submit", json={"dry_run": False}).json()
-    assert submitted["status"] == "published"
+    assert submitted["status"] == "completed"
+    assert submitted["items"][0]["status"] == "published"
 
     ops = client.get("/api/ops/dashboard").json()
     assert "usage" in ops

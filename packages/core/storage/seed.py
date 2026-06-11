@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from argon2 import PasswordHasher, Type
 from sqlalchemy.orm import Session
 
+from packages.core.auth.service import create_password_hasher
 from packages.core.storage.database import (
     CaseRow,
     MediaAssetRow,
@@ -25,7 +25,7 @@ from packages.core.storage.repository import Repository
 
 def seed_rows(repository: Repository | None = None) -> list[object]:
     source = repository or Repository()
-    password_hasher = PasswordHasher(type=Type.ID)
+    password_hasher = create_password_hasher()
     rows: list[object] = []
     rows.extend(
         [
@@ -257,6 +257,7 @@ def seed_database(session: Session, rows: Iterable[object] | None = None) -> int
         if existing is None:
             session.add(row)
             inserted += 1
+        elif isinstance(row, UserRow) and row.id in {"usr_admin", "usr_viewer"}:
+            existing.password_hash = row.password_hash
     session.commit()
     return inserted
-

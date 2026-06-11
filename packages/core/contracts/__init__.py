@@ -61,10 +61,12 @@ class ErrorCode(str, Enum):
 
 
 class WarningCode(str, Enum):
-    provider_cost_unpriced = "provider.cost_unpriced"
+    cost_unpriced = "cost.unpriced"
     cover_frame_fallback = "cover.frame_fallback"
-    bgm_library_unannotated = "bgm.skipped_library_unannotated"
+    broll_skipped_no_material = "broll.skipped_no_material"
+    bgm_skipped_library_unannotated = "bgm.skipped_library_unannotated"
     font_default_used = "font.default_used"
+    timestamp_estimated = "timestamp.estimated"
     platform_metrics_waiting = "platform.metrics_waiting"
 
 
@@ -76,26 +78,23 @@ class DegradationCode(str, Enum):
 
 
 class JobStatus(str, Enum):
-    created = "created"
+    draft = "draft"
     queued = "queued"
     running = "running"
-    waiting_approval = "waiting_approval"
     succeeded = "succeeded"
     failed = "failed"
     cancelled = "cancelled"
-    partially_succeeded = "partially_succeeded"
+    archived = "archived"
 
 
 class RunStatus(str, Enum):
     created = "created"
-    queued = "queued"
+    admitted = "admitted"
     running = "running"
     cancelling = "cancelling"
-    cancelled = "cancelled"
     succeeded = "succeeded"
     failed = "failed"
-    degraded = "degraded"
-    waiting_approval = "waiting_approval"
+    cancelled = "cancelled"
 
 
 class NodeStatus(str, Enum):
@@ -109,14 +108,13 @@ class NodeStatus(str, Enum):
 
 
 class ProviderStatus(str, Enum):
-    queued = "queued"
-    running = "running"
+    prepared = "prepared"
+    submitted = "submitted"
+    polling = "polling"
     succeeded = "succeeded"
     failed = "failed"
-    timeout = "timeout"
-    quota_exceeded = "quota_exceeded"
+    timed_out = "timed_out"
     cancelled = "cancelled"
-    cost_unpriced = "cost_unpriced"
 
 
 class JobType(str, Enum):
@@ -157,12 +155,16 @@ class ArtifactKind(str, Enum):
     import_mapping = "import.mapping"
 
 
-class UploadStatus(str, Enum):
+class UploadSessionStatus(str, Enum):
     prepared = "prepared"
-    uploaded = "uploaded"
+    uploading = "uploading"
     completed = "completed"
+    failed = "failed"
     cancelled = "cancelled"
     expired = "expired"
+
+
+UploadStatus = UploadSessionStatus
 
 
 class UserRole(str, Enum):
@@ -439,7 +441,7 @@ class AnnotationBatchRequest(ContractModel):
 
 class Job(EntityMeta):
     type: JobType
-    status: JobStatus = JobStatus.created
+    status: JobStatus = JobStatus.draft
     case_id: str | None = None
     created_by_user_id: str | None = None
     request: (
@@ -1193,7 +1195,7 @@ class CaseMemoryScope(ContractModel):
 
 class CaseMemory(EntityMeta):
     case_id: str
-    status: Literal["proposed", "active", "rejected", "deprecated"] = "proposed"
+    status: Literal["proposed", "approved", "active", "deprecated", "rejected", "superseded"] = "proposed"
     scope: CaseMemoryScope = Field(default_factory=CaseMemoryScope)
     insight: str
     evidence: list[str] = Field(default_factory=list)
@@ -1406,17 +1408,49 @@ class CreatePublishPackageRequest(ContractModel):
     description: str = ""
 
 
+class PublishBatchStatus(str, Enum):
+    draft = "draft"
+    processing = "processing"
+    review_ready = "review_ready"
+    publishing = "publishing"
+    completed = "completed"
+    partial_failed = "partial_failed"
+
+
+class PublishItemStatus(str, Enum):
+    uploaded = "uploaded"
+    normalizing = "normalizing"
+    asr_running = "asr_running"
+    copy_running = "copy_running"
+    cover_running = "cover_running"
+    review_ready = "review_ready"
+    manual_review_ready = "manual_review_ready"
+    publishing = "publishing"
+    published = "published"
+    generation_failed = "generation_failed"
+    publish_failed = "publish_failed"
+    excluded = "excluded"
+
+
+class PublishAttemptStatus(str, Enum):
+    created = "created"
+    manual_review_ready = "manual_review_ready"
+    scheduled = "scheduled"
+    published = "published"
+    failed = "failed"
+
+
 class PublishBatchItemVm(EntityMeta):
     publish_package_id: str
     platform: str
     title: str
     description: str = ""
     selected: bool = True
-    status: Literal["draft", "submitted", "published", "failed"] = "draft"
+    status: PublishItemStatus = PublishItemStatus.uploaded
 
 
 class PublishBatchVm(EntityMeta):
-    status: Literal["draft", "submitted", "partially_failed", "published", "failed"] = "draft"
+    status: PublishBatchStatus = PublishBatchStatus.draft
     items: list[PublishBatchItemVm] = Field(default_factory=list)
 
 
@@ -1442,7 +1476,7 @@ class PatchPublishItemRequest(ContractModel):
 class PublishAttempt(EntityMeta):
     item_id: str
     platform: str
-    status: Literal["queued", "running", "succeeded", "failed"] = "queued"
+    status: PublishAttemptStatus = PublishAttemptStatus.created
     error: ProviderError | None = None
 
 

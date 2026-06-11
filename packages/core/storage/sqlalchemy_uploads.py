@@ -12,6 +12,7 @@ from packages.core.contracts import (
 )
 from packages.core.storage.database import ArtifactRow, UploadSessionRow
 from packages.core.storage.repository import new_id
+from packages.core.contracts.state_machines import assert_transition
 
 
 def upload_row_to_contract(row: UploadSessionRow) -> UploadSession:
@@ -89,6 +90,8 @@ class SqlAlchemyUploadRepository:
             for key, value in updates.items():
                 if key == "status" and isinstance(value, UploadStatus):
                     value = value.value
+                if key == "status":
+                    assert_transition("upload_session", row.status, value)
                 setattr(row, key, value)
             row.updated_at = utcnow()
             session.commit()
@@ -121,4 +124,3 @@ class SqlAlchemyUploadRepository:
                 schema_version=row.schema_version,
                 sha256=row.sha256,
             )
-

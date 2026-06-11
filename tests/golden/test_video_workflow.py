@@ -66,7 +66,7 @@ def test_broll_missing_is_soft_degrade_and_reported():
     )
     assert response.status_code == 201, response.text
     run = response.json()["initial_run"]
-    assert run["status"] == "degraded"
+    assert run["status"] == "succeeded"
     report = client.get(f"/api/runs/{run['id']}/report").json()["public_report"]
     assert "broll.skipped_no_material" in report["degradations"]
 
@@ -86,7 +86,7 @@ def test_portrait_missing_is_hard_fail():
     assert errors[-1]["code"] == "material.insufficient.portrait"
 
 
-def test_resume_reuses_successful_prefix_after_failed_run():
+def test_resume_from_failed_job_is_rejected_by_state_machine():
     login_admin()
     case = client.post("/api/cases", json={"name": "Resume case"}).json()
     failed = client.post(
@@ -97,6 +97,6 @@ def test_resume_reuses_successful_prefix_after_failed_run():
     resumed = client.post(
         f"/api/runs/{failed_run['id']}/resume",
         json={"reason": "verify resume prefix", "reuse_valid_artifacts": True},
-    ).json()["run"]
-    detail = client.get(f"/api/runs/{resumed['id']}").json()
-    assert detail["node_runs"][0]["status"] == "skipped"
+    )
+    assert resumed.status_code == 400
+    assert resumed.json()["error"]["code"] == "workflow.invalid_transition"

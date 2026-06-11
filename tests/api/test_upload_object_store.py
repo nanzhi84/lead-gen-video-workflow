@@ -40,7 +40,7 @@ def test_upload_flow_uses_object_store_uri_and_validates_integrity():
         files={"file": ("sample.txt", content, "text/plain")},
     )
     assert uploaded.status_code == 200, uploaded.text
-    assert uploaded.json()["status"] == "uploaded"
+    assert uploaded.json()["status"] == "uploading"
 
     completed = client.post(
         "/api/uploads/complete",

@@ -21,6 +21,7 @@ from packages.core.contracts import (
     SubmitPublishBatchRequest,
     utcnow,
 )
+from packages.core.contracts.state_machines import assert_transition
 from packages.core.storage.database import (
     ArtifactRow,
     FinishedVideoRow,
@@ -248,11 +249,30 @@ class SqlAlchemyPublishingRepository:
                     "At least one publish item must be selected.",
                 )
 
-            item_status = "submitted" if payload.dry_run else "published"
-            batch.status = item_status
+            batch_status = "review_ready" if payload.dry_run else "completed"
+            assert_transition("publish_batch", batch.status, "processing")
+            assert_transition("publish_batch", "processing", "review_ready" if payload.dry_run else "publishing")
+            if not payload.dry_run:
+                assert_transition("publish_batch", "publishing", "completed")
+            batch.status = batch_status
             batch.updated_at = utcnow()
             for item in selected_items:
-                item.status = item_status
+                target_item_status = "review_ready" if payload.dry_run else "published"
+                current_item_status = item.status
+                for next_status in ["normalizing", "asr_running", "copy_running", "cover_running"]:
+                    assert_transition("publish_item", current_item_status, next_status)
+                    current_item_status = next_status
+                if payload.dry_run:
+                    assert_transition("publish_item", current_item_status, "review_ready")
+                    current_item_status = "review_ready"
+                else:
+                    assert_transition("publish_item", current_item_status, "review_ready")
+                    current_item_status = "review_ready"
+                    assert_transition("publish_item", current_item_status, "publishing")
+                    current_item_status = "publishing"
+                    assert_transition("publish_item", current_item_status, "published")
+                    current_item_status = "published"
+                item.status = target_item_status
                 item.updated_at = utcnow()
                 package = session.get(PublishPackageRow, item.publish_package_id)
                 if package is not None and package.case_id:
@@ -280,12 +300,14 @@ class SqlAlchemyPublishingRepository:
                             published_at=utcnow() if item_status == "published" else None,
                         )
                     )
+                attempt_status = "published" if not payload.dry_run else "manual_review_ready"
+                assert_transition("publish_attempt", "created", attempt_status)
                 session.add(
                     PublishAttemptRow(
                         id=new_id("pub_attempt"),
                         item_id=item.id,
                         platform=item.platform,
-                        status="succeeded",
+                        status=attempt_status,
                     )
                 )
             session.commit()

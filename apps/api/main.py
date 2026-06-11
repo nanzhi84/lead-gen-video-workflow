@@ -21,6 +21,7 @@ from packages.core.storage.bootstrap import (
 )
 from packages.core.storage.object_store import parse_local_uri
 from packages.core.storage.repository import new_id
+from packages.core.contracts.state_machines import assert_transition
 from packages.core.storage.sqlalchemy_secrets import SqlAlchemySecretRepository
 from packages.core.storage.sqlalchemy_uploads import SqlAlchemyUploadRepository
 from packages.core.workflow import NodeExecutionError
@@ -416,11 +417,13 @@ async def upload_file(
             raise NodeExecutionError(c.ErrorCode.upload_size_mismatch, "Upload size mismatch.")
         if upload.sha256 and upload.sha256 != stored.sha256:
             raise NodeExecutionError(c.ErrorCode.upload_sha256_mismatch, "Upload sha256 mismatch.")
-        updates = {"status": c.UploadStatus.uploaded, "sha256": upload.sha256 or stored.sha256}
+        updates = {"status": c.UploadStatus.uploading, "sha256": upload.sha256 or stored.sha256}
     else:
-        updates = {"status": c.UploadStatus.uploaded}
+        updates = {"status": c.UploadStatus.uploading}
     if sqlalchemy_upload_repository is not None:
         return sqlalchemy_upload_repository.patch_upload(upload_session_id, updates)
+    if "status" in updates:
+        assert_transition("upload_session", upload.status, updates["status"])
     return repo.patch(repo.uploads, upload_session_id, updates)
 
 
@@ -434,6 +437,7 @@ def complete_upload(payload: c.CompleteUploadRequest, request: Request) -> c.Com
     )
     if upload is None:
         raise NodeExecutionError(c.ErrorCode.upload_invalid_state, "Upload session not found.")
+    assert_transition("upload_session", upload.status, c.UploadStatus.completed)
     if payload.size_bytes != upload.size_bytes:
         raise NodeExecutionError(c.ErrorCode.upload_size_mismatch, "Upload size mismatch.")
     if upload.sha256 and payload.sha256 and upload.sha256 != payload.sha256:
@@ -467,6 +471,8 @@ def cancel_upload(upload_session_id: str, request: Request) -> c.UploadSession:
             upload_session_id,
             {"status": c.UploadStatus.cancelled},
         )
+    upload = repo.uploads[upload_session_id]
+    assert_transition("upload_session", upload.status, c.UploadStatus.cancelled)
     return repo.patch(repo.uploads, upload_session_id, {"status": c.UploadStatus.cancelled})
 
 
@@ -1037,6 +1043,8 @@ def approve_prompt_version(
     require_role(request, c.UserRole.admin)
     if sqlalchemy_prompt_repository is not None:
         return sqlalchemy_prompt_repository.approve_version(template_id, version_id, payload)
+    version = repo.prompt_versions[version_id]
+    assert_transition("prompt_version", version.status, "approved")
     version = repo.patch(repo.prompt_versions, version_id, {"status": "approved", "approved_at": c.utcnow()})
     return c.PromptVersionView(version=version, template=repo.prompt_templates[template_id])
 
@@ -1051,6 +1059,8 @@ def publish_prompt_version(
     require_role(request, c.UserRole.admin)
     if sqlalchemy_prompt_repository is not None:
         return sqlalchemy_prompt_repository.publish_version(template_id, version_id, payload)
+    version = repo.prompt_versions[version_id]
+    assert_transition("prompt_version", version.status, "published")
     version = repo.patch(repo.prompt_versions, version_id, {"status": "published", "published_at": c.utcnow()})
     return c.PromptVersionView(version=version, template=repo.prompt_templates[template_id])
 
@@ -1062,6 +1072,8 @@ def rollback_prompt(
     require_role(request, c.UserRole.admin)
     if sqlalchemy_prompt_repository is not None:
         return sqlalchemy_prompt_repository.rollback(template_id, payload)
+    version = repo.prompt_versions[payload.target_version_id]
+    assert_transition("prompt_version", version.status, "published")
     version = repo.patch(repo.prompt_versions, payload.target_version_id, {"status": "published"})
     return c.PromptVersionView(version=version, template=repo.prompt_templates[template_id])
 
@@ -1520,6 +1532,11 @@ def approve_memory(
             raise NodeExecutionError(c.ErrorCode.validation_invalid_options, "Memory proposal is missing.")
         return memory
     proposal = repo.memory_proposals.get(memory_id) or repo.memories[memory_id]
+    next_status = proposal.status
+    if next_status == "proposed":
+        assert_transition("case_memory", next_status, "approved")
+        next_status = "approved"
+    assert_transition("case_memory", next_status, "active")
     memory = c.CaseMemory.model_validate(
         proposal.model_dump(exclude={"proposed_by_reflection_run_id"})
     ).model_copy(update={"status": "active"})
@@ -1866,19 +1883,40 @@ def submit_publish_batch(
             new_items.append(item)
             continue
         selected_count += 1
-        status = "submitted" if payload.dry_run else "published"
-        new_items.append(item.model_copy(update={"status": status, "updated_at": c.utcnow()}))
+        current_item_status = item.status
+        for next_status in ["normalizing", "asr_running", "copy_running", "cover_running", "review_ready"]:
+            assert_transition("publish_item", current_item_status, next_status)
+            current_item_status = next_status
+        if not payload.dry_run:
+            assert_transition("publish_item", current_item_status, "publishing")
+            current_item_status = "publishing"
+            assert_transition("publish_item", current_item_status, "published")
+            current_item_status = "published"
+        new_items.append(
+            item.model_copy(
+                update={"status": c.PublishItemStatus(current_item_status), "updated_at": c.utcnow()}
+            )
+        )
+        attempt_status = "manual_review_ready" if payload.dry_run else "published"
+        assert_transition("publish_attempt", "created", attempt_status)
         attempt = c.PublishAttempt(
             id=new_id("pub_attempt"),
             item_id=item.id,
             platform=item.platform,
-            status="succeeded",
+            status=c.PublishAttemptStatus(attempt_status),
         )
         repo.publish_attempts[attempt.id] = attempt
     if selected_count == 0:
         raise NodeExecutionError(c.ErrorCode.validation_invalid_options, "At least one publish item must be selected.")
-    status = "submitted" if payload.dry_run else "published"
-    batch = batch.model_copy(update={"status": status, "items": new_items, "updated_at": c.utcnow()})
+    assert_transition("publish_batch", batch.status, "processing")
+    next_batch_status = "review_ready" if payload.dry_run else "publishing"
+    assert_transition("publish_batch", "processing", next_batch_status)
+    if not payload.dry_run:
+        assert_transition("publish_batch", next_batch_status, "completed")
+        next_batch_status = "completed"
+    batch = batch.model_copy(
+        update={"status": c.PublishBatchStatus(next_batch_status), "items": new_items, "updated_at": c.utcnow()}
+    )
     repo.publish_batches[batch.id] = batch
     return batch
 

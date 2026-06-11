@@ -88,7 +88,7 @@ def test_sqlalchemy_upload_and_artifact_flow_are_persisted():
             files={"file": ("db-sample.txt", content, "text/plain")},
         )
         assert uploaded.status_code == 200, uploaded.text
-        assert uploaded.json()["status"] == "uploaded"
+        assert uploaded.json()["status"] == "uploading"
 
         completed = client.post(
             "/api/uploads/complete",

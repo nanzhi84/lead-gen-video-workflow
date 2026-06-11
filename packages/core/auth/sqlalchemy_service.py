@@ -4,12 +4,12 @@ import os
 from dataclasses import dataclass
 from datetime import timedelta
 
-from argon2 import PasswordHasher, Type
+from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from packages.core.auth.service import ROLE_RANK
+from packages.core.auth.service import ROLE_RANK, create_password_hasher
 from packages.core.contracts import (
     AdminCreateUserRequest,
     AdminUpdateUserRequest,
@@ -268,4 +268,4 @@ class SqlAlchemyAuthService:
 
 
 def create_sqlalchemy_auth_service(session_factory: sessionmaker[Session]) -> SqlAlchemyAuthService:
-    return SqlAlchemyAuthService(session_factory=session_factory, password_hasher=PasswordHasher(type=Type.ID))
+    return SqlAlchemyAuthService(session_factory=session_factory, password_hasher=create_password_hasher())

@@ -28,6 +28,10 @@ ROLE_RANK = {
 }
 
 
+def create_password_hasher() -> PasswordHasher:
+    return PasswordHasher(type=Type.ID, time_cost=1, memory_cost=1024, parallelism=1)
+
+
 @dataclass
 class AuthService:
     repository: Repository
@@ -126,7 +130,7 @@ class AuthService:
         return AuthResponse(user=user, session=session, request_id=request_id), token
 
 
-_AUTH_SERVICE = AuthService(get_repository(), PasswordHasher(type=Type.ID))
+_AUTH_SERVICE = AuthService(get_repository(), create_password_hasher())
 
 
 def get_auth_service() -> AuthService:

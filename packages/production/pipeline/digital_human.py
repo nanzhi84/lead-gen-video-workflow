@@ -28,6 +28,7 @@ from packages.core.contracts import (
     WorkflowEdge,
     utcnow,
 )
+from packages.core.contracts.state_machines import assert_transition
 from packages.core.storage import Repository, get_repository
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError, NodeOutput, WorkflowRuntimeAdapter, manifest_hash
@@ -153,13 +154,20 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
             case_id=job.case_id,
             workflow_template_id=self.template.workflow_template_id,
             workflow_version=self.template.version,
-            status=RunStatus.queued,
+            status=RunStatus.created,
             run_attempt=attempt,
             resume_from_run_id=from_run_id if mode == "resume" else None,
             retry_from_run_id=from_run_id if mode == "retry" else None,
         )
+        assert_transition("run", run.status, RunStatus.admitted)
+        run = run.model_copy(update={"status": RunStatus.admitted, "updated_at": utcnow()})
         self.repository.runs[run.id] = run
         self.repository.node_runs[run.id] = []
+        next_job_status = job.status
+        if next_job_status == JobStatus.draft:
+            assert_transition("job", next_job_status, JobStatus.queued)
+            next_job_status = JobStatus.queued
+        assert_transition("job", next_job_status, JobStatus.running)
         self.repository.jobs[job_id] = job.model_copy(
             update={"current_run_id": run.id, "status": JobStatus.running, "updated_at": utcnow()}
         )
@@ -174,11 +182,16 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
 
     def cancel_run(self, run_id: str, *, force: bool = False, reason: str | None = None) -> WorkflowRun:
         run = self.repository.runs[run_id]
-        if run.status not in {RunStatus.queued, RunStatus.running}:
+        if run.status not in {RunStatus.created, RunStatus.admitted, RunStatus.running}:
             raise NodeExecutionError(
                 ErrorCode.workflow_invalid_transition,
                 f"Run {run_id} cannot be cancelled from {run.status}.",
             )
+        if run.status == RunStatus.running:
+            assert_transition("run", run.status, RunStatus.cancelling)
+            run = run.model_copy(update={"status": RunStatus.cancelling, "updated_at": utcnow()})
+            self.repository.runs[run.id] = run
+        assert_transition("run", run.status, RunStatus.cancelled)
         run = run.model_copy(
             update={"status": RunStatus.cancelled, "finished_at": utcnow(), "updated_at": utcnow()}
         )
@@ -197,6 +210,7 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
         request = self._request(job)
         state = RunState(request=request)
         start_index = 0
+        assert_transition("run", run.status, RunStatus.running)
         run = run.model_copy(update={"status": RunStatus.running, "started_at": utcnow()})
         self.repository.runs[run.id] = run
         if mode == "resume" and from_run_id:
@@ -209,7 +223,7 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
                 run_id=run.id,
                 node_id=node_id,
                 node_version="v1",
-                status=NodeStatus.running,
+                status=NodeStatus.pending,
                 input_manifest_hash=manifest_hash(
                     {
                         "node_id": node_id,
@@ -223,6 +237,12 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
             )
             self.repository.node_runs[run.id].append(node_run)
             try:
+                if not self._may_skip_without_running(node_id, state):
+                    assert_transition("node", node_run.status, NodeStatus.running)
+                    node_run = node_run.model_copy(
+                        update={"status": NodeStatus.running, "updated_at": utcnow()}
+                    )
+                    self.repository.node_runs[run.id][-1] = node_run
                 output = self._run_node(node_id, run, node_run, state)
                 for artifact in output.artifacts:
                     state.artifacts[artifact.kind] = artifact
@@ -232,6 +252,10 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
                 status = output.status
                 if status == NodeStatus.succeeded and output.degradations:
                     status = NodeStatus.degraded
+                if node_run.status == NodeStatus.pending and status != NodeStatus.skipped:
+                    assert_transition("node", node_run.status, NodeStatus.running)
+                    node_run = node_run.model_copy(update={"status": NodeStatus.running})
+                assert_transition("node", node_run.status, status)
                 patched = node_run.model_copy(
                     update={
                         "status": status,
@@ -245,6 +269,11 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
                 )
                 self.repository.node_runs[run.id][-1] = patched
             except NodeExecutionError as exc:
+                if node_run.status == NodeStatus.pending:
+                    assert_transition("node", node_run.status, NodeStatus.running)
+                    node_run = node_run.model_copy(update={"status": NodeStatus.running})
+                    self.repository.node_runs[run.id][-1] = node_run
+                assert_transition("node", node_run.status, NodeStatus.failed)
                 error = exc.error.model_copy(
                     update={"job_id": job.id, "run_id": run.id, "node_run_id": node_run.id}
                 )
@@ -257,9 +286,11 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
                     }
                 )
                 self._write_report(run, state, failed=True)
+                assert_transition("run", self.repository.runs[run.id].status, RunStatus.failed)
                 self.repository.runs[run.id] = self.repository.runs[run.id].model_copy(
                     update={"status": RunStatus.failed, "finished_at": utcnow(), "updated_at": utcnow()}
                 )
+                assert_transition("job", self.repository.jobs[job.id].status, JobStatus.failed)
                 self.repository.jobs[job.id] = self.repository.jobs[job.id].model_copy(
                     update={"status": JobStatus.failed, "updated_at": utcnow()}
                 )
@@ -270,16 +301,14 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
                     {"node_id": node_id, "error_code": error.code.value},
                 )
                 return
-        final_status = RunStatus.degraded if state.degradations else RunStatus.succeeded
+        final_status = RunStatus.succeeded
+        assert_transition("run", self.repository.runs[run.id].status, final_status)
         self.repository.runs[run.id] = self.repository.runs[run.id].model_copy(
             update={"status": final_status, "finished_at": utcnow(), "updated_at": utcnow()}
         )
+        assert_transition("job", self.repository.jobs[job.id].status, JobStatus.succeeded)
         self.repository.jobs[job.id] = self.repository.jobs[job.id].model_copy(
-            update={
-                "status": JobStatus.succeeded
-                if final_status == RunStatus.succeeded
-                else JobStatus.partially_succeeded
-            }
+            update={"status": JobStatus.succeeded}
         )
         self.repository.create_event(
             "workflow.run.completed",
@@ -313,6 +342,16 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
             self.repository.node_runs[run.id].append(copied)
             start_index = index + 1
         return start_index
+
+    def _may_skip_without_running(self, node_id: str, state: RunState) -> bool:
+        return (
+            node_id == "ResolveCreativeIntent"
+            and state.request.creative_intent_ref is not None
+            or node_id == "LipSync"
+            and not state.request.lipsync.enabled
+            or node_id == "SubtitleAndBgmMix"
+            and not state.request.subtitles.enabled
+        )
 
     def _request(self, job: Job) -> DigitalHumanVideoRequest:
         request = job.request
@@ -647,7 +686,7 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
         bgm_asset_id = state.request.bgm.asset_id or (bgm_candidates[0] if bgm_candidates else None)
         if state.request.bgm.enabled and not bgm_asset_id:
             degradations.append(DegradationCode.bgm_skipped_library_unannotated)
-            warnings.append(WarningCode.bgm_library_unannotated)
+            warnings.append(WarningCode.bgm_skipped_library_unannotated)
         font_asset_id = font_candidates[0] if font_candidates else "case_default_font"
         if not font_candidates:
             warnings.append(WarningCode.font_default_used)
@@ -874,7 +913,7 @@ class DigitalHumanWorkflow(WorkflowRuntimeAdapter):
         node_runs = self.repository.node_runs.get(run.id, [])
         public = RunPublicReportArtifact(
             run_id=run.id,
-            status=RunStatus.failed if failed else (RunStatus.degraded if state.degradations else RunStatus.succeeded),
+            status=RunStatus.failed if failed else RunStatus.succeeded,
             summary="Run failed." if failed else "Run completed.",
             node_statuses={node.node_id: node.status for node in node_runs},
             warnings=state.warnings,

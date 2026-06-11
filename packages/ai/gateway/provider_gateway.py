@@ -19,6 +19,7 @@ from packages.core.contracts import (
     zero_money,
     utcnow,
 )
+from packages.core.contracts.state_machines import assert_transition
 from packages.core.storage import Repository, get_repository
 from packages.core.storage.repository import new_id
 
@@ -132,12 +133,13 @@ class ProviderGateway:
             provider_profile_id=profile.id,
             capability_id=call.capability_id,
             prompt_version_id=call.prompt_version_id,
-            status=ProviderStatus.running,
+            status=ProviderStatus.prepared,
             started_at=started_at,
         )
         self.repository.provider_invocations[invocation.id] = invocation
         validation_error = self._validate_profile(profile, call)
         if validation_error is not None:
+            assert_transition("provider", invocation.status, ProviderStatus.failed)
             invocation = invocation.model_copy(
                 update={
                     "status": ProviderStatus.failed,
@@ -149,6 +151,11 @@ class ProviderGateway:
             )
             self.repository.provider_invocations[invocation.id] = invocation
             return invocation, None
+        assert_transition("provider", invocation.status, ProviderStatus.submitted)
+        invocation = invocation.model_copy(
+            update={"status": ProviderStatus.submitted, "updated_at": utcnow()}
+        )
+        self.repository.provider_invocations[invocation.id] = invocation
         plugin = self.plugins[profile.provider_id]
         try:
             result = plugin.invoke(call)
@@ -176,6 +183,7 @@ class ProviderGateway:
                 provider_credits=result.provider_credits,
                 raw_usage=result.raw_usage,
             )
+            assert_transition("provider", invocation.status, ProviderStatus.succeeded)
             invocation = invocation.model_copy(
                 update={
                     "status": ProviderStatus.succeeded,
@@ -196,9 +204,8 @@ class ProviderGateway:
         except ProviderRuntimeError as exc:
             status = ProviderStatus.failed
             if exc.code == ErrorCode.provider_timeout:
-                status = ProviderStatus.timeout
-            if exc.code == ErrorCode.provider_quota_exceeded:
-                status = ProviderStatus.quota_exceeded
+                status = ProviderStatus.timed_out
+            assert_transition("provider", invocation.status, status)
             invocation = invocation.model_copy(
                 update={
                     "status": status,
@@ -252,7 +259,7 @@ class ProviderGateway:
         alert_id = f"alert_unpriced_{invocation.provider_id}_{invocation.model_id}_{invocation.capability_id}"
         self.repository.alerts[alert_id] = OpsAlertEvent(
             id=alert_id,
-            code=ErrorCode.provider_cost_unpriced.value,
+            code="cost.unpriced",
             message=(
                 f"Provider invocation {invocation.id} has no active price for "
                 f"{invocation.provider_id}/{invocation.model_id}/{invocation.capability_id}."

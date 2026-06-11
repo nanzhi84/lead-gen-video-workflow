@@ -124,9 +124,9 @@ def test_sqlalchemy_publish_package_batch_item_and_attempt_flow_are_persisted():
         submitted = client.post(f"/api/publish/batches/{batch['id']}/submit", json={"dry_run": False})
         assert submitted.status_code == 202, submitted.text
         submitted_body = submitted.json()
-        assert submitted_body["status"] == "published"
+        assert submitted_body["status"] == "completed"
         item_statuses = {item["id"]: item["status"] for item in submitted_body["items"]}
-        assert item_statuses[first_item["id"]] == "draft"
+        assert item_statuses[first_item["id"]] == "uploaded"
         assert item_statuses[second_item["id"]] == "published"
 
         batch_detail = client.get(f"/api/publish/batches/{batch['id']}")
@@ -148,7 +148,7 @@ def test_sqlalchemy_publish_package_batch_item_and_attempt_flow_are_persisted():
 
         attempt_detail = client.get(f"/api/publish/attempts/{attempt_id}")
         assert attempt_detail.status_code == 200, attempt_detail.text
-        assert attempt_detail.json()["attempt"]["status"] == "succeeded"
+        assert attempt_detail.json()["attempt"]["status"] == "published"
 
     with session_factory() as session:
         package_row = session.get(PublishPackageRow, package["id"])
@@ -161,5 +161,5 @@ def test_sqlalchemy_publish_package_batch_item_and_attempt_flow_are_persisted():
         assert package_row is not None
         assert package_row.video_artifact["artifact_id"] == artifact_id
         assert batch_row is not None
-        assert batch_row.status == "published"
+        assert batch_row.status == "completed"
         assert len(item_rows) == 2

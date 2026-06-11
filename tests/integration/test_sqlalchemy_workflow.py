@@ -79,7 +79,7 @@ def test_sqlalchemy_workflow_job_run_report_and_artifacts_are_persisted():
 
         events = client.get(f"/api/runs/{run_id}/events")
         assert events.status_code == 200, events.text
-        assert events.json()["stream_url"] == f"/api/ws/runs/{run_id}"
+        assert events.json()["stream_url"] == f"/ws/runs/{run_id}"
 
         finished = client.get("/api/cases/case_demo/finished-videos")
         assert finished.status_code == 200, finished.text

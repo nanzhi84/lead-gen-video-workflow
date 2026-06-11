@@ -5681,17 +5681,25 @@ export interface components {
              * @default v1
              */
             schema_version: string;
-            /** Case Id */
-            case_id?: string | null;
+            /** Job Id */
+            job_id?: string | null;
             /** Run Id */
             run_id?: string | null;
-            /** Event Name */
-            event_name: string;
+            /** Finished Video Id */
+            finished_video_id?: string | null;
+            /** Publish Package Id */
+            publish_package_id?: string | null;
+            /** Publish Attempt Id */
+            publish_attempt_id?: string | null;
+            /** Event Type */
+            event_type: string;
             /**
-             * Affects True Yield
-             * @default true
+             * Event Time
+             * Format: date-time
              */
-            affects_true_yield: boolean;
+            event_time: string;
+            /** Dedupe Key */
+            dedupe_key: string;
         };
         /** YieldFunnelResponse */
         YieldFunnelResponse: {

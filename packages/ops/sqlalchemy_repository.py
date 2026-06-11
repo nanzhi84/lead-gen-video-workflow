@@ -86,10 +86,14 @@ def alert_row_to_contract(row: OpsAlertEventRow) -> OpsAlertEvent:
 def yield_event_row_to_contract(row: YieldFunnelEventRow) -> YieldFunnelEvent:
     return YieldFunnelEvent(
         id=row.id,
-        case_id=row.case_id,
+        job_id=row.job_id,
         run_id=row.run_id,
-        event_name=row.event_name,
-        affects_true_yield=row.affects_true_yield,
+        finished_video_id=row.finished_video_id,
+        publish_package_id=row.publish_package_id,
+        publish_attempt_id=row.publish_attempt_id,
+        event_type=row.event_type,
+        event_time=row.event_time,
+        dedupe_key=row.dedupe_key,
         schema_version=row.schema_version,
         created_at=row.created_at,
         updated_at=row.updated_at,
@@ -233,7 +237,7 @@ class SqlAlchemyOpsRepository:
             if window_end:
                 statement = statement.where(YieldFunnelEventRow.created_at <= window_end)
             events = [yield_event_row_to_contract(row) for row in session.scalars(statement)]
-        success = len([event for event in events if event.event_name == "workflow_succeeded"])
+        success = len([event for event in events if event.event_type == "workflow_succeeded"])
         rate = success / len(events) if events else None
         return YieldFunnelResponse(events=events, true_yield_rate=rate)
 

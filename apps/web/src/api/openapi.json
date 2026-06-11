@@ -15745,7 +15745,7 @@
             "title": "Schema Version",
             "default": "v1"
           },
-          "case_id": {
+          "job_id": {
             "anyOf": [
               {
                 "type": "string"
@@ -15754,7 +15754,7 @@
                 "type": "null"
               }
             ],
-            "title": "Case Id"
+            "title": "Job Id"
           },
           "run_id": {
             "anyOf": [
@@ -15767,21 +15767,60 @@
             ],
             "title": "Run Id"
           },
-          "event_name": {
-            "type": "string",
-            "title": "Event Name"
+          "finished_video_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished Video Id"
           },
-          "affects_true_yield": {
-            "type": "boolean",
-            "title": "Affects True Yield",
-            "default": true
+          "publish_package_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publish Package Id"
+          },
+          "publish_attempt_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publish Attempt Id"
+          },
+          "event_type": {
+            "type": "string",
+            "title": "Event Type"
+          },
+          "event_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Event Time"
+          },
+          "dedupe_key": {
+            "type": "string",
+            "title": "Dedupe Key"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "id",
-          "event_name"
+          "event_type",
+          "event_time",
+          "dedupe_key"
         ],
         "title": "YieldFunnelEvent"
       },

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta
 
-from fastapi import Request, Response, UploadFile
+from fastapi import Request, Response, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
 from apps.api.common import (
@@ -29,6 +30,9 @@ from apps.api.common import (
 )
 from apps.api.dependencies import SESSION_COOKIE, current_user, not_found_response
 from packages.core import contracts as c
+from packages.core.observability.events import receive_from_subscriber
+from packages.core.observability import replay_sqlalchemy_outbox
+from packages.core.observability.outbox import OutboxWriter
 from packages.core.auth import SqlAlchemyAuthService
 from packages.core.contracts.state_machines import assert_transition
 from packages.core.observability import metric_snapshot
@@ -101,6 +105,9 @@ def _admit_run(
         "run",
         run.id,
         {"job_id": job_id, "mode": mode, "reason": reason or ""},
+        dedupe_key=f"{run.id}:run:{run.status.value}",
+        status=run.status.value,
+        message="Run admitted.",
     )
     return job, run, template
 
@@ -303,9 +310,61 @@ def run_events(request: Request, run_id: str) -> c.EventStreamTokenResponse:
 
     if production_repository(request) is not None and not production_repository(request).run_exists(run_id):
         raise NodeExecutionError(c.ErrorCode.validation_invalid_options, f"Run {run_id} does not exist.")
+    token = request.app.state.event_tokens.issue(run_id, timedelta(minutes=10))
     return c.EventStreamTokenResponse(
-        stream_url=f"/api/ws/runs/{run_id}",
-        token=new_id("stream"),
-        expires_at=c.utcnow() + timedelta(minutes=10),
+        stream_url=f"/ws/runs/{run_id}",
+        token=token.token,
+        expires_at=token.expires_at,
         request_id=request_id(),
     )
+
+
+async def run_websocket(websocket: WebSocket, run_id: str) -> None:
+    token = websocket.query_params.get("token")
+    if not token or not websocket.app.state.event_tokens.validate(token, run_id):
+        await websocket.close(code=1008)
+        return
+
+    await websocket.accept()
+    repo = websocket.app.state.repository
+    sent_event_ids: set[str] = set()
+    session_factory = getattr(websocket.app.state, "sqlalchemy_session_factory", None)
+    if session_factory is not None:
+        replay_payloads = replay_sqlalchemy_outbox(
+            session_factory,
+            aggregate_type="run",
+            aggregate_id=run_id,
+        )
+    else:
+        writer = OutboxWriter.in_memory(repo)
+        replay_payloads = [
+            event.payload
+            for event in writer.replay(aggregate_type="run", aggregate_id=run_id)
+            if isinstance(event.payload, dict)
+        ]
+    for payload in replay_payloads:
+        if payload.get("event_id"):
+            sent_event_ids.add(str(payload["event_id"]))
+        await websocket.send_json(payload)
+
+    hub = websocket.app.state.event_hub
+    subscriber = hub.subscribe(run_id)
+    try:
+        while True:
+            payload = await receive_from_subscriber(subscriber)
+            if payload is not None:
+                event_id = payload.get("event_id")
+                if event_id is not None and str(event_id) in sent_event_ids:
+                    continue
+                if event_id is not None:
+                    sent_event_ids.add(str(event_id))
+                await websocket.send_json(payload)
+                continue
+            try:
+                await asyncio.wait_for(websocket.receive_text(), timeout=0.01)
+            except TimeoutError:
+                continue
+            except WebSocketDisconnect:
+                break
+    finally:
+        hub.unsubscribe(run_id, subscriber)

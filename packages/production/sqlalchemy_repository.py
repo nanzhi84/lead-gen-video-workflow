@@ -33,6 +33,7 @@ from packages.core.contracts import (
     NodeRun,
     NodeStatus,
     NodeError,
+    OutboxEvent,
     PerformanceAttributionResponse,
     PerformanceMetricView,
     PerformanceObservation,
@@ -52,6 +53,7 @@ from packages.core.contracts import (
     UsageMeterRecord,
     VideoVersion,
     WorkflowRun,
+    YieldFunnelEvent,
     utcnow,
 )
 from packages.core.storage import Repository
@@ -77,6 +79,7 @@ from packages.core.storage.database import (
     UsageMeterRecordRow,
     WorkflowRunRow,
     VideoVersionRow,
+    YieldFunnelEventRow,
 )
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
@@ -388,7 +391,12 @@ class SqlAlchemyProductionRepository:
                     session.merge(self._publish_package_row(package))
             session.flush()
 
-            session.merge(self._workflow_run_outbox_row(run))
+            for event in repository.outbox.values():
+                if event.aggregate_type in {"run", "workflow_run"} and event.aggregate_id == run.id:
+                    session.merge(self._outbox_event_row(event))
+            for event in repository.yield_events.values():
+                if getattr(event, "run_id", None) == run.id:
+                    session.merge(self._yield_funnel_event_row(event, run.case_id))
             session.commit()
 
     def run_exists(self, run_id: str) -> bool:
@@ -1052,30 +1060,42 @@ class SqlAlchemyProductionRepository:
             updated_at=invocation.updated_at,
         )
 
-    def _workflow_run_outbox_row(self, run: WorkflowRun) -> OutboxEventRow:
-        status = run.status.value if hasattr(run.status, "value") else str(run.status)
-        now = utcnow()
+    def _outbox_event_row(self, event: OutboxEvent) -> OutboxEventRow:
         return OutboxEventRow(
-            id=f"outbox_{run.id}_{status}",
-            topic="workflow.run.updated",
-            aggregate_type="workflow_run",
-            aggregate_id=run.id,
-            dedupe_key=f"{run.id}:{status}",
-            payload_schema="WorkflowRunOutboxEvent.v1",
-            payload={
-                "run_id": run.id,
-                "job_id": run.job_id,
-                "case_id": run.case_id,
-                "status": status,
-                "public_report_artifact_id": run.public_report_artifact_id,
-                "debug_report_artifact_id": run.debug_report_artifact_id,
-            },
-            status="pending",
-            attempts=0,
-            available_at=now,
-            schema_version="v1",
-            created_at=now,
-            updated_at=now,
+            id=event.id,
+            topic=event.topic,
+            aggregate_type=event.aggregate_type,
+            aggregate_id=event.aggregate_id,
+            dedupe_key=event.dedupe_key,
+            payload_schema=event.payload_schema,
+            payload=event.payload,
+            status=event.status,
+            attempts=event.attempts,
+            available_at=event.available_at,
+            published_at=event.published_at,
+            last_error=event.last_error,
+            schema_version=event.schema_version,
+            created_at=event.created_at,
+            updated_at=event.updated_at,
+        )
+
+    def _yield_funnel_event_row(
+        self, event: YieldFunnelEvent, case_id: str | None
+    ) -> YieldFunnelEventRow:
+        return YieldFunnelEventRow(
+            id=event.id,
+            case_id=case_id,
+            job_id=event.job_id,
+            run_id=event.run_id,
+            finished_video_id=event.finished_video_id,
+            publish_package_id=event.publish_package_id,
+            publish_attempt_id=event.publish_attempt_id,
+            event_type=event.event_type,
+            event_time=event.event_time,
+            dedupe_key=event.dedupe_key,
+            schema_version=event.schema_version,
+            created_at=event.created_at,
+            updated_at=event.updated_at,
         )
 
     def _script_version_row(self, script: ScriptVersion) -> ScriptVersionRow:

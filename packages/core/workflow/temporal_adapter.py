@@ -13,6 +13,11 @@ from temporalio.common import RetryPolicy as TemporalRetryPolicy
 # Domain modules are data/typing + activity-side only; the workflow body never
 # calls their non-deterministic code paths, so they bypass sandbox validation.
 with workflow.unsafe.imports_passed_through():
+    from packages.core.observability import (
+        bind_observability_context,
+        record_temporal_activity_failure,
+        reset_observability_context,
+    )
     from packages.core.contracts import Job, RunStatus, WorkflowRun, WorkflowTemplate
     from packages.core.storage import Repository
     from packages.core.workflow.runtime import WorkflowRuntimeSettings
@@ -129,15 +134,22 @@ def apply_reuse_plan(payload: dict[str, Any]) -> dict[str, Any]:
     ctx = _context()
     run_id = str(payload["run_id"])
     source_run_id = str(payload["source_run_id"])
-    if ctx.production_repository is not None:
-        ctx.production_repository.hydrate_workflow_runtime_snapshot(ctx.repository, run_id)
-    summary = ctx.local_runtime.apply_reuse_plan(
-        run_id,
-        source_run_id,
-        ReusePlan.model_validate(payload["reuse_plan"]),
-    )
-    _sync_if_configured(ctx, run_id)
-    return summary
+    token = _bind_activity_context(ctx, run_id)
+    try:
+        if ctx.production_repository is not None:
+            ctx.production_repository.hydrate_workflow_runtime_snapshot(ctx.repository, run_id)
+        summary = ctx.local_runtime.apply_reuse_plan(
+            run_id,
+            source_run_id,
+            ReusePlan.model_validate(payload["reuse_plan"]),
+        )
+        _sync_if_configured(ctx, run_id)
+        return summary
+    except Exception:
+        record_temporal_activity_failure()
+        raise
+    finally:
+        reset_observability_context(token)
 
 
 @activity.defn(name="run_node")
@@ -145,24 +157,47 @@ def run_node(payload: dict[str, Any]) -> dict[str, Any]:
     ctx = _context()
     run_id = str(payload["run_id"])
     node_id = str(payload["node_id"])
-    if ctx.production_repository is not None:
-        ctx.production_repository.hydrate_workflow_runtime_snapshot(ctx.repository, run_id)
-    activity.heartbeat({"run_id": run_id, "node_id": node_id, "phase": "started"})
-    summary = ctx.local_runtime.run_node_activity(run_id, node_id)
-    _sync_if_configured(ctx, run_id)
-    activity.heartbeat({"run_id": run_id, "node_id": node_id, "phase": "finished"})
-    return summary
+    token = _bind_activity_context(ctx, run_id, node_id=node_id)
+    try:
+        if ctx.production_repository is not None:
+            ctx.production_repository.hydrate_workflow_runtime_snapshot(ctx.repository, run_id)
+        activity.heartbeat({"run_id": run_id, "node_id": node_id, "phase": "started"})
+        summary = ctx.local_runtime.run_node_activity(run_id, node_id)
+        _sync_if_configured(ctx, run_id)
+        activity.heartbeat({"run_id": run_id, "node_id": node_id, "phase": "finished"})
+        return summary
+    except Exception:
+        record_temporal_activity_failure()
+        raise
+    finally:
+        reset_observability_context(token)
 
 
 @activity.defn(name="mark_run_cancelled")
 def mark_run_cancelled(payload: dict[str, Any]) -> dict[str, Any]:
     ctx = _context()
     run_id = str(payload["run_id"])
-    if ctx.production_repository is not None:
-        ctx.production_repository.hydrate_workflow_runtime_snapshot(ctx.repository, run_id)
-    run = ctx.local_runtime.request_cancel(run_id)
-    _sync_if_configured(ctx, run_id)
-    return {"run_id": run.id, "run_status": run.status.value}
+    token = _bind_activity_context(ctx, run_id)
+    try:
+        if ctx.production_repository is not None:
+            ctx.production_repository.hydrate_workflow_runtime_snapshot(ctx.repository, run_id)
+        run = ctx.local_runtime.request_cancel(run_id)
+        _sync_if_configured(ctx, run_id)
+        return {"run_id": run.id, "run_status": run.status.value}
+    except Exception:
+        record_temporal_activity_failure()
+        raise
+    finally:
+        reset_observability_context(token)
+
+
+def _bind_activity_context(ctx: TemporalActivityContext, run_id: str, node_id: str | None = None):
+    run = ctx.repository.runs.get(run_id)
+    return bind_observability_context(
+        job_id=run.job_id if run is not None else None,
+        run_id=run_id,
+        node_run_id=node_id,
+    )
 
 
 def _sync_if_configured(ctx: TemporalActivityContext, run_id: str) -> None:

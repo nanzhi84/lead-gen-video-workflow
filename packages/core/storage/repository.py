@@ -53,6 +53,7 @@ from packages.core.contracts import (
     ReflectionRun,
     RegistrationCodePreview,
     RunStatus,
+    RunEvent,
     ScriptDraft,
     ScriptVersion,
     SecretPreview,
@@ -62,6 +63,7 @@ from packages.core.contracts import (
     VideoVersion,
     VoiceProfile,
     WorkflowRun,
+    YieldFunnelEvent,
     utcnow,
 )
 
@@ -127,6 +129,7 @@ class Repository:
         self.audit_events: dict[str, object] = {}
         self.import_reports: dict[str, ImportBatchReport] = {}
         self.outbox: dict[str, OutboxEvent] = {}
+        self.outbox_writer = None
         self.creative_patterns: dict[str, CreativePattern] = {}
         self.idempotency_records: dict[str, dict] = {}
         self.seed()
@@ -332,6 +335,21 @@ class Repository:
             created_by_node_run_id=node_run_id,
         )
         self.artifacts[artifact.id] = artifact
+        if run_id:
+            self.create_event(
+                "workflow.artifact.created",
+                "run",
+                run_id,
+                {
+                    "artifact_id": artifact.id,
+                    "artifact_kind": artifact.kind.value if hasattr(artifact.kind, "value") else str(artifact.kind),
+                    "node_run_id": node_run_id,
+                },
+                dedupe_key=f"artifact:{artifact.id}",
+                event_type="artifact_created",
+                node_id=node_run_id,
+                message=f"Artifact {artifact.id} created.",
+            )
         return artifact
 
     def create_publish_package_from_finished_video(
@@ -365,17 +383,103 @@ class Repository:
         self.publish_batches[batch.id] = batch
         return batch
 
-    def create_event(self, topic: str, aggregate_type: str, aggregate_id: str, payload) -> None:
-        event = OutboxEvent(
-            id=new_id("evt"),
+    def create_event(
+        self,
+        topic: str,
+        aggregate_type: str,
+        aggregate_id: str,
+        payload,
+        *,
+        dedupe_key: str | None = None,
+        payload_schema: str | None = None,
+        event_type: str | None = None,
+        run_id: str | None = None,
+        job_id: str | None = None,
+        node_id: str | None = None,
+        status: str | None = None,
+        progress: float | None = None,
+        message: str | None = None,
+    ) -> OutboxEvent:
+        from packages.core.observability.outbox import OutboxWriter
+
+        writer = OutboxWriter.in_memory(self)
+        payload_data = payload if isinstance(payload, dict) else {}
+        effective_run_id = run_id or (aggregate_id if aggregate_type in {"run", "workflow_run"} else None)
+        run = self.runs.get(effective_run_id or "")
+        effective_job_id = job_id or (run.job_id if run is not None else str(payload_data.get("job_id", "")))
+        effective_status = status or str(payload_data.get("status") or (run.status.value if run is not None else ""))
+        effective_type = event_type or ("node_update" if ".node." in topic else "run_update")
+        created_at = utcnow()
+        if effective_type in {"run_update", "node_update", "artifact_created", "warning", "error"} and effective_run_id:
+            event_payload = RunEvent(
+                event_id=new_id("evt"),
+                run_id=effective_run_id,
+                job_id=effective_job_id,
+                event_type=effective_type,
+                node_id=node_id or payload_data.get("node_id"),
+                status=effective_status or None,
+                progress=progress,
+                message=message or str(payload_data.get("message") or topic),
+                created_at=created_at,
+            ).model_dump(mode="json")
+        else:
+            event_payload = payload
+        event = writer.write(
             topic=topic,
             aggregate_type=aggregate_type,
             aggregate_id=aggregate_id,
-            payload_schema=f"{topic}.v1",
-            payload=payload,
-            available_at=utcnow() + timedelta(milliseconds=1),
+            payload_schema=payload_schema or ("RunEvent.v1" if effective_run_id else f"{topic}.v1"),
+            payload=event_payload,
+            dedupe_key=dedupe_key
+            or f"{aggregate_id}:{topic}:{payload_data.get('dedupe_key') or effective_status or len(self.outbox)}",
+            created_at=created_at,
+            event_id=event_payload.get("event_id") if isinstance(event_payload, dict) else None,
         )
-        self.outbox[event.id] = event
+        return event
+
+    def record_yield_funnel_event(
+        self,
+        *,
+        job_id: str | None,
+        run_id: str | None,
+        event_type: str,
+        dedupe_key: str,
+        finished_video_id: str | None = None,
+        publish_package_id: str | None = None,
+        publish_attempt_id: str | None = None,
+        event_time=None,
+    ) -> YieldFunnelEvent:
+        event = YieldFunnelEvent(
+            id=new_id("yield"),
+            job_id=job_id,
+            run_id=run_id,
+            finished_video_id=finished_video_id,
+            publish_package_id=publish_package_id,
+            publish_attempt_id=publish_attempt_id,
+            event_type=event_type,
+            event_time=event_time or utcnow(),
+            dedupe_key=dedupe_key,
+        )
+        for existing in self.yield_events.values():
+            if getattr(existing, "dedupe_key", None) == dedupe_key:
+                return existing
+        self.yield_events[event.id] = event
+        from packages.core.observability import record_yield_funnel_event
+
+        record_yield_funnel_event()
+        self.create_event(
+            "ops.yield_funnel.event",
+            "run" if run_id else "job",
+            run_id or job_id or event.id,
+            event.model_dump(mode="json"),
+            dedupe_key=dedupe_key,
+            payload_schema="YieldFunnelEvent.v1",
+            event_type="run_update" if run_id else None,
+            run_id=run_id,
+            job_id=job_id,
+            message=f"Yield funnel event {event_type}.",
+        )
+        return event
 
 
 _REPOSITORY = Repository()

@@ -640,8 +640,14 @@ class YieldFunnelEventRow(TimestampMixin, Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     case_id: Mapped[str | None] = mapped_column(ForeignKey("cases.id", ondelete="SET NULL"))
+    job_id: Mapped[str | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"))
     run_id: Mapped[str | None] = mapped_column(ForeignKey("workflow_runs.id", ondelete="SET NULL"))
-    event_name: Mapped[str] = mapped_column(String, nullable=False)
+    finished_video_id: Mapped[str | None] = mapped_column(ForeignKey("finished_videos.id", ondelete="SET NULL"))
+    publish_package_id: Mapped[str | None] = mapped_column(ForeignKey("publish_packages.id", ondelete="SET NULL"))
+    publish_attempt_id: Mapped[str | None] = mapped_column(ForeignKey("publish_attempts.id", ondelete="SET NULL"))
+    event_type: Mapped[str] = mapped_column(String, nullable=False)
+    event_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    dedupe_key: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     affects_true_yield: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
@@ -731,7 +737,7 @@ class OutboxEventRow(TimestampMixin, Base):
     topic: Mapped[str] = mapped_column(String, nullable=False)
     aggregate_type: Mapped[str] = mapped_column(String, nullable=False)
     aggregate_id: Mapped[str] = mapped_column(String, nullable=False)
-    dedupe_key: Mapped[str | None] = mapped_column(String)
+    dedupe_key: Mapped[str] = mapped_column(String, nullable=False)
     payload_schema: Mapped[str] = mapped_column(String, nullable=False)
     payload: Mapped[dict | list | str | int | float | bool] = mapped_column(JSONB, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False)

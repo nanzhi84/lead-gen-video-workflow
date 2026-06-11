@@ -23,6 +23,7 @@ from packages.core.contracts import (
     utcnow,
 )
 from packages.core.contracts.state_machines import assert_transition
+from packages.core.observability import record_provider_invocation
 from packages.core.storage import Repository
 from packages.core.storage.repository import new_id
 from packages.core.storage.secret_store import SecretStore
@@ -165,6 +166,7 @@ class ProviderGateway:
                 }
             )
             self.repository.provider_invocations[invocation.id] = invocation
+            record_provider_invocation(invocation)
             return invocation, None
         assert_transition("provider", invocation.status, ProviderStatus.submitted)
         invocation = invocation.model_copy(
@@ -215,6 +217,7 @@ class ProviderGateway:
             )
             self.repository.usage_records[usage.id] = usage
             self.repository.provider_invocations[invocation.id] = invocation
+            record_provider_invocation(invocation)
             return invocation, result
         except ProviderRuntimeError as exc:
             status = ProviderStatus.failed
@@ -231,6 +234,7 @@ class ProviderGateway:
                 }
             )
             self.repository.provider_invocations[invocation.id] = invocation
+            record_provider_invocation(invocation)
             return invocation, None
 
     def _get_profile(self, profile_id: str) -> ProviderProfile:

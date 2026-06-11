@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from concurrent.futures import ThreadPoolExecutor
 
 from temporalio.client import Client
@@ -13,6 +14,7 @@ from packages.core.storage.bootstrap import (
     bootstrap_sqlalchemy_storage_if_enabled,
     get_sqlalchemy_session_factory_if_enabled,
 )
+from packages.core.observability import configure_logging
 from packages.core.storage.secret_store import LocalSecretStore
 from packages.core.workflow import load_workflow_runtime_settings
 from packages.core.workflow.temporal_adapter import (
@@ -26,6 +28,7 @@ from packages.production.pipeline import build_digital_human_workflow
 
 
 async def async_main() -> None:
+    configure_logging()
     bootstrap_sqlalchemy_storage_if_enabled()
     settings = load_workflow_runtime_settings()
     session_factory = get_sqlalchemy_session_factory_if_enabled()
@@ -69,9 +72,14 @@ async def async_main() -> None:
         activities=temporal_activities(),
         activity_executor=ThreadPoolExecutor(max_workers=8),
     )
-    print(
+    logging.getLogger("cutagent.worker").info(
         "Cutagent Temporal worker ready: "
-        f"{settings.temporal_namespace}/{settings.temporal_task_queue}"
+        f"{settings.temporal_namespace}/{settings.temporal_task_queue}",
+        extra={
+            "event": "worker_ready",
+            "temporal_namespace": settings.temporal_namespace,
+            "temporal_task_queue": settings.temporal_task_queue,
+        },
     )
     await worker.run()
 

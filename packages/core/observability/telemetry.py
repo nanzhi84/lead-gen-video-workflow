@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from packages.core.contracts import ProviderStatus, RunStatus
+from datetime import datetime
+
+from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, generate_latest
+
+from packages.core.contracts import NodeRun, ProviderInvocation, ProviderStatus, WorkflowRun
 from packages.core.storage import Repository
 
 
@@ -16,56 +20,125 @@ REQUIRED_LOG_FIELDS = (
     "prompt_invocation_id",
 )
 
+REGISTRY = CollectorRegistry()
+
+API_REQUEST_DURATION = Histogram(
+    "api_request_duration_seconds",
+    "API request duration.",
+    registry=REGISTRY,
+)
+API_REQUEST_ERRORS = Counter(
+    "api_request_errors_total",
+    "API request errors.",
+    registry=REGISTRY,
+)
+WORKFLOW_RUN_DURATION = Histogram(
+    "workflow_run_duration_seconds",
+    "Workflow run duration.",
+    registry=REGISTRY,
+)
+NODE_RUN_DURATION = Histogram(
+    "node_run_duration_seconds",
+    "Node run duration.",
+    registry=REGISTRY,
+)
+NODE_RUN_RETRIES = Counter(
+    "node_run_retries_total",
+    "Node run retries.",
+    registry=REGISTRY,
+)
+PROVIDER_INVOCATION_DURATION = Histogram(
+    "provider_invocation_duration_seconds",
+    "Provider invocation duration.",
+    registry=REGISTRY,
+)
+PROVIDER_INVOCATION_FAILURES = Counter(
+    "provider_invocation_failures_total",
+    "Provider invocation failures.",
+    registry=REGISTRY,
+)
+PROVIDER_COST_ESTIMATED = Counter(
+    "provider_cost_estimated_total",
+    "Estimated provider cost.",
+    registry=REGISTRY,
+)
+PROVIDER_UNPRICED_INVOCATIONS = Counter(
+    "provider_unpriced_invocations_total",
+    "Unpriced provider invocations.",
+    registry=REGISTRY,
+)
+YIELD_FUNNEL_EVENTS = Counter(
+    "yield_funnel_events_total",
+    "Yield funnel events.",
+    registry=REGISTRY,
+)
+OUTBOX_LAG = Gauge(
+    "outbox_lag_seconds",
+    "Oldest pending outbox event lag.",
+    registry=REGISTRY,
+)
+TEMPORAL_ACTIVITY_FAILURES = Counter(
+    "temporal_activity_failures_total",
+    "Temporal activity failures.",
+    registry=REGISTRY,
+)
+
 
 def span_name(kind: str, *parts: str) -> str:
     return ".".join([kind, *[part for part in parts if part]])
 
 
+def record_api_request(duration_seconds: float, status_code: int) -> None:
+    API_REQUEST_DURATION.observe(duration_seconds)
+    if status_code >= 500:
+        API_REQUEST_ERRORS.inc()
+
+
+def record_workflow_run(run: WorkflowRun) -> None:
+    if run.started_at is None or run.finished_at is None:
+        return
+    WORKFLOW_RUN_DURATION.observe(_duration_seconds(run.started_at, run.finished_at))
+
+
+def record_node_run(node_run: NodeRun) -> None:
+    if node_run.started_at is not None and node_run.finished_at is not None:
+        NODE_RUN_DURATION.observe(_duration_seconds(node_run.started_at, node_run.finished_at))
+    if node_run.attempt > 1:
+        NODE_RUN_RETRIES.inc(node_run.attempt - 1)
+
+
+def record_provider_invocation(invocation: ProviderInvocation) -> None:
+    if invocation.duration_ms is not None:
+        PROVIDER_INVOCATION_DURATION.observe(max(0, invocation.duration_ms) / 1000)
+    if invocation.status in {ProviderStatus.failed, ProviderStatus.timed_out}:
+        PROVIDER_INVOCATION_FAILURES.inc()
+    if invocation.estimated_cost is not None:
+        PROVIDER_COST_ESTIMATED.inc(float(invocation.estimated_cost.amount))
+    if invocation.billing_status == "unpriced":
+        PROVIDER_UNPRICED_INVOCATIONS.inc()
+
+
+def record_yield_funnel_event() -> None:
+    YIELD_FUNNEL_EVENTS.inc()
+
+
+def record_temporal_activity_failure() -> None:
+    TEMPORAL_ACTIVITY_FAILURES.inc()
+
+
+def update_outbox_lag(repository: Repository) -> None:
+    pending = [event for event in repository.outbox.values() if event.status == "pending"]
+    if not pending:
+        OUTBOX_LAG.set(0)
+        return
+    oldest = min(event.created_at for event in pending)
+    OUTBOX_LAG.set(max(0, _duration_seconds(oldest, datetime.now(oldest.tzinfo))))
+
+
 def metric_snapshot(repository: Repository) -> str:
-    runs = list(repository.runs.values())
-    node_runs = [node for nodes in repository.node_runs.values() for node in nodes]
-    provider_invocations = list(repository.provider_invocations.values())
-    failed_runs = len([run for run in runs if run.status == RunStatus.failed])
-    failed_nodes = len([node for node in node_runs if node.status == "failed"])
-    failed_provider_statuses = {ProviderStatus.failed, ProviderStatus.timed_out}
-    failed_providers = len([item for item in provider_invocations if item.status in failed_provider_statuses])
-    estimated_cost = sum(item.estimated_cost.amount for item in provider_invocations if item.estimated_cost)
-    lines = [
-        "# HELP api_request_duration_seconds API request duration placeholder.",
-        "# TYPE api_request_duration_seconds histogram",
-        "api_request_duration_seconds_count 0",
-        "# HELP api_request_errors_total API request errors.",
-        "# TYPE api_request_errors_total counter",
-        "api_request_errors_total 0",
-        "# HELP workflow_run_duration_seconds Workflow run duration placeholder.",
-        "# TYPE workflow_run_duration_seconds histogram",
-        f"workflow_run_duration_seconds_count {len(runs)}",
-        "# HELP node_run_duration_seconds Node run duration placeholder.",
-        "# TYPE node_run_duration_seconds histogram",
-        f"node_run_duration_seconds_count {len(node_runs)}",
-        "# HELP node_run_retries_total Node run retries.",
-        "# TYPE node_run_retries_total counter",
-        "node_run_retries_total 0",
-        "# HELP provider_invocation_duration_seconds Provider invocation duration placeholder.",
-        "# TYPE provider_invocation_duration_seconds histogram",
-        f"provider_invocation_duration_seconds_count {len(provider_invocations)}",
-        "# HELP provider_invocation_failures_total Provider failures.",
-        "# TYPE provider_invocation_failures_total counter",
-        f"provider_invocation_failures_total {failed_providers}",
-        "# HELP provider_cost_estimated_total Estimated provider cost.",
-        "# TYPE provider_cost_estimated_total counter",
-        f"provider_cost_estimated_total {estimated_cost}",
-        "# HELP provider_unpriced_invocations_total Unpriced provider invocations.",
-        "# TYPE provider_unpriced_invocations_total counter",
-        f"provider_unpriced_invocations_total {len([item for item in provider_invocations if item.billing_status == 'unpriced'])}",
-        "# HELP yield_funnel_events_total Yield funnel events.",
-        "# TYPE yield_funnel_events_total counter",
-        f"yield_funnel_events_total {len(runs)}",
-        "# HELP outbox_lag_seconds Outbox lag.",
-        "# TYPE outbox_lag_seconds gauge",
-        "outbox_lag_seconds 0",
-        "# HELP temporal_activity_failures_total Temporal activity failures.",
-        "# TYPE temporal_activity_failures_total counter",
-        f"temporal_activity_failures_total {failed_nodes + failed_runs}",
-    ]
-    return "\n".join(lines) + "\n"
+    update_outbox_lag(repository)
+    return generate_latest(REGISTRY).decode("utf-8")
+
+
+def _duration_seconds(start: datetime, end: datetime) -> float:
+    return max(0, (end - start).total_seconds())

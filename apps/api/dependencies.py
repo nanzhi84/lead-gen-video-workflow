@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+import time
 from datetime import timedelta
 from uuid import uuid4
 
@@ -12,6 +14,11 @@ from fastapi.responses import JSONResponse
 
 from apps.api import common
 from packages.core import contracts as c
+from packages.core.observability import (
+    bind_observability_context,
+    record_api_request,
+    reset_observability_context,
+)
 from packages.core.workflow import NodeExecutionError
 
 SESSION_COOKIE = "cutagent_session"
@@ -21,6 +28,7 @@ PUBLIC_API_PREFIXES = ("/api/auth/",)
 IDEMPOTENT_WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 request_id = common.request_id
+access_logger = logging.getLogger("cutagent.api")
 
 
 def current_user(request: Request) -> c.AuthUser:
@@ -92,15 +100,26 @@ def requires_authenticated_api(path: str, method: str) -> bool:
 
 
 async def authenticate_api_request(request: Request, call_next):
-    token = common.REQUEST_ID_CONTEXT.set(request.headers.get("X-Request-Id") or f"req_{uuid4().hex[:12]}")
+    started_at = time.perf_counter()
+    status_code = 500
+    request_token = common.REQUEST_ID_CONTEXT.set(request.headers.get("X-Request-Id") or f"req_{uuid4().hex[:12]}")
+    log_tokens = [
+        bind_observability_context(
+            request_id=request_id(),
+            trace_id=request.headers.get("traceparent"),
+        )
+    ]
     request.state.request_id = request_id()
     user: c.AuthUser | None = None
     try:
         if requires_authenticated_api(request.url.path, request.method):
             try:
                 user = current_user(request)
+                log_tokens.append(bind_observability_context(user_id=user.id))
             except NodeExecutionError as exc:
-                return node_error_response(exc)
+                response = node_error_response(exc)
+                status_code = response.status_code
+                return response
         idempotency_key = request.headers.get("Idempotency-Key")
         if user is not None and idempotency_key and request.method in IDEMPOTENT_WRITE_METHODS:
             body = await request.body()
@@ -116,18 +135,21 @@ async def authenticate_api_request(request: Request, call_next):
             )
             if existing is not None:
                 if existing["request_hash"] != request_hash:
-                    return node_error_response(
+                    response = node_error_response(
                         NodeExecutionError(
                             c.ErrorCode.idempotency_conflict,
                             "Idempotency-Key was already used with a different request body.",
                         )
                     )
+                    status_code = response.status_code
+                    return response
                 replay = JSONResponse(
                     status_code=200,
                     content=existing["content"],
                     headers={"Idempotency-Replayed": "true"},
                 )
                 replay.headers["X-Request-Id"] = request_id()
+                status_code = replay.status_code
                 return replay
 
             async def receive():
@@ -143,12 +165,14 @@ async def authenticate_api_request(request: Request, call_next):
                     content = json.loads(response_body) if response_body else None
                 except json.JSONDecodeError:
                     response.headers["X-Request-Id"] = request_id()
-                    return Response(
+                    passthrough = Response(
                         content=response_body,
                         status_code=response.status_code,
                         headers=dict(response.headers),
                         media_type=response.media_type,
                     )
+                    status_code = passthrough.status_code
+                    return passthrough
                 expires_at = c.utcnow() + timedelta(hours=24)
                 if store is not None:
                     store.put(
@@ -168,16 +192,46 @@ async def authenticate_api_request(request: Request, call_next):
                         "expires_at": expires_at,
                     }
                 response.headers["X-Request-Id"] = request_id()
-                return Response(
+                stored = Response(
                     content=response_body,
                     status_code=response.status_code,
                     headers=dict(response.headers),
                     media_type=response.media_type,
                 )
+                status_code = stored.status_code
+                return stored
             response.headers["X-Request-Id"] = request_id()
+            status_code = response.status_code
             return response
         response = await call_next(request)
         response.headers["X-Request-Id"] = request_id()
+        status_code = response.status_code
         return response
+    except Exception:
+        access_logger.exception(
+            "API request failed.",
+            extra={
+                "event": "api_error",
+                "method": request.method,
+                "route": request.url.path,
+                "status": status_code,
+                "duration_ms": round((time.perf_counter() - started_at) * 1000, 3),
+            },
+        )
+        raise
     finally:
-        common.REQUEST_ID_CONTEXT.reset(token)
+        duration_ms = round((time.perf_counter() - started_at) * 1000, 3)
+        record_api_request(duration_ms / 1000, status_code)
+        access_logger.info(
+            "API request completed.",
+            extra={
+                "event": "api_request",
+                "method": request.method,
+                "route": request.url.path,
+                "status": status_code,
+                "duration_ms": duration_ms,
+            },
+        )
+        for log_token in reversed(log_tokens):
+            reset_observability_context(log_token)
+        common.REQUEST_ID_CONTEXT.reset(request_token)

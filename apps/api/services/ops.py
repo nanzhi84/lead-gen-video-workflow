@@ -98,18 +98,23 @@ def yield_funnel(
             window_end=window_end,
             case_id=case_id,
         )
-    events = [
-        c.YieldFunnelEvent(
-            id=f"yield_{run.id}",
-            case_id=run.case_id,
-            run_id=run.id,
-            event_name=f"workflow_{run.status.value}",
-            affects_true_yield=True,
-        )
-        for run in repository(request).runs.values()
-        if case_id is None or run.case_id == case_id
-    ]
-    success = len([event for event in events if event.event_name == "workflow_succeeded"])
+    repo = repository(request)
+    if not repo.yield_events:
+        for run in repo.runs.values():
+            if case_id is None or run.case_id == case_id:
+                repo.record_yield_funnel_event(
+                    job_id=run.job_id,
+                    run_id=run.id,
+                    event_type=f"workflow_{run.status.value}",
+                    dedupe_key=f"{run.id}:workflow_{run.status.value}",
+                    event_time=run.updated_at,
+                )
+    events = []
+    for event in repo.yield_events.values():
+        run = repo.runs.get(event.run_id or "")
+        if case_id is None or (run is not None and run.case_id == case_id):
+            events.append(event)
+    success = len([event for event in events if event.event_type == "workflow_succeeded"])
     rate = success / len(events) if events else None
     return c.YieldFunnelResponse(events=events, true_yield_rate=rate)
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Request, Response, UploadFile
+from fastapi import APIRouter, Request, Response, UploadFile, WebSocket
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from apps.api.dependencies import require_role
@@ -71,3 +71,8 @@ def run_artifacts(request: Request, run_id: str) -> c.RunArtifactsResponse:
 def run_events(request: Request, run_id: str) -> c.EventStreamTokenResponse:
 
     return service.run_events(request, run_id)
+
+
+@router.websocket("/ws/runs/{run_id}")
+async def run_websocket(websocket: WebSocket, run_id: str) -> None:
+    await service.run_websocket(websocket, run_id)

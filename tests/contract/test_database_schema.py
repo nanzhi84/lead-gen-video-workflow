@@ -102,9 +102,32 @@ def test_contract_columns_for_core_boundaries_exist():
     )
     assert {"attempt", "skipped_reason", "degradation_reason"} <= set(tables["node_runs"].columns.keys())
     assert {"variables_schema_ref", "output_schema_ref"} <= set(tables["prompt_templates"].columns.keys())
-    assert {"topic", "aggregate_type", "aggregate_id", "dedupe_key", "payload_schema"} <= set(
+    assert {
+        "topic",
+        "aggregate_type",
+        "aggregate_id",
+        "dedupe_key",
+        "payload_schema",
+        "payload",
+        "status",
+        "attempts",
+        "available_at",
+        "created_at",
+        "published_at",
+        "last_error",
+    } <= set(
         tables["outbox_events"].columns.keys()
     )
+    assert {
+        "job_id",
+        "run_id",
+        "finished_video_id",
+        "publish_package_id",
+        "publish_attempt_id",
+        "event_type",
+        "event_time",
+        "dedupe_key",
+    } <= set(tables["yield_funnel_events"].columns.keys())
     assert {
         "key",
         "method",

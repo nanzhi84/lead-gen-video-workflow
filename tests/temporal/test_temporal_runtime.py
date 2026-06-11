@@ -7,6 +7,7 @@ import threading
 import time
 from pathlib import Path
 
+import anyio
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -27,9 +28,13 @@ from packages.ai.gateway import ProviderGateway, SqlAlchemyProviderRuntimeReposi
 from packages.ai.prompts import PromptRegistry, SqlAlchemyPromptRuntimeRepository
 from packages.core.storage import Repository
 from packages.core.storage.bootstrap import get_sqlalchemy_session_factory_if_enabled
-from packages.core.storage.database import ArtifactRow, FinishedVideoRow, NodeRunRow, WorkflowRunRow
+from packages.core.storage.database import ArtifactRow, FinishedVideoRow, NodeRunRow, OutboxEventRow, WorkflowRunRow
 from packages.core.storage.secret_store import LocalSecretStore
 from packages.core.workflow import load_workflow_runtime_settings
+from packages.core.observability.events import (
+    InProcessFanoutHub,
+    SqlAlchemyOutboxDispatcher,
+)
 from packages.core.workflow.temporal_adapter import (
     TemporalActivityContext,
     configure_temporal_activity_context,
@@ -221,3 +226,48 @@ def test_temporal_resume_reruns_from_missing_middle_artifact_file(tmp_path: Path
                 if row.status == "skipped"
             ]
         assert skipped == ["ValidateRequest", "LoadCaseContext", "ResolveCreativeIntent", "TTS", "MaterialPackPlanning"]
+
+
+def test_temporal_worker_outbox_events_reach_run_websocket(monkeypatch):
+    # conftest disables the background dispatcher globally for deterministic
+    # unit tests; this test exercises the real dispatcher -> WS path.
+    monkeypatch.setenv("CUTAGENT_DISABLE_BACKGROUND_DISPATCHER", "0")
+    session_factory = _session_factory()
+    # Earlier tests in this suite run with the dispatcher disabled and leave a
+    # pending backlog; drain it so this run's events are delivered promptly
+    # (the global created_at,id dispatch order is head-of-line blocking).
+    drain_dispatcher = SqlAlchemyOutboxDispatcher(
+        session_factory=session_factory, hub=InProcessFanoutHub()
+    )
+
+    async def _drain() -> None:
+        while await drain_dispatcher.dispatch_once():
+            pass
+
+    asyncio.run(_drain())
+    with WorkerThread(), TestClient(app) as client:
+        _login(client)
+        created = client.post("/api/jobs/digital-human-video", json=_payload("Temporal websocket"))
+        assert created.status_code == 201, created.text
+        run_id = created.json()["initial_run"]["id"]
+        token_response = client.get(f"/api/runs/{run_id}/events")
+        assert token_response.status_code == 200, token_response.text
+        token = token_response.json()["token"]
+
+        with client.websocket_connect(f"/ws/runs/{run_id}?token={token}") as websocket:
+            assert _wait_for_status(session_factory, run_id, {"succeeded"}) == "succeeded"
+            anyio.run(client.app.state.outbox_dispatcher.dispatch_once)
+            received = []
+            for _ in range(30):
+                message = websocket.receive_json()
+                received.append(message)
+                if message.get("event_type") == "node_update":
+                    break
+
+        assert any(message.get("event_type") == "node_update" for message in received)
+        with session_factory() as session:
+            assert session.scalar(
+                select(OutboxEventRow)
+                .where(OutboxEventRow.aggregate_id == run_id)
+                .where(OutboxEventRow.topic == "workflow.node.updated")
+            )

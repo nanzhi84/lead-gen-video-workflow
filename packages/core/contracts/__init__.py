@@ -253,6 +253,18 @@ class EventStreamTokenResponse(ContractModel):
     request_id: str
 
 
+class RunEvent(ContractModel):
+    event_id: str
+    run_id: str
+    job_id: str
+    event_type: Literal["run_update", "node_update", "artifact_created", "warning", "error"]
+    node_id: str | None = None
+    status: str | None = None
+    progress: float | None = None
+    message: str
+    created_at: datetime
+
+
 class NodeError(ContractModel):
     code: ErrorCode
     message: str
@@ -1672,10 +1684,14 @@ class CostRollupQuery(OpsDashboardQuery):
 
 
 class YieldFunnelEvent(EntityMeta):
-    case_id: str | None = None
+    job_id: str | None = None
     run_id: str | None = None
-    event_name: str
-    affects_true_yield: bool = True
+    finished_video_id: str | None = None
+    publish_package_id: str | None = None
+    publish_attempt_id: str | None = None
+    event_type: str
+    event_time: datetime
+    dedupe_key: str
 
 
 class YieldFunnelQuery(OpsDashboardQuery):
@@ -1826,6 +1842,7 @@ class OutboxEvent(EntityMeta):
     topic: str
     aggregate_type: str
     aggregate_id: str
+    dedupe_key: str
     payload_schema: str
     payload: JsonValue
     status: Literal["pending", "published", "failed"] = "pending"

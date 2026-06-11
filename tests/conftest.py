@@ -4,12 +4,17 @@ import os
 
 import anyio
 import httpx
+import asyncio
+import json
+import queue
+import threading
 from functools import partial
 from urllib.parse import urlsplit
 import warnings
 
 
 os.environ.setdefault("CUTAGENT_STORAGE_BACKEND", "memory")
+os.environ.setdefault("CUTAGENT_DISABLE_BACKGROUND_DISPATCHER", "1")
 
 
 class _ASGISyncTestClient:
@@ -35,7 +40,7 @@ class _ASGISyncTestClient:
 
     def __exit__(self, exc_type, exc, tb) -> None:
         if self._lifespan_cm is not None:
-            anyio.run(self._lifespan_cm.__aexit__, exc_type, exc, tb)
+            anyio.run(self._lifespan_cm.__aexit__, None, None, None)
             self._lifespan_cm = None
 
     async def _request_async(self, method: str, url: str, **kwargs) -> httpx.Response:
@@ -108,6 +113,104 @@ class _ASGISyncTestClient:
 
     def delete(self, url: str, **kwargs) -> httpx.Response:
         return self.request("DELETE", url, **kwargs)
+
+    def websocket_connect(self, url: str):
+        return _ASGIWebSocketSession(self, url)
+
+
+class _ASGIWebSocketSession:
+    def __init__(self, client: _ASGISyncTestClient, url: str) -> None:
+        self.client = client
+        self.url = url
+        self._app_to_client: queue.Queue = queue.Queue()
+        self._thread: threading.Thread | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._client_to_app: asyncio.Queue | None = None
+        self._ready = threading.Event()
+
+    def __enter__(self):
+        self._thread = threading.Thread(target=lambda: anyio.run(self._run), daemon=True)
+        self._thread.start()
+        self._ready.wait(timeout=5)
+        message = self._app_to_client.get(timeout=5)
+        if message["type"] != "websocket.accept":
+            raise RuntimeError(f"WebSocket was not accepted: {message}")
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+        if self._thread is not None:
+            self._thread.join(timeout=5)
+
+    async def _run(self) -> None:
+        self._loop = asyncio.get_running_loop()
+        self._client_to_app = asyncio.Queue()
+        self._ready.set()
+        full_url = (
+            self.url
+            if self.url.startswith(("ws://", "wss://"))
+            else f"{self.client.base_url.rstrip('/')}/{self.url.lstrip('/')}"
+        )
+        full_url = full_url.replace("http://", "ws://").replace("https://", "wss://", 1)
+        parsed = urlsplit(full_url)
+        headers = [(b"host", (parsed.netloc or "testserver").encode("latin-1"))]
+        cookie_header = self.client.cookies.jar._cookies
+        if cookie_header:
+            cookie = "; ".join(
+                f"{name}={morsel.value}"
+                for domain in cookie_header.values()
+                for path in domain.values()
+                for name, morsel in path.items()
+            )
+            headers.append((b"cookie", cookie.encode("latin-1")))
+        scope = {
+            "type": "websocket",
+            "asgi": {"version": "3.0", "spec_version": "2.3"},
+            "scheme": parsed.scheme,
+            "path": parsed.path or "/",
+            "raw_path": (parsed.path or "/").encode("ascii"),
+            "query_string": parsed.query.encode("ascii"),
+            "headers": headers,
+            "client": ("testclient", 50000),
+            "server": (parsed.hostname or "testserver", parsed.port or 80),
+            "root_path": "",
+            "subprotocols": [],
+        }
+        connected = False
+
+        async def receive():
+            nonlocal connected
+            if not connected:
+                connected = True
+                return {"type": "websocket.connect"}
+            return await self._client_to_app.get()
+
+        async def send(message):
+            self._app_to_client.put(message)
+
+        await self.client.app(scope, receive, send)
+
+    def receive_json(self):
+        while True:
+            message = self._app_to_client.get(timeout=5)
+            if message["type"] == "websocket.send":
+                text = message.get("text")
+                if text is None:
+                    text = message.get("bytes", b"").decode("utf-8")
+                return json.loads(text)
+            if message["type"] == "websocket.close":
+                raise RuntimeError(f"WebSocket closed: {message}")
+
+    def send_json(self, payload) -> None:
+        self._send_to_app({"type": "websocket.receive", "text": json.dumps(payload)})
+
+    def close(self) -> None:
+        self._send_to_app({"type": "websocket.disconnect", "code": 1000})
+
+    def _send_to_app(self, message) -> None:
+        if self._loop is None or self._client_to_app is None:
+            return
+        self._loop.call_soon_threadsafe(self._client_to_app.put_nowait, message)
 
 
 def pytest_configure() -> None:

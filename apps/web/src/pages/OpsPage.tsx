@@ -25,7 +25,7 @@ export default function OpsPage({ mode = "ops" }: { mode?: "ops" | "runs" }) {
         </div>
         {data?.yield_funnel.events.map((event) => (
           <div className="row two" key={event.id}>
-            <strong>{event.event_name}</strong>
+            <strong>{event.event_type}</strong>
             <span>{event.id}</span>
           </div>
         ))}
@@ -33,4 +33,3 @@ export default function OpsPage({ mode = "ops" }: { mode?: "ops" | "runs" }) {
     </section>
   );
 }
-

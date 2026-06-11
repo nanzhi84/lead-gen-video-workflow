@@ -51,6 +51,7 @@ from packages.core.contracts.artifacts import (
     TimelineValidationReport,
 )
 from packages.core.contracts.state_machines import assert_transition
+from packages.core.observability import record_node_run, record_workflow_run
 from packages.core.storage import Repository
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError, NodeOutput, WorkflowRuntimeAdapter, manifest_hash
@@ -222,6 +223,9 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
             "run",
             run.id,
             {"force": force, "reason": reason or ""},
+            dedupe_key=f"{run.id}:run:{RunStatus.cancelled.value}",
+            status=RunStatus.cancelled.value,
+            message="Run cancelled.",
         )
         return self.repository.runs[run_id]
 
@@ -245,6 +249,15 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
         assert_transition("run", run.status, RunStatus.running)
         run = run.model_copy(update={"status": RunStatus.running, "started_at": utcnow()})
         self.repository.runs[run.id] = run
+        self.repository.create_event(
+            "workflow.run.updated",
+            "run",
+            run.id,
+            {"status": RunStatus.running.value},
+            dedupe_key=f"{run.id}:run:{RunStatus.running.value}",
+            status=RunStatus.running.value,
+            message="Run is running.",
+        )
         if mode == "resume" and from_run_id:
             start_index = self._reuse_prefix(run, state, from_run_id, reuse_plan)
         for index, node_id in enumerate(NODE_SEQUENCE[start_index:], start=start_index):
@@ -271,6 +284,15 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
             assert_transition("run", run.status, RunStatus.running)
             run = run.model_copy(update={"status": RunStatus.running, "started_at": utcnow()})
             self.repository.runs[run.id] = run
+            self.repository.create_event(
+                "workflow.run.updated",
+                "run",
+                run.id,
+                {"status": RunStatus.running.value},
+                dedupe_key=f"{run.id}:run:{RunStatus.running.value}",
+                status=RunStatus.running.value,
+                message="Run is running.",
+            )
         if self.repository.runs[run_id].status != RunStatus.running:
             return self._node_activity_summary(run_id, node_id)
         if self._execute_node(node_id, self.repository.runs[run_id], state) and node_id == NODE_SEQUENCE[-1]:
@@ -338,6 +360,17 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
                 assert_transition("node", node_run.status, NodeStatus.running)
                 node_run = node_run.model_copy(update={"status": NodeStatus.running, "updated_at": utcnow()})
                 self.repository.node_runs[run.id][-1] = node_run
+                self.repository.create_event(
+                    "workflow.node.updated",
+                    "run",
+                    run.id,
+                    {"node_id": node_id, "status": NodeStatus.running.value},
+                    dedupe_key=f"{node_run.id}:{NodeStatus.running.value}",
+                    event_type="node_update",
+                    node_id=node_id,
+                    status=NodeStatus.running.value,
+                    message=f"Node {node_id} is running.",
+                )
             output = self._run_node(node_id, run, node_run, state)
             for artifact in output.artifacts:
                 state.artifacts[artifact.kind] = artifact
@@ -364,6 +397,18 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
                 }
             )
             self.repository.node_runs[run.id][-1] = patched
+            record_node_run(patched)
+            self.repository.create_event(
+                "workflow.node.updated",
+                "run",
+                run.id,
+                {"node_id": node_id, "status": status.value if hasattr(status, "value") else str(status)},
+                dedupe_key=f"{patched.id}:{status.value if hasattr(status, 'value') else str(status)}",
+                event_type="node_update",
+                node_id=node_id,
+                status=status.value if hasattr(status, "value") else str(status),
+                message=f"Node {node_id} finished with {status.value if hasattr(status, 'value') else status}.",
+            )
             return True
         except NodeExecutionError as exc:
             if node_run.status == NodeStatus.pending:
@@ -374,7 +419,7 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
             error = exc.error.model_copy(
                 update={"job_id": job.id, "run_id": run.id, "node_run_id": node_run.id}
             )
-            self.repository.node_runs[run.id][-1] = node_run.model_copy(
+            failed_node = node_run.model_copy(
                 update={
                     "status": NodeStatus.failed,
                     "error": error,
@@ -382,11 +427,14 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
                     "updated_at": utcnow(),
                 }
             )
+            self.repository.node_runs[run.id][-1] = failed_node
+            record_node_run(failed_node)
             self._write_report(run, state, failed=True)
             assert_transition("run", self.repository.runs[run.id].status, RunStatus.failed)
             self.repository.runs[run.id] = self.repository.runs[run.id].model_copy(
                 update={"status": RunStatus.failed, "finished_at": utcnow(), "updated_at": utcnow()}
             )
+            record_workflow_run(self.repository.runs[run.id])
             assert_transition("job", self.repository.jobs[job.id].status, JobStatus.failed)
             self.repository.jobs[job.id] = self.repository.jobs[job.id].model_copy(
                 update={"status": JobStatus.failed, "updated_at": utcnow()}
@@ -396,6 +444,11 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
                 "run",
                 run.id,
                 {"node_id": node_id, "error_code": error.code.value},
+                dedupe_key=f"{node_run.id}:{NodeStatus.failed.value}",
+                event_type="node_update",
+                node_id=node_id,
+                status=NodeStatus.failed.value,
+                message=f"Node {node_id} failed.",
             )
             return False
 
@@ -407,6 +460,7 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
         self.repository.runs[run.id] = self.repository.runs[run.id].model_copy(
             update={"status": final_status, "finished_at": utcnow(), "updated_at": utcnow()}
         )
+        record_workflow_run(self.repository.runs[run.id])
         assert_transition("job", self.repository.jobs[job.id].status, JobStatus.succeeded)
         self.repository.jobs[job.id] = self.repository.jobs[job.id].model_copy(
             update={"status": JobStatus.succeeded}
@@ -416,6 +470,16 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
             "run",
             run.id,
             {"status": final_status.value},
+            dedupe_key=f"{run.id}:run:{final_status.value}",
+            status=final_status.value,
+            message="Run completed.",
+        )
+        self.repository.record_yield_funnel_event(
+            job_id=job.id,
+            run_id=run.id,
+            event_type=f"workflow_{final_status.value}",
+            dedupe_key=f"{run.id}:workflow_{final_status.value}",
+            event_time=self.repository.runs[run.id].updated_at,
         )
 
     def _mark_cancelled(self, run_id: str) -> None:
@@ -429,6 +493,16 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
         assert_transition("run", self.repository.runs[run.id].status, RunStatus.cancelled)
         self.repository.runs[run.id] = self.repository.runs[run.id].model_copy(
             update={"status": RunStatus.cancelled, "finished_at": utcnow(), "updated_at": utcnow()}
+        )
+        record_workflow_run(self.repository.runs[run.id])
+        self.repository.create_event(
+            "workflow.run.cancelled",
+            "run",
+            run.id,
+            {"status": RunStatus.cancelled.value},
+            dedupe_key=f"{run.id}:run:{RunStatus.cancelled.value}",
+            status=RunStatus.cancelled.value,
+            message="Run cancelled.",
         )
         job = self.repository.jobs[run.job_id]
         if job.status != JobStatus.cancelled:
@@ -1271,6 +1345,26 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
             finished,
             title=finished.title,
             description=state.request.publish_content,
+        )
+        self.repository.create_event(
+            "workflow.finished_video.created",
+            "run",
+            run.id,
+            {"finished_video_id": finished.id, "publish_package_id": package.id},
+            dedupe_key=f"finished_video:{finished.id}",
+            event_type="artifact_created",
+            node_id=node_run.node_id,
+            status=NodeStatus.running.value,
+            message=f"Finished video {finished.id} created.",
+        )
+        self.repository.record_yield_funnel_event(
+            job_id=run.job_id,
+            run_id=run.id,
+            finished_video_id=finished.id,
+            publish_package_id=package.id,
+            event_type="finished_video_created",
+            dedupe_key=f"{finished.id}:finished_video_created",
+            event_time=finished.created_at,
         )
         package_artifact = self._artifact(
             run,

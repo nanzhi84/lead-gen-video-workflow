@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import asyncio
+import os
 
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
@@ -31,6 +33,13 @@ from apps.api.routers import (
 from packages.ai.gateway import ProviderGateway, SqlAlchemyProviderRepository, SqlAlchemyProviderRuntimeRepository
 from packages.ai.prompts import PromptRegistry, SqlAlchemyPromptRepository, SqlAlchemyPromptRuntimeRepository
 from packages.core.auth import AuthService, create_sqlalchemy_auth_service
+from packages.core.observability import (
+    EventStreamTokenStore,
+    InProcessFanoutHub,
+    OutboxDispatcher,
+    SqlAlchemyOutboxDispatcher,
+    configure_logging,
+)
 from packages.core.auth.service import create_password_hasher
 from packages.core.storage import Repository, get_object_store
 from packages.core.storage.bootstrap import (
@@ -73,12 +82,37 @@ async def lifespan(app: FastAPI):
     bootstrap_sqlalchemy_storage_if_enabled()
     session_factory = get_sqlalchemy_session_factory_if_enabled()
     configure_app_state(app, session_factory=session_factory)
-    yield
+    dispatcher_task = None
+    if os.getenv("CUTAGENT_DISABLE_BACKGROUND_DISPATCHER") != "1":
+        dispatcher_task = asyncio.create_task(app.state.outbox_dispatcher.run())
+    try:
+        yield
+    finally:
+        app.state.outbox_dispatcher.stop()
+        if dispatcher_task is not None:
+            dispatcher_task.cancel()
+            try:
+                await dispatcher_task
+            except asyncio.CancelledError:
+                pass
 
 
 def configure_app_state(app: FastAPI, *, session_factory=None) -> None:
     runtime_repository = Repository()
     app.state.repository = runtime_repository
+    app.state.event_hub = InProcessFanoutHub()
+    app.state.event_tokens = EventStreamTokenStore()
+    app.state.sqlalchemy_session_factory = session_factory
+    if session_factory is None:
+        app.state.outbox_dispatcher = OutboxDispatcher(
+            repository=runtime_repository,
+            hub=app.state.event_hub,
+        )
+    else:
+        app.state.outbox_dispatcher = SqlAlchemyOutboxDispatcher(
+            session_factory=session_factory,
+            hub=app.state.event_hub,
+        )
     app.state.object_store = get_object_store()
     app.state.secret_store = LocalSecretStore()
     if session_factory is None:
@@ -135,6 +169,7 @@ def configure_app_state(app: FastAPI, *, session_factory=None) -> None:
 
 
 def create_app() -> FastAPI:
+    configure_logging()
     app = FastAPI(
         title="Cutagent Clean-Slate API",
         version="0.1.0",

@@ -1,6 +1,7 @@
 import os
 
 import pytest
+from uuid import uuid4
 from fastapi.testclient import TestClient
 
 if os.getenv("CUTAGENT_RUN_DB_TESTS") != "1":
@@ -92,7 +93,8 @@ def test_sqlalchemy_idempotency_replays_after_app_reconfiguration():
     session_factory = get_sqlalchemy_session_factory_if_enabled()
     assert session_factory is not None
 
-    headers = {"Idempotency-Key": "case-create-after-restart"}
+    idem_key = f"case-create-after-restart-{uuid4().hex[:8]}"
+    headers = {"Idempotency-Key": idem_key}
     payload = {"name": "Idempotent SQL Case"}
     with TestClient(app) as first_client:
         login = first_client.post(
@@ -126,7 +128,7 @@ def test_sqlalchemy_idempotency_replays_after_app_reconfiguration():
     with session_factory() as session:
         record = session.get(
             IdempotencyRecordRow,
-            ("usr_admin:case-create-after-restart", "POST", "/api/cases"),
+            (f"usr_admin:{idem_key}", "POST", "/api/cases"),
         )
         assert record is not None
         assert record.response_body["id"] == first_case["id"]

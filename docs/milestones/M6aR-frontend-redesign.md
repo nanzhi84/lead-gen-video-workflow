@@ -101,3 +101,29 @@ label，processing 类 animate-spin）、InfiniteScrollSentinel、AudioPlayer/Vi
 验收修复 1 处：移除 index.css 对 Google Fonts 的运行时 @import（死代理环境实测 16 个加载错误；离线/受限网络必须可用，字体走系统栈，品牌衬线后续自托管）。
 
 待办（R3-R5）：素材库四件套 + 标注编辑器、发布中心完整流、概览/数据统计/账户中心。
+
+---
+
+## R3 改动清单（素材库四件套 + 标注编辑器）
+
+信息架构对齐原版：`/library` 为 tab 容器（音色/视频模板/字体/BGM 四 tab，默认 /library/voices）。
+全部消费新系统 API（media assets / annotations / voices / upload sessions），sandbox 语义下先把
+页面与交互做真，媒体处理修真（M6b）后自然增强。
+
+- R3-A 音色库：列表（搜索/类型筛选/分页）、音色卡（试听=调 preview 端点+内嵌播放器、编辑、
+  删除带确认）、克隆弹窗（上传引用音频走 UploadSession + DropZone）、设计音色弹窗、生成音频区
+  （文本+音色+语速+情绪 → 试听+下载）。
+- R3-B 视频模板/B-roll：案例列表 → 案例详情双 tab（人像模板/B-roll，计数徽标）；上传（单个+
+  批量文件夹，占位卡片进度混入网格、失败卡保留错误）；卡片（缩略图 hover 播放、时长角标、
+  AI 分析/查看标注按钮、分析状态徽标轮询、下载、删除）；筛选（搜索/场景/分析状态）；批量操作
+  模式（多选、批量分析/删除/改场景/标签）。
+- R3-C 标注编辑器（AnnotationEditView 消费）：标注弹窗只读态（结构化片段/质量事件/有效无效
+  时长三卡）+ 手动编辑态（质量状态、无效片段增删、片段字段编辑）→ PATCH 走 etag 乐观锁；
+  重新分析两段式（预览对比 → 确认覆盖/放弃）；冲突（409/etag 不一致）给中文提示。
+- R3-D 字体库：上传（DropZone 校验扩展名）、@font-face 动态注入实时预览、分类筛选、详情弹窗、
+  删除；BGM 库：上传（单/批量带统一风格标签）、在线试听（全局播放条）、风格筛选、标注信息展示。
+- R3-E 横切：所有上传走 UploadSession 协议（prepare → PUT → complete）封装成 useUpload hook；
+  所有列表查询走生成类型；破坏性操作后果说明式确认。
+
+后端缺口处理：缺的只读/操作 API 按 M6a-1 D3 规范补（契约 + routers/services + OpenAPI 同步），
+但不得实现假语义（如假 AI 分析）——没有的能力 UI 上显示「待接入」禁用态并注明依赖 M6b/M6d。

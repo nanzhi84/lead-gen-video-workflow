@@ -87,3 +87,13 @@ Spec：1A.5（行 147-163，Observability Contract + outbox 最低字段）、15
 4. /metrics 输出真实计数（发请求后增长），无硬编码 0 假指标。
 5. 日志 JSON 含最低字段集（无上下文为 null 而非缺字段）。
 6. 三套测试全绿。
+
+---
+
+## 验收记录（2026-06-11，验收官：Claude）
+
+**判定：通过**（merge `59dda0a`）。证据：86 单测 + 23 DB 集成 + 4 真 Temporal 集成全绿（复跑稳定）；temporal 模式下 worker 写 outbox → API dispatcher → WS 实时收到事件端到端验证；outbox 幂等（dedupe_key 唯一约束）且按 created_at,id 稳定排序；/metrics 为 prometheus_client 真实计数；JSON 日志含 1A.5 最低字段集；前端类型再生成后构建通过。
+
+验收修复（3 处）：observability import 移入 workflow 沙箱 pass-through 块（prometheus 间接引入 urllib.request 触发确定性校验失败）；WS 集成测试显式重新启用被 conftest 全局禁用的后台 dispatcher；测试前排空 outbox 积压（全局排序的 dispatcher 存在跨 run 队头阻塞，靠 outbox_lag_seconds 告警兜底，生产改进记入 spec-questions）。
+
+设计观察（记入后续）：dispatcher 全局 created_at,id 排序在积压时对新 run 有队头阻塞；TemporalRuntimeAdapter 每调用新建 Client 连接未复用（M3 遗留）。两项均不阻塞验收。

@@ -1,4 +1,4 @@
-import { BarChart3, Library, Send, Settings, Sparkles, UserCircle2 } from "lucide-react";
+import { BarChart3, Library, Settings, Sparkles, UserCircle2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { OpsDashboardVm } from "../../api/client";
 import { routes } from "../../routes";
@@ -7,7 +7,6 @@ import type { OverviewStats } from "./overviewModel";
 const quickLinks = [
   { to: routes.studio(), label: "案例中心", icon: Sparkles },
   { to: routes.library(), label: "素材库", icon: Library },
-  { to: routes.publishCenter(), label: "发布中心", icon: Send },
   { to: routes.analytics(), label: "数据统计", icon: BarChart3 },
   { to: routes.account(), label: "账户中心", icon: UserCircle2 },
   { to: routes.settings(), label: "系统设置", icon: Settings },

@@ -32,9 +32,11 @@ def patch_publish_package(
 
 
 @router.get("/api/publish/batches", response_model=c.PageResponse[c.PublishBatchVm])
-def publish_batches(request: Request, limit: int = 50) -> c.PageResponse[c.PublishBatchVm]:
+def publish_batches(
+    request: Request, limit: int = 50, case_id: str | None = None
+) -> c.PageResponse[c.PublishBatchVm]:
 
-    return service.publish_batches(request, limit)
+    return service.publish_batches(request, limit, case_id)
 
 
 @router.post("/api/publish/batches", response_model=c.PublishBatchVm, status_code=201)

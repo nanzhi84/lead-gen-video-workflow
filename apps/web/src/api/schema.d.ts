@@ -9743,6 +9743,7 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: number;
+                case_id?: string | null;
             };
             header?: never;
             path?: never;

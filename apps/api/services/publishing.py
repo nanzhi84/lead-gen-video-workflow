@@ -97,18 +97,35 @@ def patch_publish_package(
     return updated
 
 
-def publish_batches(request: Request, limit: int = 50) -> c.PageResponse[c.PublishBatchVm]:
+def publish_batches(
+    request: Request, limit: int = 50, case_id: str | None = None
+) -> c.PageResponse[c.PublishBatchVm]:
 
     if publishing_repository(request) is not None:
-        values = publishing_repository(request).list_batches(limit=limit)
+        values = publishing_repository(request).list_batches(limit=limit, case_id=case_id)
         return c.PageResponse(items=values, total_hint=len(values), request_id=request_id())
-    return page(repository(request).publish_batches.values(), limit)
+    values = list(repository(request).publish_batches.values())
+    if case_id:
+        values = [
+            batch
+            for batch in values
+            if _publish_batch_matches_case(repository(request), batch, case_id)
+        ]
+    return page(values, limit)
 
 
 def create_publish_batch(payload: c.CreatePublishBatchRequest, request: Request) -> c.PublishBatchVm:
     if publishing_repository(request) is not None:
         return publishing_repository(request).create_batch(payload)
     return repository(request).create_publish_batch(payload.publish_package_ids, payload.platform_targets)
+
+
+def _publish_batch_matches_case(repo, batch: c.PublishBatchVm, case_id: str) -> bool:
+    for item in batch.items:
+        package = repo.publish_packages.get(item.publish_package_id)
+        if package is not None and package.case_id == case_id:
+            return True
+    return False
 
 
 def publish_batch_detail(request: Request, batch_id: str) -> c.PublishBatchVm | JSONResponse:

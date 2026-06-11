@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, RadioTower } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { api, type FinishedVideo, type PublishBatch, type PublishBatchItem, type PublishPackage } from "../../api/client";
 import { DraftEditorStep } from "../../components/publish/DraftEditorStep";
 import { PublishReviewStep } from "../../components/publish/PublishReviewStep";
@@ -22,7 +22,6 @@ import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { FlowStepper } from "../../components/ui/FlowStepper";
 import { useToast } from "../../components/ui/Toast";
 import { usePageVisible } from "../../hooks/usePageVisible";
-import { routes } from "../../routes";
 type ConfirmState = {
   title: string;
   message: string;
@@ -32,40 +31,28 @@ type ConfirmState = {
   onConfirm: () => void | Promise<void>;
 };
 export default function PublishCenterPage() {
-  const { caseId = "", batchId = "" } = useParams();
+  const { caseId = "" } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
-  const embedded = Boolean(caseId);
-  const activeBatchId = batchId || searchParams.get("batchId") || "";
-  const navigate = useNavigate();
+  const activeBatchId = searchParams.get("batchId") || "";
   const queryClient = useQueryClient();
   const toast = useToast();
   const pageVisible = usePageVisible();
-  const [selectedCaseId, setSelectedCaseId] = useState<string | null>(caseId || null);
+  const selectedCaseId = caseId || null;
   const [activeStep, setActiveStep] = useState(activeBatchId ? 1 : 0);
   const [sourcePool, setSourcePool] = useState<SourcePoolItem[]>([]);
   const [defaults, setDefaults] = useState<BatchDefaults>(defaultBatchDefaults);
   const [drafts, setDrafts] = useState<Record<string, PublishDraft>>({});
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
-  useEffect(() => {
-    if (caseId) setSelectedCaseId(caseId);
-  }, [caseId]);
-  const casesQuery = useQuery({
-    queryKey: ["publish-center", "cases"],
-    queryFn: () => api.cases.list({ limit: 100 }),
-    enabled: !embedded,
-  });
-  useEffect(() => {
-    if (!selectedCaseId && casesQuery.data?.items[0]?.id) setSelectedCaseId(casesQuery.data.items[0].id);
-  }, [casesQuery.data?.items, selectedCaseId]);
   const videosQuery = useQuery({
     queryKey: ["publish-center", "finished-videos", selectedCaseId],
     queryFn: () => api.finishedVideos.list(selectedCaseId ?? ""),
     enabled: Boolean(selectedCaseId),
   });
   const batchesQuery = useQuery({
-    queryKey: ["publish-center", "batches"],
-    queryFn: () => api.publishing.batches({ limit: 80 }),
+    queryKey: ["publish-center", "batches", selectedCaseId],
+    queryFn: () => api.publishing.batches({ limit: 80, case_id: selectedCaseId }),
+    enabled: Boolean(selectedCaseId),
     refetchInterval: pageVisible ? 8_000 : false,
   });
   const batchQuery = useQuery({
@@ -110,17 +97,12 @@ export default function PublishCenterPage() {
   }, [batch, batchItemIds]);
 
   function routeToBatch(id: string) {
-    if (embedded) {
-      setSearchParams({ batchId: id });
-    } else {
-      navigate(routes.publishCenterBatch(id));
-    }
+    setSearchParams({ batchId: id });
     setActiveStep(1);
   }
 
   function resetToSource() {
-    if (embedded) setSearchParams({});
-    else navigate(routes.publishCenter());
+    setSearchParams({});
     setActiveStep(0);
     setDrafts({});
     setActiveItemId(null);
@@ -264,11 +246,11 @@ export default function PublishCenterPage() {
     <section className="pageStack">
       <header className="pageHeader">
         <div>
-          <h1>{embedded ? "发布" : "发布中心"}</h1>
+          <h1>发布</h1>
           <p className="mt-2 text-sm text-text-secondary">选来源、编辑文案与封面，再通过 sandbox.publish 生成发布结果。</p>
         </div>
       </header>
-      {embedded ? <StudioTabs caseId={caseId} /> : null}
+      <StudioTabs caseId={caseId} />
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-status-warning/25 bg-status-warning/10 px-4 py-3 text-sm text-status-warning">
         <span className="inline-flex items-center gap-2">
           <RadioTower className="h-4 w-4" />
@@ -282,10 +264,10 @@ export default function PublishCenterPage() {
         <div>
           {activeStep === 0 ? (
             <SourceStep
-              embedded={embedded}
-              cases={casesQuery.data?.items ?? []}
+              embedded={true}
+              cases={[]}
               selectedCaseId={selectedCaseId}
-              onCaseChange={setSelectedCaseId}
+              onCaseChange={() => undefined}
               videos={videosQuery.data?.items ?? []}
               isVideosLoading={videosQuery.isLoading}
               pool={sourcePool}

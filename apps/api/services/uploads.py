@@ -33,7 +33,7 @@ from packages.core.auth import SqlAlchemyAuthService
 from packages.core.contracts.state_machines import assert_transition
 from packages.core.observability import metric_snapshot
 from packages.core.registration_codes import hash_registration_code
-from packages.core.storage.object_store import parse_local_uri
+from packages.core.storage.object_store import parse_object_uri
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
 from packages.media.assets import local_object_path
@@ -69,7 +69,7 @@ async def upload_file(
         raise NodeExecutionError(c.ErrorCode.upload_invalid_state, "Upload session not found.")
     if file is not None and upload.object_uri:
         content = await file.read()
-        stored = object_store(request).put_bytes(parse_local_uri(upload.object_uri), content)
+        stored = object_store(request).put_bytes(parse_object_uri(upload.object_uri), content)
         if stored.size_bytes != upload.size_bytes:
             raise NodeExecutionError(c.ErrorCode.upload_size_mismatch, "Upload size mismatch.")
         if upload.sha256 and upload.sha256 != stored.sha256:

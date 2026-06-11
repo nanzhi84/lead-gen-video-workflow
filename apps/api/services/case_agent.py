@@ -57,6 +57,20 @@ def create_source_binding(
     return binding
 
 
+def delete_source_binding(case_id: str, binding_id: str, request: Request) -> c.OkResponse:
+    get_case(request, case_id)
+    if case_learning_repository(request) is not None:
+        deleted = case_learning_repository(request).delete_source_binding(case_id=case_id, binding_id=binding_id)
+        if not deleted:
+            raise NodeExecutionError(c.ErrorCode.validation_invalid_options, "Source binding is missing.")
+        return c.OkResponse(ok=True, request_id=request_id())
+    binding = repository(request).source_bindings.get(binding_id)
+    if binding is None or binding.case_id != case_id:
+        raise NodeExecutionError(c.ErrorCode.validation_invalid_options, "Source binding is missing.")
+    del repository(request).source_bindings[binding_id]
+    return c.OkResponse(ok=True, request_id=request_id())
+
+
 def import_case_source(case_id: str, payload: c.ImportCaseSourceRequest, request: Request) -> c.CaseAgentRun:
     get_case(request, case_id)
     if case_learning_repository(request) is not None:
@@ -64,6 +78,9 @@ def import_case_source(case_id: str, payload: c.ImportCaseSourceRequest, request
         if run is None:
             raise NodeExecutionError(c.ErrorCode.validation_invalid_options, "Source binding is missing.")
         return run
+    binding = repository(request).source_bindings.get(payload.source_binding_id)
+    if binding is None or binding.case_id != case_id:
+        raise NodeExecutionError(c.ErrorCode.validation_invalid_options, "Source binding is missing.")
     run = c.CaseAgentRun(
         id=new_id("agent_run"),
         case_id=case_id,
@@ -214,6 +231,10 @@ def approve_memory(
     memory = c.CaseMemory.model_validate(
         proposal.model_dump(exclude={"proposed_by_reflection_run_id"})
     ).model_copy(update={"status": "active"})
+    if memory_id in repository(request).memory_proposals:
+        repository(request).memory_proposals[memory_id] = repository(request).memory_proposals[memory_id].model_copy(
+            update={"status": "approved", "updated_at": c.utcnow()}
+        )
     repository(request).memories[memory.id] = memory
     return memory
 

@@ -5,8 +5,8 @@ import { routes } from "../routes";
 export function StudioTabs({ caseId }: { caseId: string }) {
   const tabs = [
     { to: routes.caseStudio(caseId), label: "创作", icon: Edit3, end: true },
-    { to: routes.caseRuns(caseId), label: "Runs", icon: RadioTower },
-    { to: routes.caseFinishedVideos(caseId), label: "成片", icon: Film },
+    { to: routes.caseOutputs(caseId), label: "成片", icon: Film },
+    { to: routes.casePublish(caseId), label: "发布", icon: RadioTower },
   ];
   return (
     <nav className="tabs" aria-label="Case 工作台">

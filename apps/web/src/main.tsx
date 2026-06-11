@@ -6,7 +6,7 @@ import App from "./App";
 import { ToastProvider } from "./components/Toast";
 import { AuthProvider } from "./pages/auth/AuthContext";
 import { createAppQueryClient } from "./lib/queryClient";
-import "./styles.css";
+import "./index.css";
 
 const queryClient = createAppQueryClient();
 

@@ -8,6 +8,7 @@ import { StatusPill } from "../../components/Status";
 import { StudioTabs } from "../../components/StudioTabs";
 import { useAuth } from "../auth/AuthContext";
 import { routes } from "../../routes";
+import { TimeText } from "../../components/TimeText";
 
 export default function FinishedVideosPage() {
   const { caseId = "" } = useParams();
@@ -86,7 +87,7 @@ export default function FinishedVideosPage() {
               <strong>{video.title}</strong>
               <span className="monoNumber">{video.duration_sec.toFixed(1)}s</span>
               <StatusPill status={video.qc_status} />
-              <span>{video.created_at ? new Date(video.created_at).toLocaleString() : "-"}</span>
+              <span><TimeText value={video.created_at} /></span>
               <span className="rowActions">
                 <button className="ghostButton compactButton" type="button" onClick={() => preview.mutate(video.id)}>
                   <PlayCircle size={14} />

@@ -7,6 +7,7 @@ import { EmptyState, ErrorState, LoadingState } from "../../components/State";
 import { Modal } from "../../components/Modal";
 import { StatusPill } from "../../components/Status";
 import { useAuth } from "../auth/AuthContext";
+import { labelForStatus } from "../../lib/status";
 
 type SettingsTab = "providers" | "secrets" | "prices";
 
@@ -75,12 +76,34 @@ function tabFromSearch(value: string | null): SettingsTab {
   return value === "secrets" || value === "prices" ? value : "providers";
 }
 
+function tabLabel(tab: SettingsTab) {
+  if (tab === "providers") return "供应商";
+  if (tab === "secrets") return "密钥";
+  return "价格";
+}
+
+function environmentLabel(value?: string | null) {
+  if (value === "local") return "本地";
+  if (value === "dev") return "开发";
+  if (value === "staging") return "预发";
+  if (value === "prod") return "生产";
+  return "未知环境";
+}
+
+function unitLabel(value?: string | null) {
+  if (value === "input_token") return "输入 Token";
+  if (value === "output_token") return "输出 Token";
+  if (value === "media_second") return "媒体秒";
+  if (value === "call") return "调用";
+  return "未知单位";
+}
+
 function ReadOnlyNotice({ isAdmin }: { isAdmin: boolean }) {
   if (isAdmin) return null;
   return (
     <div className="stateBox">
       <ShieldAlert size={16} />
-      <span>当前账号不是 admin，设置页只读，写操作已隐藏。</span>
+      <span>当前账号不是管理员，设置页只读，写操作已隐藏。</span>
     </div>
   );
 }
@@ -261,7 +284,7 @@ export default function SettingsPage() {
       <header className="pageHeader">
         <div>
           <h1>设置</h1>
-          <p>Provider、Secret 和价格表配置。</p>
+          <p>供应商能力、密钥和价格表配置。</p>
         </div>
       </header>
       <nav className="tabs" aria-label="设置 tabs">
@@ -272,7 +295,7 @@ export default function SettingsPage() {
             onClick={() => setSearchParams({ tab: item })}
             key={item}
           >
-            {item === "providers" ? "Providers" : item === "secrets" ? "Secrets" : "Prices"}
+            {tabLabel(item)}
           </button>
         ))}
       </nav>
@@ -282,7 +305,7 @@ export default function SettingsPage() {
         <div className="settingsGrid">
           <section className="surface formSection">
             <div className="sectionHeader">
-              <h2>Provider Profiles</h2>
+              <h2>供应商配置</h2>
               {profiles.isLoading ? <span>加载中</span> : null}
             </div>
             {profiles.error ? <ErrorState error={profiles.error} /> : null}
@@ -292,7 +315,7 @@ export default function SettingsPage() {
                   <div>
                     <strong>{profile.display_name}</strong>
                     <span>{profile.provider_id} / {profile.model_id} / {profile.capability}</span>
-                    <span>{profile.environment} · {profile.secret_ref ? "Secret 已绑定" : "未绑定 Secret"}</span>
+                    <span>{environmentLabel(profile.environment)} · {profile.secret_ref ? "密钥已绑定" : "未绑定密钥"}</span>
                     {healthByProfile[profile.id] ? <span>{healthByProfile[profile.id]}</span> : null}
                   </div>
                   <div className="rowActions">
@@ -312,7 +335,7 @@ export default function SettingsPage() {
                         </button>
                         <button className="ghostButton compactButton" type="button" onClick={() => testProfile.mutate(profile)}>
                           <FlaskConical size={14} />
-                          <span>Test</span>
+                          <span>测试</span>
                         </button>
                         <button className="ghostButton compactButton" type="button" onClick={() => patchProfile.mutate({ profile, enabled: !profile.enabled })}>
                           {profile.enabled ? <ToggleRight size={15} /> : <ToggleLeft size={15} />}
@@ -324,7 +347,7 @@ export default function SettingsPage() {
                 </div>
               ))}
             </div>
-            {!profiles.isLoading && !profiles.data?.items.length ? <EmptyState title="暂无 Provider Profile" /> : null}
+            {!profiles.isLoading && !profiles.data?.items.length ? <EmptyState title="暂无供应商配置" /> : null}
           </section>
 
           {isAdmin ? (
@@ -336,15 +359,15 @@ export default function SettingsPage() {
                 saveProfile.mutate();
               }}
             >
-              <h2>{profileForm.id ? "编辑 Profile" : "新建 Profile"}</h2>
+              <h2>{profileForm.id ? "编辑配置" : "新建配置"}</h2>
               <label><span>显示名</span><input required value={profileForm.display_name} onChange={(event) => setProfileForm((current) => ({ ...current, display_name: event.target.value }))} /></label>
               <div className="twoCol">
-                <label><span>Provider</span><input value={profileForm.provider_id} onChange={(event) => setProfileForm((current) => ({ ...current, provider_id: event.target.value }))} /></label>
-                <label><span>Model</span><input value={profileForm.model_id} onChange={(event) => setProfileForm((current) => ({ ...current, model_id: event.target.value }))} /></label>
+                <label><span>供应商 ID</span><input value={profileForm.provider_id} onChange={(event) => setProfileForm((current) => ({ ...current, provider_id: event.target.value }))} /></label>
+                <label><span>模型 ID</span><input value={profileForm.model_id} onChange={(event) => setProfileForm((current) => ({ ...current, model_id: event.target.value }))} /></label>
               </div>
               <div className="twoCol">
                 <label>
-                  <span>Capability</span>
+                  <span>能力</span>
                   <select value={profileForm.capability} onChange={(event) => setProfileForm((current) => ({ ...current, capability: event.target.value }))}>
                     <option value={profileForm.capability}>{profileForm.capability}</option>
                     {capabilityOptions.map((capability) => (
@@ -355,15 +378,15 @@ export default function SettingsPage() {
                 <label>
                   <span>环境</span>
                   <select value={profileForm.environment} onChange={(event) => setProfileForm((current) => ({ ...current, environment: event.target.value as ProfileForm["environment"] }))}>
-                    <option value="local">local</option>
-                    <option value="dev">dev</option>
-                    <option value="staging">staging</option>
-                    <option value="prod">prod</option>
+                    <option value="local">本地</option>
+                    <option value="dev">开发</option>
+                    <option value="staging">预发</option>
+                    <option value="prod">生产</option>
                   </select>
                 </label>
               </div>
               <label>
-                <span>绑定 Secret</span>
+                <span>绑定密钥</span>
                 <select value={profileForm.secret_ref} onChange={(event) => setProfileForm((current) => ({ ...current, secret_ref: event.target.value }))}>
                   <option value="">不绑定</option>
                   {secretOptions.map((secret) => (
@@ -371,7 +394,7 @@ export default function SettingsPage() {
                   ))}
                 </select>
               </label>
-              <label><span>default_options JSON</span><textarea value={profileForm.default_options} onChange={(event) => setProfileForm((current) => ({ ...current, default_options: event.target.value }))} /></label>
+              <label><span>默认选项 JSON</span><textarea value={profileForm.default_options} onChange={(event) => setProfileForm((current) => ({ ...current, default_options: event.target.value }))} /></label>
               {profileError ? <ErrorState error={profileError} /> : null}
               <div className="formActions">
                 <button className="ghostButton" type="button" onClick={() => setProfileForm(emptyProfile)}>清空</button>
@@ -385,21 +408,21 @@ export default function SettingsPage() {
       {tab === "secrets" ? (
         <div className="settingsGrid">
           <section className="surface formSection">
-            <h2>Secrets</h2>
-            {!isAdmin ? <EmptyState title="Secrets 仅 admin 可见" /> : null}
+            <h2>密钥</h2>
+            {!isAdmin ? <EmptyState title="密钥仅管理员可见" /> : null}
             {secrets.isLoading ? <LoadingState /> : null}
             {secrets.error ? <ErrorState error={secrets.error} /> : null}
             {(secrets.data?.items ?? []).map((secret) => (
               <div className="listRow" key={secret.id}>
                 <div>
                   <strong>{secret.provider_id} / {secret.name}</strong>
-                  <span>{secret.environment} · {secret.masked_value}</span>
-                  <span>{secret.status}</span>
+                  <span>{environmentLabel(secret.environment)} · {secret.masked_value}</span>
+                  <span>{labelForStatus(secret.status)}</span>
                 </div>
                 {isAdmin ? (
                   <div className="rowActions">
-                    <button className="ghostButton compactButton" type="button" onClick={() => setSecretOp({ mode: "rotate", secret })}><RotateCw size={14} /><span>Rotate</span></button>
-                    <button className="ghostButton compactButton dangerButton" type="button" onClick={() => setSecretOp({ mode: "disable", secret })}>Disable</button>
+                    <button className="ghostButton compactButton" type="button" onClick={() => setSecretOp({ mode: "rotate", secret })}><RotateCw size={14} /><span>轮换</span></button>
+                    <button className="ghostButton compactButton dangerButton" type="button" onClick={() => setSecretOp({ mode: "disable", secret })}>禁用</button>
                   </div>
                 ) : null}
               </div>
@@ -414,23 +437,23 @@ export default function SettingsPage() {
                 createSecret.mutate();
               }}
             >
-              <h2>新建 Secret</h2>
+              <h2>新建密钥</h2>
               <div className="twoCol">
-                <label><span>Provider</span><input value={secretForm.provider_id} onChange={(event) => setSecretForm((current) => ({ ...current, provider_id: event.target.value }))} /></label>
-                <label><span>Name</span><input value={secretForm.name} onChange={(event) => setSecretForm((current) => ({ ...current, name: event.target.value }))} /></label>
+                <label><span>供应商 ID</span><input value={secretForm.provider_id} onChange={(event) => setSecretForm((current) => ({ ...current, provider_id: event.target.value }))} /></label>
+                <label><span>名称</span><input value={secretForm.name} onChange={(event) => setSecretForm((current) => ({ ...current, name: event.target.value }))} /></label>
               </div>
               <label>
                 <span>环境</span>
                 <select value={secretForm.environment} onChange={(event) => setSecretForm((current) => ({ ...current, environment: event.target.value as SecretForm["environment"] }))}>
-                  <option value="local">local</option>
-                  <option value="dev">dev</option>
-                  <option value="staging">staging</option>
-                  <option value="prod">prod</option>
+                  <option value="local">本地</option>
+                  <option value="dev">开发</option>
+                  <option value="staging">预发</option>
+                  <option value="prod">生产</option>
                 </select>
               </label>
               <label><span>明文（仅提交一次）</span><input type="password" value={secretForm.plaintext_secret} onChange={(event) => setSecretForm((current) => ({ ...current, plaintext_secret: event.target.value }))} required /></label>
               {secretError ? <ErrorState error={secretError} /> : null}
-              <button className="primaryButton" type="submit" disabled={createSecret.isPending}><KeyRound size={16} /><span>创建 Secret</span></button>
+              <button className="primaryButton" type="submit" disabled={createSecret.isPending}><KeyRound size={16} /><span>创建密钥</span></button>
             </form>
           ) : null}
         </div>
@@ -447,7 +470,7 @@ export default function SettingsPage() {
                 <div>
                   <strong>{catalog.provider_id}</strong>
                   <span>{catalog.id}</span>
-                  <span>{catalog.currency} · {catalog.status}</span>
+                  <span>{catalog.currency} · {labelForStatus(catalog.status)}</span>
                 </div>
                 <StatusPill status={catalog.status} />
               </button>
@@ -455,21 +478,21 @@ export default function SettingsPage() {
             {!catalogs.isLoading && !catalogs.data?.items.length ? <EmptyState title="暂无价格表" /> : null}
           </section>
           <section className="surface formSection">
-            <h2>Items</h2>
+            <h2>价格项</h2>
             {catalogItems.isLoading ? <LoadingState /> : null}
             {catalogItems.error ? <ErrorState error={catalogItems.error} /> : null}
             {(catalogItems.data?.items ?? []).map((item) => (
               <div className="listRow" key={item.id}>
                 <div>
                   <strong>{item.model_id} / {item.capability_id}</strong>
-                  <span>{item.unit}</span>
+                  <span>{unitLabel(item.unit)}</span>
                 </div>
                 <span className="monoNumber">{item.unit_price.amount} {item.unit_price.currency}</span>
               </div>
             ))}
             {isAdmin && selectedCatalog ? (
               <div className="governActions">
-                <input placeholder="审批/发布 reason" value={governReason} onChange={(event) => setGovernReason(event.target.value)} />
+                <input placeholder="审批/发布原因" value={governReason} onChange={(event) => setGovernReason(event.target.value)} />
                 <button className="ghostButton" type="button" disabled={!governReason} onClick={() => approveCatalog.mutate(selectedCatalog)}><CheckCircle2 size={15} /><span>审批</span></button>
                 <button className="primaryButton" type="button" disabled={!governReason} onClick={() => publishCatalog.mutate(selectedCatalog)}><CheckCircle2 size={15} /><span>发布</span></button>
               </div>
@@ -486,32 +509,32 @@ export default function SettingsPage() {
             >
               <h2>新建价格表</h2>
               <div className="twoCol">
-                <label><span>Provider</span><input value={priceForm.provider_id} onChange={(event) => setPriceForm((current) => ({ ...current, provider_id: event.target.value }))} /></label>
-                <label><span>Model</span><input value={priceForm.model_id} onChange={(event) => setPriceForm((current) => ({ ...current, model_id: event.target.value }))} /></label>
+                <label><span>供应商 ID</span><input value={priceForm.provider_id} onChange={(event) => setPriceForm((current) => ({ ...current, provider_id: event.target.value }))} /></label>
+                <label><span>模型 ID</span><input value={priceForm.model_id} onChange={(event) => setPriceForm((current) => ({ ...current, model_id: event.target.value }))} /></label>
               </div>
-              <label><span>Capability</span><input value={priceForm.capability_id} onChange={(event) => setPriceForm((current) => ({ ...current, capability_id: event.target.value }))} /></label>
+              <label><span>能力 ID</span><input value={priceForm.capability_id} onChange={(event) => setPriceForm((current) => ({ ...current, capability_id: event.target.value }))} /></label>
               <div className="twoCol">
                 <label>
-                  <span>Unit</span>
+                  <span>计价单位</span>
                   <select value={priceForm.unit} onChange={(event) => setPriceForm((current) => ({ ...current, unit: event.target.value as PriceForm["unit"] }))}>
-                    <option value="call">call</option>
-                    <option value="input_token">input_token</option>
-                    <option value="output_token">output_token</option>
-                    <option value="media_second">media_second</option>
+                    <option value="call">调用</option>
+                    <option value="input_token">输入 Token</option>
+                    <option value="output_token">输出 Token</option>
+                    <option value="media_second">媒体秒</option>
                   </select>
                 </label>
                 <label><span>单价</span><input value={priceForm.amount} onChange={(event) => setPriceForm((current) => ({ ...current, amount: event.target.value }))} /></label>
               </div>
               <label><span>币种</span><input value={priceForm.currency} onChange={(event) => setPriceForm((current) => ({ ...current, currency: event.target.value.toUpperCase() }))} /></label>
               {priceError ? <ErrorState error={priceError} /> : null}
-              <button className="primaryButton" type="submit" disabled={createPriceCatalog.isPending}><Plus size={16} /><span>创建 Draft</span></button>
+              <button className="primaryButton" type="submit" disabled={createPriceCatalog.isPending}><Plus size={16} /><span>创建草稿</span></button>
             </form>
           ) : null}
         </div>
       ) : null}
 
       {secretOp ? (
-        <Modal title={secretOp.mode === "rotate" ? "轮换 Secret" : "禁用 Secret"} onClose={() => setSecretOp(null)}>
+        <Modal title={secretOp.mode === "rotate" ? "轮换密钥" : "禁用密钥"} onClose={() => setSecretOp(null)}>
           <form
             className="formGrid"
             onSubmit={(event) => {
@@ -524,7 +547,7 @@ export default function SettingsPage() {
             {secretOp.mode === "rotate" ? (
               <label><span>新明文</span><input type="password" value={secretPlaintext} onChange={(event) => setSecretPlaintext(event.target.value)} required /></label>
             ) : null}
-            <label><span>Reason</span><input value={secretReason} onChange={(event) => setSecretReason(event.target.value)} required /></label>
+            <label><span>原因</span><input value={secretReason} onChange={(event) => setSecretReason(event.target.value)} required /></label>
             <button className="primaryButton" type="submit" disabled={!secretReason || (secretOp.mode === "rotate" && !secretPlaintext)}>
               {secretOp.mode === "rotate" ? "提交轮换" : "确认禁用"}
             </button>

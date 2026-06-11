@@ -1,25 +1,19 @@
-import { X } from "lucide-react";
+import { Modal as PortalModal, type ModalSize } from "./ui/Modal";
 
 export function Modal({
   title,
   children,
   onClose,
+  size,
 }: {
   title: string;
   children: React.ReactNode;
   onClose: () => void;
+  size?: ModalSize;
 }) {
   return (
-    <div className="modalBackdrop" role="presentation" onMouseDown={onClose}>
-      <section className="modalPanel" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => event.stopPropagation()}>
-        <header className="modalHeader">
-          <h2>{title}</h2>
-          <button className="iconButton" type="button" onClick={onClose} aria-label="关闭">
-            <X size={16} />
-          </button>
-        </header>
-        {children}
-      </section>
-    </div>
+    <PortalModal isOpen onClose={onClose} title={title} size={size}>
+      {children}
+    </PortalModal>
   );
 }

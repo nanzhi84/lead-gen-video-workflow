@@ -50,6 +50,18 @@ export function useRunEvents(runId: string | null | undefined, enabled = true) {
     let reconnectTimer: number | undefined;
     let attempt = 0;
 
+    function scheduleReconnect() {
+      if (stopped) return;
+      attempt += 1;
+      reconnectTimer = window.setTimeout(connect, Math.min(30000, 800 * 2 ** Math.min(attempt, 8)));
+    }
+
+    function kickReconnect() {
+      if (stopped || socket?.readyState === WebSocket.OPEN || socket?.readyState === WebSocket.CONNECTING) return;
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      void connect();
+    }
+
     async function connect() {
       setState(attempt === 0 ? "connecting" : "reconnecting");
       try {
@@ -76,20 +88,22 @@ export function useRunEvents(runId: string | null | undefined, enabled = true) {
             setState("closed");
             return;
           }
-          attempt += 1;
-          reconnectTimer = window.setTimeout(connect, Math.min(8000, 800 * attempt));
+          scheduleReconnect();
         };
       } catch {
         if (stopped) return;
         setState("error");
-        attempt += 1;
-        reconnectTimer = window.setTimeout(connect, Math.min(8000, 800 * attempt));
+        scheduleReconnect();
       }
     }
 
     void connect();
+    window.addEventListener("online", kickReconnect);
+    document.addEventListener("visibilitychange", kickReconnect);
     return () => {
       stopped = true;
+      window.removeEventListener("online", kickReconnect);
+      document.removeEventListener("visibilitychange", kickReconnect);
       if (reconnectTimer) {
         window.clearTimeout(reconnectTimer);
       }

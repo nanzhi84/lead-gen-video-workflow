@@ -38,3 +38,13 @@
 
 1. 重启 worker（seed 对象已在 OSS）：启动**明显变快**（seed 不再重传，仅 HEAD 跳过）；首次（对象不存在）仍正常上传。
 2. 全量 + DB + Temporal 三套绿。
+
+---
+
+## 验收记录（2026-06-12，验收官：Claude）
+
+**判定：通过并合入**（merge 9517b34）。
+
+- 全量单测独立复跑：**200 passed, 23 skipped**（基线 198→200，新增 skip-if-exists 测试）。
+- 代码核对：`store_file` addressed=True + content_key + `object_store.exists(ref)` → 直接返回 StoredObject(不 put_bytes)；addressed=False 不变。
+- **真 OSS live**：seed 对象已在 OSS 后重启 worker，**worker_ready 用时 18s**（此前每次重启重传 seed 到上海要 ~90s–3min）。seed 媒体不再重传，仅 HEAD 跳过。

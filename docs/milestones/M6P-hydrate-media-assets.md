@@ -57,3 +57,11 @@
 **M6O 分层存储真实 run 旁证**：成功 run 的 ephemeral（portrait_track/lipsync/rendered）已 GC，失败 run 的保留（续跑安全）；成品+音频在 OSS——「用完即删 + Temporal 续跑/重跑安全」live 验证。
 
 待办：① 重启 worker（pick up M6P）→ 跑 lipsync run → PortraitTrackBuild 用真人像 → 真口播片真人脸抽帧；② M6k-D（seed source 持久化，省启动重传）；③ 网络侧 Clash `*.aliyuncs.com→DIRECT` 提速 OSS。
+
+### 真人脸 live 复跑确认（2026-06-12）
+
+**通过**：重启 worker（pick up M6P）后跑 lipsync run（run_f63e43116897，case_demo，portrait agent→asset_portrait_demo→art_realportrait001 真人像）：
+- PortraitTrackBuild 产出**真人头肩像**（MinIO ephemeral portrait_track 抽帧＝真人，黑西装女士展厅讲话，非 testsrc2）。
+- 全 16 节点 succeeded：…PortraitTrackBuild→**LipSync(HeyGem 对口型真人脸)**→Render→Subtitle→Export→Finalize。成片 final.mp4 1080×1920/8.93s，真人脸 + 真 MiniMax 人声 + 烧录字幕。
+- 附带修一个数据 bug：手插 art_realportrait001 时 kind 写成 `'uploaded_file'`（应为枚举值 `'uploaded.file'`），导致 M6P hydrate 的 `artifact_row_to_contract` 抛 ValueError；改正后通。（真实 API 上传走 `ArtifactKind.uploaded_file.value='uploaded.file'`，本身正确，仅手工 SQL 插入踩坑。）
+- 注：M6P 的 hydrate 对每个 case artifact 源调 `artifact_row_to_contract`，若 DB 有非法 kind 会让整条 run 失败——可后续加容错（跳过坏 kind）。

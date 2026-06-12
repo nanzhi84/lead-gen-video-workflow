@@ -13865,6 +13865,13 @@
                 "type": "null"
               }
             ]
+          },
+          "variable_hints": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Variable Hints"
           }
         },
         "additionalProperties": false,

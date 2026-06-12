@@ -31,6 +31,7 @@ from apps.api.dependencies import SESSION_COOKIE, current_user, not_found_respon
 from packages.core import contracts as c
 from packages.core.auth import SqlAlchemyAuthService
 from packages.core.contracts.state_machines import assert_transition
+from packages.core.storage.prompt_groups import prompt_variable_hints
 from packages.core.observability import metric_snapshot
 from packages.core.registration_codes import hash_registration_code
 from packages.core.storage.object_store import parse_local_uri
@@ -60,7 +61,13 @@ def list_prompts(
             ),
             None,
         )
-        views.append(c.PromptTemplateView(template=template, published_version=published))
+        views.append(
+            c.PromptTemplateView(
+                template=template,
+                published_version=published,
+                variable_hints=prompt_variable_hints(template.id),
+            )
+        )
     return page(views, limit)
 
 
@@ -69,7 +76,7 @@ def create_prompt(payload: c.CreatePromptTemplateRequest, request: Request) -> c
         return prompt_repository(request).create_template(payload)
     template = c.PromptTemplate(id=new_id("prompt"), status="draft", **payload.model_dump())
     repository(request).prompt_templates[template.id] = template
-    return c.PromptTemplateView(template=template)
+    return c.PromptTemplateView(template=template, variable_hints=prompt_variable_hints(template.id))
 
 
 def prompt_versions(request: Request, template_id: str, limit: int = 50) -> c.PageResponse[c.PromptVersionView]:

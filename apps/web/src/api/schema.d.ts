@@ -4670,6 +4670,8 @@ export interface components {
         PromptTemplateView: {
             template: components["schemas"]["PromptTemplate"];
             published_version?: components["schemas"]["PromptVersion"] | null;
+            /** Variable Hints */
+            variable_hints?: string[];
         };
         /** PromptVersion */
         PromptVersion: {

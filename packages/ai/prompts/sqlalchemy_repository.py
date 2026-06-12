@@ -31,6 +31,7 @@ from packages.core.storage.database import (
     PromptTemplateRow,
     PromptVersionRow,
 )
+from packages.core.storage.prompt_groups import prompt_variable_hints
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
 from packages.core.contracts.state_machines import assert_transition
@@ -178,7 +179,11 @@ class SqlAlchemyPromptRepository:
             session.add(row)
             session.commit()
             session.refresh(row)
-            return PromptTemplateView(template=prompt_template_row_to_contract(row))
+            template = prompt_template_row_to_contract(row)
+            return PromptTemplateView(
+                template=template,
+                variable_hints=prompt_variable_hints(template.id),
+            )
 
     def list_versions(self, template_id: str, *, limit: int = 50) -> list[PromptVersionView]:
         with self.session_factory() as session:
@@ -362,6 +367,7 @@ class SqlAlchemyPromptRepository:
         return PromptTemplateView(
             template=prompt_template_row_to_contract(template),
             published_version=prompt_version_row_to_contract(published) if published else None,
+            variable_hints=prompt_variable_hints(template.id),
         )
 
     def _binding_view(self, session: Session, binding: PromptBindingRow) -> PromptBindingView:

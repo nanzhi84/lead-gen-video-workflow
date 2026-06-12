@@ -1167,6 +1167,7 @@ class PromptTemplateQuery(BaseListQuery):
 class PromptTemplateView(ContractModel):
     template: PromptTemplate
     published_version: PromptVersion | None = None
+    variable_hints: list[str] = Field(default_factory=list)
 
 
 class PromptVersionView(ContractModel):

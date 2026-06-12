@@ -8,6 +8,7 @@ from uuid import uuid4
 from pydantic import BaseModel
 
 from packages.core.registration_codes import hash_registration_code
+from packages.core.storage.prompt_groups import seed_prompt_groups
 from packages.core.storage.provider_seed import seed_real_provider_configuration
 from packages.core.contracts import (
     AnnotationEditorVm,
@@ -274,6 +275,7 @@ class Repository:
         self.prompt_templates[template.id] = template
         self.prompt_versions[version.id] = version
         self.prompt_bindings[binding.id] = binding
+        seed_prompt_groups(self)
         catalog = ProviderPriceCatalog(
             id="price_sandbox",
             provider_id="sandbox",

@@ -101,6 +101,13 @@ def test_sqlalchemy_prompt_template_version_and_binding_flow_is_persisted():
         assert listed.status_code == 200, listed.text
         prompt_view = next(item for item in listed.json()["items"] if item["template"]["id"] == template["id"])
         assert prompt_view["published_version"]["id"] == version["id"]
+        seeded_view = next(
+            item
+            for item in listed.json()["items"]
+            if item["template"]["id"] == "prompt_script_ip_persona_fresh_generate"
+        )
+        assert "ip_persona" in seeded_view["variable_hints"]
+        assert "duration" in seeded_view["variable_hints"]
 
         filtered_templates = client.get(
             "/api/prompts",

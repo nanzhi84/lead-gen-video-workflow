@@ -119,6 +119,7 @@ class S3ObjectStore(ObjectStore):
         access_key: str,
         secret_key: str,
         region_name: str = "us-east-1",
+        addressing_style: str = "path",
         client: Any | None = None,
         client_factory: Callable[..., Any] | None = None,
         cache_root: Path | None = None,
@@ -133,6 +134,7 @@ class S3ObjectStore(ObjectStore):
             access_key=access_key,
             secret_key=secret_key,
             region_name=region_name,
+            addressing_style=addressing_style,
         )
         self._ensure_bucket()
 
@@ -222,10 +224,18 @@ class S3ObjectStore(ObjectStore):
         access_key: str,
         secret_key: str,
         region_name: str,
+        addressing_style: str,
     ) -> Any:
+        from botocore.config import Config
+
+        config = Config(
+            signature_version="s3v4",
+            s3={"addressing_style": addressing_style},
+            request_checksum_calculation="when_required",
+            response_checksum_validation="when_required",
+        )
         if client_factory is None:
             import boto3
-            from botocore.config import Config
 
             # Force SigV4 presigned URLs (current standard; SigV2 is deprecated).
             return boto3.client(
@@ -234,7 +244,7 @@ class S3ObjectStore(ObjectStore):
                 aws_access_key_id=access_key,
                 aws_secret_access_key=secret_key,
                 region_name=region_name,
-                config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+                config=config,
             )
         return client_factory(
             "s3",
@@ -242,6 +252,7 @@ class S3ObjectStore(ObjectStore):
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
             region_name=region_name,
+            config=config,
         )
 
 
@@ -258,6 +269,7 @@ def object_store_from_env() -> ObjectStore:
             access_key=os.getenv("CUTAGENT_OBJECTSTORE_ACCESS_KEY", ""),
             secret_key=os.getenv("CUTAGENT_OBJECTSTORE_SECRET_KEY", ""),
             region_name=os.getenv("CUTAGENT_OBJECTSTORE_REGION", "us-east-1"),
+            addressing_style=os.getenv("CUTAGENT_OBJECTSTORE_ADDRESSING_STYLE", "path"),
         )
     raise ValueError(f"Unsupported object store backend: {backend}")
 

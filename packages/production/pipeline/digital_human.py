@@ -1085,6 +1085,7 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
 
         asr_profile = self._first_available_provider_profile("asr.transcribe")
         if asr_profile is not None and tts.uri:
+            audio_url = get_object_store().signed_url(tts.uri).url
             invocation, result = self.provider_gateway.invoke(
                 ProviderCall(
                     case_id=run.case_id,
@@ -1092,7 +1093,7 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
                     node_run_id=node_run.id,
                     provider_profile_id=asr_profile.id,
                     capability_id="asr.transcribe",
-                    input={"audio_uri": tts.uri, "language_hints": ["zh"]},
+                    input={"audio_uri": audio_url, "language_hints": ["zh"]},
                 )
             )
             if result is None or invocation.error:

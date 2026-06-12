@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -123,11 +124,25 @@ class S3ObjectStore(ObjectStore):
         client: Any | None = None,
         client_factory: Callable[..., Any] | None = None,
         cache_root: Path | None = None,
+        multipart_threshold_mb: int = 8,
+        multipart_chunk_mb: int = 8,
+        max_concurrency: int = 4,
+        connect_timeout: int = 10,
+        read_timeout: int = 120,
+        max_attempts: int = 5,
     ) -> None:
+        from boto3.s3.transfer import TransferConfig
+
         self.endpoint_url = endpoint_url
         self.bucket = bucket
         self.cache_root = cache_root or Path(".data/objectstore-cache")
         self.cache_root.mkdir(parents=True, exist_ok=True)
+        self._transfer_config = TransferConfig(
+            multipart_threshold=multipart_threshold_mb * 1024 * 1024,
+            multipart_chunksize=multipart_chunk_mb * 1024 * 1024,
+            max_concurrency=max_concurrency,
+            use_threads=True,
+        )
         self._client = client or self._build_client(
             client_factory=client_factory,
             endpoint_url=endpoint_url,
@@ -135,6 +150,9 @@ class S3ObjectStore(ObjectStore):
             secret_key=secret_key,
             region_name=region_name,
             addressing_style=addressing_style,
+            connect_timeout=connect_timeout,
+            read_timeout=read_timeout,
+            max_attempts=max_attempts,
         )
         self._ensure_bucket()
 
@@ -152,7 +170,12 @@ class S3ObjectStore(ObjectStore):
 
     def put_bytes(self, ref: ObjectRef, content: bytes) -> StoredObject:
         self._validate_ref(ref)
-        self._client.put_object(Bucket=ref.bucket, Key=ref.key, Body=content)
+        self._client.upload_fileobj(
+            io.BytesIO(content),
+            ref.bucket,
+            ref.key,
+            Config=self._transfer_config,
+        )
         path = self._cache_path(ref)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)
@@ -164,14 +187,9 @@ class S3ObjectStore(ObjectStore):
 
     def get_bytes(self, ref: ObjectRef) -> bytes:
         self._validate_ref(ref)
-        response = self._client.get_object(Bucket=ref.bucket, Key=ref.key)
-        body = response["Body"]
-        try:
-            return body.read()
-        finally:
-            close = getattr(body, "close", None)
-            if callable(close):
-                close()
+        buf = io.BytesIO()
+        self._client.download_fileobj(ref.bucket, ref.key, buf, Config=self._transfer_config)
+        return buf.getvalue()
 
     def exists(self, ref: ObjectRef) -> bool:
         self._validate_ref(ref)
@@ -225,12 +243,18 @@ class S3ObjectStore(ObjectStore):
         secret_key: str,
         region_name: str,
         addressing_style: str,
+        connect_timeout: int,
+        read_timeout: int,
+        max_attempts: int,
     ) -> Any:
         from botocore.config import Config
 
         config = Config(
             signature_version="s3v4",
             s3={"addressing_style": addressing_style},
+            connect_timeout=connect_timeout,
+            read_timeout=read_timeout,
+            retries={"max_attempts": max_attempts, "mode": "standard"},
             request_checksum_calculation="when_required",
             response_checksum_validation="when_required",
         )
@@ -270,6 +294,12 @@ def object_store_from_env() -> ObjectStore:
             secret_key=os.getenv("CUTAGENT_OBJECTSTORE_SECRET_KEY", ""),
             region_name=os.getenv("CUTAGENT_OBJECTSTORE_REGION", "us-east-1"),
             addressing_style=os.getenv("CUTAGENT_OBJECTSTORE_ADDRESSING_STYLE", "path"),
+            multipart_threshold_mb=int(os.getenv("CUTAGENT_OBJECTSTORE_MULTIPART_THRESHOLD_MB", "8")),
+            multipart_chunk_mb=int(os.getenv("CUTAGENT_OBJECTSTORE_MULTIPART_CHUNK_MB", "8")),
+            max_concurrency=int(os.getenv("CUTAGENT_OBJECTSTORE_MAX_CONCURRENCY", "4")),
+            connect_timeout=int(os.getenv("CUTAGENT_OBJECTSTORE_CONNECT_TIMEOUT", "10")),
+            read_timeout=int(os.getenv("CUTAGENT_OBJECTSTORE_READ_TIMEOUT", "120")),
+            max_attempts=int(os.getenv("CUTAGENT_OBJECTSTORE_MAX_ATTEMPTS", "5")),
         )
     raise ValueError(f"Unsupported object store backend: {backend}")
 

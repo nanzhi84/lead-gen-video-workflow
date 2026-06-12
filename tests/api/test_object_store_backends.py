@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import tempfile
 from datetime import timedelta
@@ -28,6 +29,8 @@ class FakeS3Client:
     def __init__(self) -> None:
         self.bucket_created = False
         self.objects: dict[tuple[str, str], bytes] = {}
+        self.upload_calls: list[tuple[str, str, object]] = []
+        self.download_calls: list[tuple[str, str, object]] = []
         self.presign_calls: list[tuple[str, dict[str, str], int]] = []
 
     def head_bucket(self, *, Bucket: str) -> None:
@@ -37,11 +40,13 @@ class FakeS3Client:
     def create_bucket(self, *, Bucket: str) -> None:
         self.bucket_created = True
 
-    def put_object(self, *, Bucket: str, Key: str, Body: bytes) -> None:
-        self.objects[(Bucket, Key)] = Body
+    def upload_fileobj(self, Fileobj: BytesIO, Bucket: str, Key: str, Config: object) -> None:
+        self.upload_calls.append((Bucket, Key, Config))
+        self.objects[(Bucket, Key)] = Fileobj.read()
 
-    def get_object(self, *, Bucket: str, Key: str) -> dict[str, BytesIO]:
-        return {"Body": BytesIO(self.objects[(Bucket, Key)])}
+    def download_fileobj(self, Bucket: str, Key: str, Fileobj: BytesIO, Config: object) -> None:
+        self.download_calls.append((Bucket, Key, Config))
+        Fileobj.write(self.objects[(Bucket, Key)])
 
     def head_object(self, *, Bucket: str, Key: str) -> None:
         if (Bucket, Key) not in self.objects:
@@ -118,8 +123,11 @@ def test_s3_object_store_put_get_exists_signed_url_and_bucket_creation(tmp_path)
     assert ref.uri.startswith("s3://cutagent-demo/generated-video/")
     assert ref.key.endswith("/.._clip.mp4")
     assert stored.size_bytes == len(b"s3-bytes")
+    assert stored.sha256 == hashlib.sha256(b"s3-bytes").hexdigest()
+    assert fake_client.upload_calls == [(ref.bucket, ref.key, store._transfer_config)]
     assert store.exists(ref) is True
     assert store.get_bytes(ref) == b"s3-bytes"
+    assert fake_client.download_calls == [(ref.bucket, ref.key, store._transfer_config)]
     assert signed.url.startswith("http://minio.local")
     assert "X-Amz-Signature=" in signed.url
     assert fake_client.presign_calls == [
@@ -152,6 +160,65 @@ def test_s3_object_store_passes_addressing_style_and_checksum_config_to_client_f
     assert config.s3 == {"addressing_style": "virtual"}
     assert config.request_checksum_calculation == "when_required"
     assert config.response_checksum_validation == "when_required"
+    assert config.connect_timeout == 10
+    assert config.read_timeout == 120
+    assert config.retries == {"max_attempts": 5, "mode": "standard"}
+
+
+def test_s3_object_store_uses_transfer_config_defaults(tmp_path):
+    fake_client = FakeS3Client()
+    store = S3ObjectStore(
+        endpoint_url="http://minio.local:9000",
+        bucket="cutagent-demo",
+        access_key="minioadmin",
+        secret_key="minioadmin",
+        client=fake_client,
+        cache_root=tmp_path / "cache",
+    )
+
+    ref = store.prepare_upload("clip.mp4", "generated-video")
+    store.put_bytes(ref, b"default-transfer")
+
+    transfer_config = fake_client.upload_calls[0][2]
+    assert transfer_config.multipart_threshold == 8 * 1024 * 1024
+    assert transfer_config.multipart_chunksize == 8 * 1024 * 1024
+    assert transfer_config.max_concurrency == 4
+    assert transfer_config.use_threads is True
+
+
+def test_s3_object_store_uses_custom_transfer_config_and_client_timeouts(tmp_path):
+    observed: dict[str, object] = {}
+
+    def client_factory(service_name: str, **kwargs):
+        observed["service_name"] = service_name
+        observed.update(kwargs)
+        return FakeS3Client()
+
+    store = S3ObjectStore(
+        endpoint_url="https://oss-cn-shanghai.aliyuncs.com",
+        bucket="cutagent-demo",
+        access_key="oss-key",
+        secret_key="oss-secret",
+        region_name="oss-cn-shanghai",
+        addressing_style="virtual",
+        client_factory=client_factory,
+        cache_root=tmp_path / "cache",
+        multipart_threshold_mb=12,
+        multipart_chunk_mb=16,
+        max_concurrency=7,
+        connect_timeout=3,
+        read_timeout=45,
+        max_attempts=9,
+    )
+
+    config = observed["config"]
+    assert config.connect_timeout == 3
+    assert config.read_timeout == 45
+    assert config.retries == {"max_attempts": 9, "mode": "standard"}
+    assert store._transfer_config.multipart_threshold == 12 * 1024 * 1024
+    assert store._transfer_config.multipart_chunksize == 16 * 1024 * 1024
+    assert store._transfer_config.max_concurrency == 7
+    assert store._transfer_config.use_threads is True
 
 
 def test_object_store_from_env_passes_s3_addressing_style(
@@ -170,6 +237,12 @@ def test_object_store_from_env_passes_s3_addressing_style(
     monkeypatch.setenv("CUTAGENT_OBJECTSTORE_SECRET_KEY", "oss-secret")
     monkeypatch.setenv("CUTAGENT_OBJECTSTORE_REGION", "oss-cn-shanghai")
     monkeypatch.setenv("CUTAGENT_OBJECTSTORE_ADDRESSING_STYLE", "virtual")
+    monkeypatch.setenv("CUTAGENT_OBJECTSTORE_MULTIPART_THRESHOLD_MB", "10")
+    monkeypatch.setenv("CUTAGENT_OBJECTSTORE_MULTIPART_CHUNK_MB", "12")
+    monkeypatch.setenv("CUTAGENT_OBJECTSTORE_MAX_CONCURRENCY", "6")
+    monkeypatch.setenv("CUTAGENT_OBJECTSTORE_CONNECT_TIMEOUT", "4")
+    monkeypatch.setenv("CUTAGENT_OBJECTSTORE_READ_TIMEOUT", "60")
+    monkeypatch.setenv("CUTAGENT_OBJECTSTORE_MAX_ATTEMPTS", "8")
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(S3ObjectStore, "_build_client", staticmethod(build_client))
 
@@ -177,6 +250,13 @@ def test_object_store_from_env_passes_s3_addressing_style(
 
     assert isinstance(store, S3ObjectStore)
     assert observed["addressing_style"] == "virtual"
+    assert observed["connect_timeout"] == 4
+    assert observed["read_timeout"] == 60
+    assert observed["max_attempts"] == 8
+    assert store._transfer_config.multipart_threshold == 10 * 1024 * 1024
+    assert store._transfer_config.multipart_chunksize == 12 * 1024 * 1024
+    assert store._transfer_config.max_concurrency == 6
+    assert store._transfer_config.use_threads is True
 
 
 def test_prepare_upload_accepts_content_key_for_deterministic_s3_key(tmp_path):

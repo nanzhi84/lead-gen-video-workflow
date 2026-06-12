@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -58,7 +60,7 @@ from packages.core.contracts import (
     YieldFunnelEvent,
     utcnow,
 )
-from packages.core.storage import Repository
+from packages.core.storage import ObjectStore, Repository, get_object_store
 from packages.core.storage.database import (
     ArtifactRow,
     CaseRow,
@@ -85,6 +87,9 @@ from packages.core.storage.database import (
 )
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
+from packages.media.assets import local_object_path
+from packages.production.editor_handoff import EditorHandoffAsset, EditorHandoffBuilder, EditorHandoffInput
+from packages.production.jianying_draft import JianyingDraftBuilder, JianyingDraftInput
 
 
 SUPPORTED_IMPORT_TYPES = {
@@ -427,8 +432,9 @@ def _report_row(report: ImportBatchReport) -> ImportBatchReportRow:
 
 
 class SqlAlchemyProductionRepository:
-    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+    def __init__(self, session_factory: sessionmaker[Session], object_store: ObjectStore | None = None) -> None:
         self.session_factory = session_factory
+        self.object_store = object_store or get_object_store()
 
     def sync_workflow_snapshot(
         self,
@@ -793,20 +799,29 @@ class SqlAlchemyProductionRepository:
             finished = session.get(FinishedVideoRow, finished_video_id)
             if finished is None:
                 raise NodeExecutionError(ErrorCode.artifact_missing, "Finished video is missing.")
+            handoff = EditorHandoffBuilder(self.object_store).build(
+                EditorHandoffInput(
+                    finished_video_id=finished_video_id,
+                    package_format=payload.format,
+                    assets=self._handoff_assets(session, finished),
+                )
+            )
             artifact = ArtifactRow(
                 id=new_id("art"),
                 case_id=finished.case_id,
                 kind=ArtifactKind.editor_handoff.value,
-                uri=f"sandbox://handoff/{finished_video_id}.zip",
+                uri=handoff.package_uri,
+                sha256=handoff.sha256,
+                size_bytes=handoff.size_bytes,
                 payload_schema="EditorHandoffPackageArtifact.v1",
-                payload={"finished_video_id": finished_video_id, "format": payload.format},
+                payload=handoff.manifest,
             )
             session.add(artifact)
             session.commit()
             session.refresh(artifact)
             return EditorHandoffPackageArtifact(
                 package_artifact=artifact_ref_from_row(artifact),
-                manifest={"finished_video_id": finished_video_id, "format": payload.format},
+                manifest=handoff.manifest,
             )
 
     def create_jianying_draft(
@@ -816,24 +831,101 @@ class SqlAlchemyProductionRepository:
             finished = session.get(FinishedVideoRow, finished_video_id)
             if finished is None:
                 raise NodeExecutionError(ErrorCode.artifact_missing, "Finished video is missing.")
+            jianying = JianyingDraftBuilder(self.object_store).build(
+                JianyingDraftInput(
+                    finished_video_id=finished_video_id,
+                    title=finished.title,
+                    video_path=self._artifact_path(session, ArtifactRef.model_validate(finished.video_artifact)),
+                    audio_path=self._latest_run_artifact_path(session, finished.run_id, ArtifactKind.audio_tts),
+                    subtitle_path=(
+                        self._artifact_path(session, ArtifactRef.model_validate(finished.subtitle_artifact))
+                        if finished.subtitle_artifact
+                        else None
+                    ),
+                    duration_sec=finished.duration_sec,
+                    template_id=payload.template_id,
+                    timeline_plan=self._timeline_plan_payload(session, finished_video_id),
+                    narration_units=self._narration_units(session, finished.run_id),
+                )
+            )
             artifact = ArtifactRow(
                 id=new_id("art"),
                 case_id=finished.case_id,
                 kind=ArtifactKind.jianying_draft.value,
-                uri=f"sandbox://jianying/{finished_video_id}.zip",
+                uri=jianying.package_uri,
+                sha256=jianying.sha256,
+                size_bytes=jianying.size_bytes,
                 payload_schema="JianyingDraftPackageArtifact.v1",
-                payload={"finished_video_id": finished_video_id, "template_id": payload.template_id},
+                payload=jianying.manifest,
             )
             session.add(artifact)
             session.commit()
             session.refresh(artifact)
             return JianyingDraftPackageArtifact(
                 package_artifact=artifact_ref_from_row(artifact),
-                draft_manifest={
-                    "finished_video_id": finished_video_id,
-                    "template_id": payload.template_id or "default",
-                },
+                draft_manifest=jianying.manifest,
             )
+
+    def _artifact_path(self, session: Session, artifact_ref: ArtifactRef) -> Path:
+        artifact = session.get(ArtifactRow, artifact_ref.artifact_id)
+        if artifact is None or not artifact.uri:
+            raise NodeExecutionError(ErrorCode.artifact_missing, "Artifact URI is missing.")
+        try:
+            return local_object_path(self.object_store, artifact.uri)
+        except ValueError as exc:
+            raise NodeExecutionError(ErrorCode.artifact_missing, "Artifact URI is not locally readable.") from exc
+
+    def _latest_run_artifact_path(self, session: Session, run_id: str | None, kind: ArtifactKind) -> Path | None:
+        if run_id is None:
+            return None
+        artifact = session.scalar(
+            select(ArtifactRow)
+            .where(ArtifactRow.run_id == run_id, ArtifactRow.kind == kind.value, ArtifactRow.uri.is_not(None))
+            .order_by(ArtifactRow.created_at.desc())
+        )
+        if artifact is None:
+            return None
+        return self._artifact_path(session, artifact_ref_from_row(artifact))
+
+    def _timeline_plan_payload(self, session: Session, finished_video_id: str) -> dict | None:
+        version = session.scalar(
+            select(VideoVersionRow)
+            .where(VideoVersionRow.finished_video_id == finished_video_id)
+            .order_by(VideoVersionRow.created_at.desc())
+        )
+        if version is None:
+            return None
+        artifact = session.get(ArtifactRow, version.timeline_plan_artifact_id)
+        return artifact.payload if artifact is not None and isinstance(artifact.payload, dict) else None
+
+    def _narration_units(self, session: Session, run_id: str | None) -> list[dict]:
+        if run_id is None:
+            return []
+        artifact = session.scalar(
+            select(ArtifactRow)
+            .where(ArtifactRow.run_id == run_id, ArtifactRow.kind == ArtifactKind.narration_units.value)
+            .order_by(ArtifactRow.created_at.desc())
+        )
+        payload = artifact.payload if artifact is not None and isinstance(artifact.payload, dict) else {}
+        units = payload.get("units") if isinstance(payload, dict) else None
+        return list(units or [])
+
+    def _handoff_assets(self, session: Session, finished: FinishedVideoRow) -> list[EditorHandoffAsset]:
+        video_ref = ArtifactRef.model_validate(finished.video_artifact)
+        assets = [self._handoff_asset(session, "video", video_ref)]
+        if finished.cover_artifact:
+            assets.append(self._handoff_asset(session, "cover", ArtifactRef.model_validate(finished.cover_artifact)))
+        if finished.subtitle_artifact:
+            assets.append(self._handoff_asset(session, "subtitle", ArtifactRef.model_validate(finished.subtitle_artifact)))
+        return assets
+
+    def _handoff_asset(self, session: Session, role: str, artifact_ref: ArtifactRef) -> EditorHandoffAsset:
+        return EditorHandoffAsset(
+            role=role,
+            artifact_id=artifact_ref.artifact_id,
+            kind=artifact_ref.kind.value,
+            source_path=self._artifact_path(session, artifact_ref),
+        )
 
     def case_performance(self, *, case_id: str, window: str = "7d") -> CasePerformanceResponse:
         with self.session_factory() as session:

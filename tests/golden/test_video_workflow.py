@@ -1,3 +1,6 @@
+import json
+import zipfile
+
 from fastapi.testclient import TestClient
 
 from apps.api.app import create_app
@@ -342,16 +345,34 @@ def test_spec_20_2_10_editor_handoff_and_jianying_draft_exports_have_package_art
             json={"format": "zip"},
         )
         assert handoff.status_code == 201, handoff.text
-        assert handoff.json()["package_artifact"]["kind"] == "editor.handoff_package"
-        assert handoff.json()["manifest"]["finished_video_id"] == finished_video_id
+        handoff_body = handoff.json()
+        assert handoff_body["package_artifact"]["kind"] == "editor.handoff_package"
+        assert handoff_body["package_artifact"]["uri"].startswith("local://")
+        assert handoff_body["manifest"]["finished_video_id"] == finished_video_id
+        assert handoff_body["manifest"]["package_uri"] == handoff_body["package_artifact"]["uri"]
+        assert handoff_body["manifest"]["assets"]["video"]
 
         jianying = active_client.post(
             f"/api/finished-videos/{finished_video_id}/jianying-draft",
             json={"template_id": "clean-template"},
         )
         assert jianying.status_code == 201, jianying.text
-        assert jianying.json()["package_artifact"]["kind"] == "editor.jianying_draft_package"
-        assert jianying.json()["draft_manifest"]["template_id"] == "clean-template"
+        jianying_body = jianying.json()
+        assert jianying_body["package_artifact"]["kind"] == "editor.jianying_draft_package"
+        assert jianying_body["package_artifact"]["uri"].startswith("local://")
+        assert jianying_body["draft_manifest"]["template_id"] == "clean-template"
+        assert jianying_body["draft_manifest"]["package_uri"] == jianying_body["package_artifact"]["uri"]
+        assert jianying_body["draft_manifest"]["draft_name"]
+        assert jianying_body["draft_manifest"]["tracks_summary"]["main_video"] >= 1
+        assert jianying_body["draft_manifest"]["tracks_summary"]["voice_audio"] == 1
+        assert jianying_body["draft_manifest"]["tracks_summary"]["subtitle_segments"] > 0
+        package_path = local_object_path(get_object_store(), jianying_body["package_artifact"]["uri"])
+        with zipfile.ZipFile(package_path) as archive:
+            draft_name = jianying_body["draft_manifest"]["draft_name"]
+            content = json.loads(archive.read(f"{draft_name}/draft_content.json").decode("utf-8"))
+        tracks = {track["name"]: track for track in content["tracks"]}
+        assert {"video", "audio", "subtitle"} <= set(tracks)
+        assert len(tracks["subtitle"]["segments"]) == jianying_body["draft_manifest"]["tracks_summary"]["subtitle_segments"]
 
 
 def test_pipeline_writes_typed_artifact_payloads_with_frame_quantized_timeline():

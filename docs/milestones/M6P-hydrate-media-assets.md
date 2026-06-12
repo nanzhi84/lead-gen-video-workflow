@@ -42,3 +42,18 @@
 
 1. DB 里给 case_demo 的 portrait 资产挂真人像源（art_realportrait001 已挂），重启 worker 后跑 lipsync run：PortraitTrackBuild 用**真人像**（抽帧是真人脸，非 testsrc2）→ HeyGem 对口型 → 真口播片成片是真人脸。
 2. 全量 + DB + Temporal 三套绿。
+
+---
+
+## 验收记录（2026-06-12，验收官：Claude）
+
+**判定：代码通过并合入**（merge 286bf79）；**真人脸 live 复跑待下次**（worker 重启 + lipsync run + 抽帧）。
+
+证据：
+- 全量单测独立复跑：**198 passed, 23 skipped**（基线 197→198，新增 hydrate media_assets 回归测试）。
+- 代码核对：`hydrate_workflow_runtime_snapshot` 在 run/case 后 `select(MediaAssetRow).where(case_id==run.case_id)` → media_asset_row_to_contract 覆盖内存 seed；对 source_artifact_id（run_id 多为 NULL，旧逻辑只加载 run 关联 artifact）按需 `session.get(ArtifactRow,...)` 填入 repository.artifacts。
+- 根因背书：真口播片 pipeline 全链路成功（run_03dc6fccd375，HeyGem 对口型真实生效）但抽帧是合成 testsrc2——因 hydrate 不加载 DB media_assets，pipeline 只见基座合成 seed；M6P 修复后 DB 注册的真人像（art_realportrait001→asset_portrait_demo）即可被 run 选用。
+
+**M6O 分层存储真实 run 旁证**：成功 run 的 ephemeral（portrait_track/lipsync/rendered）已 GC，失败 run 的保留（续跑安全）；成品+音频在 OSS——「用完即删 + Temporal 续跑/重跑安全」live 验证。
+
+待办：① 重启 worker（pick up M6P）→ 跑 lipsync run → PortraitTrackBuild 用真人像 → 真口播片真人脸抽帧；② M6k-D（seed source 持久化，省启动重传）；③ 网络侧 Clash `*.aliyuncs.com→DIRECT` 提速 OSS。

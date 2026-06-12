@@ -11,6 +11,7 @@ from packages.core.contracts import (
     PatchProviderProfileRequest,
     ProviderBalanceItem,
     ProviderBalanceReport,
+    ProviderBalanceSnapshot,
     ProviderCapability,
     ProviderHealthCheckResponse,
     ProviderOptionsSchemaRef,
@@ -23,6 +24,7 @@ from packages.core.contracts import (
 )
 from packages.core.storage.database import (
     ProviderCapabilityRow,
+    ProviderBalanceSnapshotRow,
     ProviderPriceCatalogRow,
     ProviderPriceItemRow,
     ProviderProfileRow,
@@ -73,6 +75,39 @@ def provider_capability_row_to_contract(row: ProviderCapabilityRow) -> ProviderC
         schema_version=row.schema_version,
         created_at=row.created_at,
         updated_at=row.updated_at,
+    )
+
+
+def balance_snapshot_row_to_contract(row: ProviderBalanceSnapshotRow) -> ProviderBalanceSnapshot:
+    balance = None
+    if row.balance_amount is not None and row.currency:
+        balance = Money(amount=row.balance_amount, currency=row.currency)
+    return ProviderBalanceSnapshot(
+        id=row.id,
+        provider_id=row.provider_id,
+        account_group=row.account_group,
+        balance=balance,
+        quota_remaining=row.quota_remaining,
+        unit=row.unit,
+        status=row.status,
+        detail=row.detail,
+        checked_at=row.checked_at,
+        schema_version=row.schema_version,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def balance_snapshot_to_item(snapshot: ProviderBalanceSnapshot) -> ProviderBalanceItem:
+    return ProviderBalanceItem(
+        provider_id=snapshot.provider_id,
+        account_group=snapshot.account_group,
+        balance=snapshot.balance,
+        quota_remaining=snapshot.quota_remaining,
+        unit=snapshot.unit,
+        checked_at=snapshot.checked_at,
+        status=snapshot.status,
+        detail=snapshot.detail,
     )
 
 
@@ -212,27 +247,78 @@ class SqlAlchemyProviderRepository:
         provider_id: str | None = None,
         environment: str | None = None,
     ) -> ProviderBalanceReport:
-        with self.session_factory() as session:
-            statement = select(ProviderProfileRow)
-            if provider_id:
-                statement = statement.where(ProviderProfileRow.provider_id == provider_id)
-            if environment:
-                statement = statement.where(ProviderProfileRow.environment == environment)
-            rows = list(session.scalars(statement))
-        providers = sorted({row.provider_id for row in rows})
+        snapshots = self.latest_balance_snapshots(provider_id=provider_id, environment=environment)
         return ProviderBalanceReport(
-            items=[
-                ProviderBalanceItem(
-                    provider_id=item,
-                    balance=Money(amount=9999, currency="CNY"),
-                    quota_remaining=1_000_000,
-                    checked_at=utcnow(),
-                    status="ok",
-                )
-                for item in providers
-            ],
+            items=[balance_snapshot_to_item(item) for item in snapshots],
             request_id=request_id,
+            status="ok" if snapshots else "pending",
         )
+
+    def latest_balance_snapshots(
+        self,
+        *,
+        provider_id: str | None = None,
+        environment: str | None = None,
+    ) -> list[ProviderBalanceSnapshot]:
+        with self.session_factory() as session:
+            allowed_groups: set[str] | None = None
+            if environment:
+                profile_statement = select(ProviderProfileRow.id)
+                if provider_id:
+                    profile_statement = profile_statement.where(ProviderProfileRow.provider_id == provider_id)
+                profile_statement = profile_statement.where(ProviderProfileRow.environment == environment)
+                allowed_groups = set(session.scalars(profile_statement))
+                if not allowed_groups:
+                    return []
+            statement = select(ProviderBalanceSnapshotRow)
+            if provider_id:
+                statement = statement.where(ProviderBalanceSnapshotRow.provider_id == provider_id)
+            if allowed_groups is not None:
+                statement = statement.where(ProviderBalanceSnapshotRow.account_group.in_(allowed_groups))
+            statement = statement.order_by(
+                ProviderBalanceSnapshotRow.provider_id.asc(),
+                ProviderBalanceSnapshotRow.account_group.asc(),
+            )
+            return [balance_snapshot_row_to_contract(row) for row in session.scalars(statement)]
+
+    def upsert_balance_snapshot(self, snapshot: ProviderBalanceSnapshot) -> ProviderBalanceSnapshot:
+        with self.session_factory() as session:
+            statement = select(ProviderBalanceSnapshotRow).where(
+                ProviderBalanceSnapshotRow.provider_id == snapshot.provider_id
+            )
+            if snapshot.account_group is None:
+                statement = statement.where(ProviderBalanceSnapshotRow.account_group.is_(None))
+            else:
+                statement = statement.where(ProviderBalanceSnapshotRow.account_group == snapshot.account_group)
+            row = session.scalar(statement.limit(1))
+            amount = snapshot.balance.amount if snapshot.balance is not None else None
+            currency = snapshot.balance.currency if snapshot.balance is not None else None
+            if row is None:
+                row = ProviderBalanceSnapshotRow(
+                    id=snapshot.id,
+                    provider_id=snapshot.provider_id,
+                    account_group=snapshot.account_group,
+                    balance_amount=amount,
+                    currency=currency,
+                    quota_remaining=snapshot.quota_remaining,
+                    unit=snapshot.unit,
+                    status=snapshot.status,
+                    detail=snapshot.detail,
+                    checked_at=snapshot.checked_at,
+                )
+                session.add(row)
+            else:
+                row.balance_amount = amount
+                row.currency = currency
+                row.quota_remaining = snapshot.quota_remaining
+                row.unit = snapshot.unit
+                row.status = snapshot.status
+                row.detail = snapshot.detail
+                row.checked_at = snapshot.checked_at
+                row.updated_at = utcnow()
+            session.commit()
+            session.refresh(row)
+            return balance_snapshot_row_to_contract(row)
 
     def list_price_catalogs(
         self,

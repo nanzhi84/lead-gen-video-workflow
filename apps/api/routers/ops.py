@@ -40,6 +40,12 @@ def yield_funnel(
     return service.yield_funnel(request, window_start, window_end, case_id)
 
 
+@router.get("/api/ops/provider-usage-metrics", response_model=c.ProviderUsageMetricsReport)
+def provider_usage_metrics(request: Request, window_hours: int = 24) -> c.ProviderUsageMetricsReport:
+    require_role(request, c.UserRole.operator)
+    return service.provider_usage_metrics(request, window_hours)
+
+
 @router.get("/api/ops/budgets", response_model=c.PageResponse[c.Budget])
 def budgets(request: Request, limit: int = 50) -> c.PageResponse[c.Budget]:
 

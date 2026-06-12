@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Request, Response, UploadFile
+from fastapi import APIRouter, Body, Request, Response, UploadFile
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from apps.api.dependencies import require_role
@@ -114,6 +114,15 @@ def provider_balances(
 ) -> c.ProviderBalanceReport:
     require_role(request, c.UserRole.admin)
     return service.provider_balances(request, provider_id, environment)
+
+
+@router.post("/api/providers/balances/refresh", response_model=c.ProviderBalanceReport)
+def refresh_provider_balances(
+    request: Request,
+    payload: c.RefreshProviderBalancesRequest | None = Body(default=None),
+) -> c.ProviderBalanceReport:
+    require_role(request, c.UserRole.operator)
+    return service.refresh_all_balances(request)
 
 
 @router.post("/api/providers/reconcile-billing", response_model=c.ReconcileBillingResponse, status_code=202)

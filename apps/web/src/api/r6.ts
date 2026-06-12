@@ -42,6 +42,10 @@ export type AgentDraft = components["schemas"]["ScriptDraft"];
 export type AgentMemoryProposal = components["schemas"]["MemoryProposal"];
 export type EditorHandoffResult = components["schemas"]["EditorHandoffPackageArtifact"];
 export type JianyingDraftResult = components["schemas"]["JianyingDraftPackageArtifact"];
+export type ProviderBalanceReport = components["schemas"]["ProviderBalanceReport"];
+export type ProviderBalanceItem = components["schemas"]["ProviderBalanceItem"];
+export type ProviderUsageMetricsReport = components["schemas"]["ProviderUsageMetricsReport"];
+export type ProviderUsageMetricsItem = components["schemas"]["ProviderUsageMetricsItem"];
 
 export const caseAgentApi = {
   sourceBindings: (
@@ -157,4 +161,28 @@ export const editorHandoffApi = {
       `/api/finished-videos/${enc(videoId)}/jianying-draft`,
       { method: "POST", body: payload, idempotencyKey: createIdempotencyKey("jianying_draft") },
     ),
+};
+
+export const providerObservabilityApi = {
+  providers: {
+    balances: (query: QueryParams<operations["provider_balances_api_providers_balances_get"]> = {}) =>
+      fetchJson<JsonResponse<operations["provider_balances_api_providers_balances_get"]>>(
+        "/api/providers/balances",
+        { query },
+      ),
+    refreshBalances: () =>
+      fetchJson<JsonResponse<operations["refresh_provider_balances_api_providers_balances_refresh_post"]>>(
+        "/api/providers/balances/refresh",
+        { method: "POST", idempotencyKey: createIdempotencyKey("provider_balance_refresh") },
+      ),
+  },
+  ops: {
+    providerUsageMetrics: (
+      query: QueryParams<operations["provider_usage_metrics_api_ops_provider_usage_metrics_get"]> = {},
+    ) =>
+      fetchJson<JsonResponse<operations["provider_usage_metrics_api_ops_provider_usage_metrics_get"]>>(
+        "/api/ops/provider-usage-metrics",
+        { query },
+      ),
+  },
 };

@@ -86,6 +86,67 @@ def cost_rollups(
     return page(repository(request).cost_rollups.values(), limit)
 
 
+def _provider_usage_metrics_from_invocations(
+    invocations: list[c.ProviderInvocation],
+    *,
+    window_hours: int,
+) -> list[c.ProviderUsageMetricsItem]:
+    window_start = c.utcnow() - timedelta(hours=window_hours)
+    buckets: dict[tuple[str, str, str | None], dict[str, object]] = {}
+    for invocation in invocations:
+        if invocation.started_at < window_start:
+            continue
+        key = (invocation.provider_id, invocation.capability_id, invocation.model_id)
+        bucket = buckets.setdefault(
+            key,
+            {
+                "calls": 0,
+                "success_count": 0,
+                "amount": c.Decimal("0"),
+                "currency": invocation.estimated_cost.currency if invocation.estimated_cost else "CNY",
+            },
+        )
+        bucket["calls"] = int(bucket["calls"]) + 1
+        if invocation.status == c.ProviderStatus.succeeded:
+            bucket["success_count"] = int(bucket["success_count"]) + 1
+        if invocation.estimated_cost is not None:
+            bucket["amount"] = bucket["amount"] + invocation.estimated_cost.amount
+            bucket["currency"] = invocation.estimated_cost.currency
+
+    items: list[c.ProviderUsageMetricsItem] = []
+    for (provider_id, capability_id, model_id), bucket in buckets.items():
+        calls = int(bucket["calls"])
+        success_count = int(bucket["success_count"])
+        items.append(
+            c.ProviderUsageMetricsItem(
+                provider_id=provider_id,
+                capability_id=capability_id,
+                model_id=model_id,
+                calls=calls,
+                success_count=success_count,
+                success_rate=(success_count / calls) if calls else 0,
+                estimated_cost=c.Money(amount=bucket["amount"], currency=str(bucket["currency"])),
+                window_hours=window_hours,
+            )
+        )
+    return sorted(items, key=lambda item: (-item.calls, item.provider_id, item.capability_id, item.model_id or ""))
+
+
+def provider_usage_metrics(request: Request, window_hours: int = 24) -> c.ProviderUsageMetricsReport:
+    hours = max(1, min(window_hours, 24 * 30))
+    if ops_repository(request) is not None:
+        return ops_repository(request).provider_usage_metrics(window_hours=hours, request_id=request_id())
+    return c.ProviderUsageMetricsReport(
+        items=_provider_usage_metrics_from_invocations(
+            list(repository(request).provider_invocations.values()),
+            window_hours=hours,
+        ),
+        window_hours=hours,
+        generated_at=c.utcnow(),
+        request_id=request_id(),
+    )
+
+
 def yield_funnel(
     request: Request,
     window_start: datetime | None = None,

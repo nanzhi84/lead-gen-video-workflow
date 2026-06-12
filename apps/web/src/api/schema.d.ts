@@ -1177,6 +1177,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/providers/balances/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh Provider Balances */
+        post: operations["refresh_provider_balances_api_providers_balances_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/providers/reconcile-billing": {
         parameters: {
             query?: never;
@@ -1822,6 +1839,23 @@ export interface paths {
         };
         /** Yield Funnel */
         get: operations["yield_funnel_api_ops_yield_funnel_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ops/provider-usage-metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Provider Usage Metrics */
+        get: operations["provider_usage_metrics_api_ops_provider_usage_metrics_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4739,7 +4773,9 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "ok" | "low" | "unknown" | "failed";
+            status: "ok" | "unconfigured" | "unsupported" | "unauthorized" | "error" | "pending";
+            /** Detail */
+            detail?: string | null;
         };
         /** ProviderBalanceReport */
         ProviderBalanceReport: {
@@ -4747,6 +4783,12 @@ export interface components {
             items: components["schemas"]["ProviderBalanceItem"][];
             /** Request Id */
             request_id: string;
+            /**
+             * Status
+             * @default ok
+             * @enum {string}
+             */
+            status: "ok" | "pending";
         };
         /** ProviderCapability */
         ProviderCapability: {
@@ -5052,6 +5094,40 @@ export interface components {
             actual_cost?: components["schemas"]["Money-Output"] | null;
             /** Unpriced Invocation Count */
             unpriced_invocation_count: number;
+        };
+        /** ProviderUsageMetricsItem */
+        ProviderUsageMetricsItem: {
+            /** Provider Id */
+            provider_id: string;
+            /** Capability Id */
+            capability_id: string;
+            /** Model Id */
+            model_id?: string | null;
+            /** Calls */
+            calls: number;
+            /** Success Count */
+            success_count: number;
+            /** Success Rate */
+            success_rate: number;
+            estimated_cost: components["schemas"]["Money-Output"];
+            /** Window Hours */
+            window_hours: number;
+            /** P50 Duration Ms */
+            p50_duration_ms?: number | null;
+        };
+        /** ProviderUsageMetricsReport */
+        ProviderUsageMetricsReport: {
+            /** Items */
+            items: components["schemas"]["ProviderUsageMetricsItem"][];
+            /** Window Hours */
+            window_hours: number;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /** Request Id */
+            request_id: string;
         };
         /** PublishAttempt */
         PublishAttempt: {
@@ -5382,6 +5458,11 @@ export interface components {
             window: "24h" | "3d" | "7d" | "30d";
             /** Report Artifact Id */
             report_artifact_id?: string | null;
+        };
+        /** RefreshProviderBalancesRequest */
+        RefreshProviderBalancesRequest: {
+            /** Reason */
+            reason?: string | null;
         };
         /** RegisterRequest */
         RegisterRequest: {
@@ -8991,6 +9072,39 @@ export interface operations {
             };
         };
     };
+    refresh_provider_balances_api_providers_balances_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RefreshProviderBalancesRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderBalanceReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     reconcile_billing_api_providers_reconcile_billing_post: {
         parameters: {
             query?: never;
@@ -10476,6 +10590,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["YieldFunnelResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    provider_usage_metrics_api_ops_provider_usage_metrics_get: {
+        parameters: {
+            query?: {
+                window_hours?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderUsageMetricsReport"];
                 };
             };
             /** @description Validation Error */

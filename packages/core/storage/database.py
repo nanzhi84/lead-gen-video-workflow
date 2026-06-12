@@ -310,6 +310,21 @@ class ProviderCapabilityRow(TimestampMixin, Base):
     __table_args__ = (UniqueConstraint("provider_id", "capability_id"),)
 
 
+class ProviderBalanceSnapshotRow(TimestampMixin, Base):
+    __tablename__ = "provider_balance_snapshots"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    provider_id: Mapped[str] = mapped_column(String, nullable=False)
+    account_group: Mapped[str | None] = mapped_column(String)
+    balance_amount: Mapped[Decimal | None] = mapped_column(Numeric(20, 6))
+    currency: Mapped[str | None] = mapped_column(String(3))
+    quota_remaining: Mapped[float | None] = mapped_column(Float)
+    unit: Mapped[str | None] = mapped_column(String)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    detail: Mapped[str | None] = mapped_column(Text)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class ProviderInvocationRow(TimestampMixin, Base):
     __tablename__ = "provider_invocations"
 
@@ -757,6 +772,11 @@ class OutboxEventRow(TimestampMixin, Base):
 
 Index("idx_artifacts_case_run", ArtifactRow.case_id, ArtifactRow.run_id)
 Index("idx_node_runs_run", NodeRunRow.run_id)
+Index(
+    "idx_provider_balance_snapshots_provider",
+    ProviderBalanceSnapshotRow.provider_id,
+    ProviderBalanceSnapshotRow.account_group,
+)
 Index("idx_provider_invocations_case", ProviderInvocationRow.case_id, ProviderInvocationRow.provider_id)
 Index("idx_usage_meter_provider", UsageMeterRecordRow.provider_id, UsageMeterRecordRow.capability_id)
 Index("idx_case_memories_case_status", CaseMemoryRow.case_id, CaseMemoryRow.status)

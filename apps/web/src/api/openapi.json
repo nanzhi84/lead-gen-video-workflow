@@ -3818,6 +3818,51 @@
         }
       }
     },
+    "/api/providers/balances/refresh": {
+      "post": {
+        "summary": "Refresh Provider Balances",
+        "operationId": "refresh_provider_balances_api_providers_balances_refresh_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RefreshProviderBalancesRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderBalanceReport"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/providers/reconcile-billing": {
       "post": {
         "summary": "Reconcile Billing",
@@ -6002,6 +6047,46 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/YieldFunnelResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ops/provider-usage-metrics": {
+      "get": {
+        "summary": "Provider Usage Metrics",
+        "operationId": "provider_usage_metrics_api_ops_provider_usage_metrics_get",
+        "parameters": [
+          {
+            "name": "window_hours",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 24,
+              "title": "Window Hours"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderUsageMetricsReport"
                 }
               }
             }
@@ -14058,11 +14143,24 @@
             "type": "string",
             "enum": [
               "ok",
-              "low",
-              "unknown",
-              "failed"
+              "unconfigured",
+              "unsupported",
+              "unauthorized",
+              "error",
+              "pending"
             ],
             "title": "Status"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
           }
         },
         "additionalProperties": false,
@@ -14086,6 +14184,15 @@
           "request_id": {
             "type": "string",
             "title": "Request Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "pending"
+            ],
+            "title": "Status",
+            "default": "ok"
           }
         },
         "additionalProperties": false,
@@ -14706,6 +14813,104 @@
           "options_schema_ref"
         ],
         "title": "ProviderProfile"
+      },
+      "ProviderUsageMetricsItem": {
+        "properties": {
+          "provider_id": {
+            "type": "string",
+            "title": "Provider Id"
+          },
+          "capability_id": {
+            "type": "string",
+            "title": "Capability Id"
+          },
+          "model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Id"
+          },
+          "calls": {
+            "type": "integer",
+            "title": "Calls"
+          },
+          "success_count": {
+            "type": "integer",
+            "title": "Success Count"
+          },
+          "success_rate": {
+            "type": "number",
+            "title": "Success Rate"
+          },
+          "estimated_cost": {
+            "$ref": "#/components/schemas/Money-Output"
+          },
+          "window_hours": {
+            "type": "integer",
+            "title": "Window Hours"
+          },
+          "p50_duration_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P50 Duration Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "provider_id",
+          "capability_id",
+          "calls",
+          "success_count",
+          "success_rate",
+          "estimated_cost",
+          "window_hours"
+        ],
+        "title": "ProviderUsageMetricsItem"
+      },
+      "ProviderUsageMetricsReport": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderUsageMetricsItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "window_hours": {
+            "type": "integer",
+            "title": "Window Hours"
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          },
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "window_hours",
+          "generated_at",
+          "request_id"
+        ],
+        "title": "ProviderUsageMetricsReport"
       },
       "ProviderUsageReport": {
         "properties": {
@@ -15483,6 +15688,24 @@
           "case_id"
         ],
         "title": "ReflectionRun"
+      },
+      "RefreshProviderBalancesRequest": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "RefreshProviderBalancesRequest"
       },
       "RegisterRequest": {
         "properties": {

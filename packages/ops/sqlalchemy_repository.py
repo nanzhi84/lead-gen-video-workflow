@@ -20,6 +20,7 @@ from packages.core.contracts import (
     PatchBudgetRequest,
     ProductionQualityCheck,
     ProviderUsageReport,
+    ProviderUsageMetricsReport,
     ReconcileBillingRequest,
     ReconcileBillingResponse,
     ResolveAlertRequest,
@@ -40,107 +41,16 @@ from packages.core.storage.database import (
 )
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
-
-
-def cost_rollup_row_to_contract(row: CostRollupRow) -> CostRollup:
-    return CostRollup(
-        id=row.id,
-        group_key=row.group_key,
-        group_by=row.group_by,
-        estimated_cost=Money.model_validate(row.estimated_cost),
-        actual_cost=Money.model_validate(row.actual_cost) if row.actual_cost else None,
-        invocations=row.invocations,
-        schema_version=row.schema_version,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
-
-
-def budget_row_to_contract(row: BudgetRow) -> Budget:
-    return Budget(
-        id=row.id,
-        scope_type=row.scope_type,
-        scope_id=row.scope_id,
-        limit=Money.model_validate(row.limit),
-        alert_threshold=row.alert_threshold,
-        enabled=row.enabled,
-        schema_version=row.schema_version,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
-
-
-def alert_row_to_contract(row: OpsAlertEventRow) -> OpsAlertEvent:
-    return OpsAlertEvent(
-        id=row.id,
-        code=row.code,
-        status=row.status,
-        message=row.message,
-        severity=row.severity,
-        schema_version=row.schema_version,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
-
-
-def yield_event_row_to_contract(row: YieldFunnelEventRow) -> YieldFunnelEvent:
-    return YieldFunnelEvent(
-        id=row.id,
-        job_id=row.job_id,
-        run_id=row.run_id,
-        finished_video_id=row.finished_video_id,
-        publish_package_id=row.publish_package_id,
-        publish_attempt_id=row.publish_attempt_id,
-        event_type=row.event_type,
-        event_time=row.event_time,
-        dedupe_key=row.dedupe_key,
-        schema_version=row.schema_version,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
-
-
-def quality_check_row_to_contract(row: ProductionQualityCheckRow) -> ProductionQualityCheck:
-    return ProductionQualityCheck(
-        id=row.id,
-        target_type=row.target_type,
-        target_id=row.target_id,
-        check_type=row.check_type,
-        result=row.result,
-        reason_code=row.reason_code,
-        evidence_artifact_id=row.evidence_artifact_id,
-        affects_true_yield=row.affects_true_yield,
-        schema_version=row.schema_version,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
-
-
-def approval_row_to_contract(row: ApprovalRequestRow) -> ApprovalRequest:
-    return ApprovalRequest(
-        id=row.id,
-        resource_type=row.resource_type,
-        resource_id=row.resource_id or row.id,
-        status=row.status,
-        reason=row.reason,
-        schema_version=row.schema_version,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
-
-
-def audit_row_to_contract(row: AuditEventRow) -> AuditEvent:
-    return AuditEvent(
-        id=row.id,
-        actor=row.actor,
-        action=row.action,
-        resource_type=row.resource_type,
-        resource_id=row.resource_id,
-        details=row.details,
-        schema_version=row.schema_version,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
+from packages.ops.sqlalchemy_mappers import (
+    alert_row_to_contract,
+    approval_row_to_contract,
+    audit_row_to_contract,
+    budget_row_to_contract,
+    cost_rollup_row_to_contract,
+    quality_check_row_to_contract,
+    yield_event_row_to_contract,
+)
+from packages.ops.provider_usage_metrics import sqlalchemy_provider_usage_metrics
 
 
 class SqlAlchemyOpsRepository:
@@ -187,6 +97,13 @@ class SqlAlchemyOpsRepository:
             invocations=len(rows),
             estimated_cost=Money(amount=estimated, currency="CNY"),
             unpriced_invocation_count=unpriced,
+        )
+
+    def provider_usage_metrics(self, *, window_hours: int = 24, request_id: str) -> ProviderUsageMetricsReport:
+        return sqlalchemy_provider_usage_metrics(
+            self.session_factory,
+            window_hours=window_hours,
+            request_id=request_id,
         )
 
     def list_cost_rollups(

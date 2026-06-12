@@ -40,6 +40,7 @@ from packages.core.contracts import (
     PromptTemplate,
     PromptVersion,
     ProviderCapability,
+    ProviderBalanceSnapshot,
     ProviderInvocation,
     ProviderOptionsSchemaRef,
     ProviderPriceCatalog,
@@ -102,6 +103,7 @@ class Repository:
         self.prompt_experiments: dict[str, PromptExperiment] = {}
         self.provider_profiles: dict[str, ProviderProfile] = {}
         self.provider_capabilities: dict[str, ProviderCapability] = {}
+        self.provider_balance_snapshots: dict[str, ProviderBalanceSnapshot] = {}
         self.price_catalogs: dict[str, ProviderPriceCatalog] = {}
         self.price_items: dict[str, ProviderPriceItem] = {}
         self.provider_invocations: dict[str, ProviderInvocation] = {}

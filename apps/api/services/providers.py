@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+import httpx
 from fastapi import Request, Response, UploadFile
 from fastapi.responses import JSONResponse
 
@@ -36,6 +37,34 @@ from packages.core.registration_codes import hash_registration_code
 from packages.core.storage.object_store import parse_local_uri
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
+from packages.ai.providers.balance import query_provider_balance
+
+
+def _balance_item_from_snapshot(snapshot: c.ProviderBalanceSnapshot) -> c.ProviderBalanceItem:
+    return c.ProviderBalanceItem(
+        provider_id=snapshot.provider_id,
+        account_group=snapshot.account_group,
+        balance=snapshot.balance,
+        quota_remaining=snapshot.quota_remaining,
+        unit=snapshot.unit,
+        checked_at=snapshot.checked_at,
+        status=snapshot.status,
+        detail=snapshot.detail,
+    )
+
+
+def _snapshot_from_item(item: c.ProviderBalanceItem) -> c.ProviderBalanceSnapshot:
+    return c.ProviderBalanceSnapshot(
+        id=f"pbs_{item.provider_id.replace('.', '_')}_{(item.account_group or 'default').replace('.', '_')}",
+        provider_id=item.provider_id,
+        account_group=item.account_group,
+        balance=item.balance,
+        quota_remaining=item.quota_remaining,
+        unit=item.unit,
+        status=item.status,
+        detail=item.detail,
+        checked_at=item.checked_at,
+    )
 
 def provider_profiles(
     request: Request,
@@ -193,20 +222,46 @@ def provider_balances(
             provider_id=provider_id,
             environment=environment,
         )
-    providers = sorted({profile.provider_id for profile in repository(request).provider_profiles.values()})
+    repo = repository(request)
+    snapshots = list(repo.provider_balance_snapshots.values())
+    if provider_id:
+        snapshots = [item for item in snapshots if item.provider_id == provider_id]
+    if environment:
+        profile_ids = {
+            profile.id
+            for profile in repo.provider_profiles.values()
+            if profile.environment == environment and (provider_id is None or profile.provider_id == provider_id)
+        }
+        snapshots = [item for item in snapshots if item.account_group in profile_ids]
+    snapshots.sort(key=lambda item: (item.provider_id, item.account_group or ""))
     return c.ProviderBalanceReport(
-        items=[
-            c.ProviderBalanceItem(
-                provider_id=provider_id,
-                balance=c.Money(amount=9999, currency="CNY"),
-                quota_remaining=1_000_000,
-                checked_at=c.utcnow(),
-                status="ok",
-            )
-            for provider_id in providers
-        ],
+        items=[_balance_item_from_snapshot(item) for item in snapshots],
         request_id=request_id(),
+        status="ok" if snapshots else "pending",
     )
+
+
+def refresh_all_balances(request: Request, http_client: httpx.Client | None = None) -> c.ProviderBalanceReport:
+    repo = provider_repository(request)
+    profiles = (
+        repo.list_profiles(limit=200)
+        if repo is not None
+        else list(repository(request).provider_profiles.values())
+    )
+    close_client = http_client is None
+    client = http_client or httpx.Client(timeout=10.0)
+    try:
+        for profile in profiles:
+            item = query_provider_balance(profile, secret_store=secret_store(request), http_client=client)
+            snapshot = _snapshot_from_item(item)
+            if repo is not None:
+                repo.upsert_balance_snapshot(snapshot)
+            else:
+                repository(request).provider_balance_snapshots[snapshot.id] = snapshot
+    finally:
+        if close_client:
+            client.close()
+    return provider_balances(request)
 
 
 def reconcile_billing(payload: c.ReconcileBillingRequest, request: Request) -> c.ReconcileBillingResponse:

@@ -1,26 +1,29 @@
 import type { CostRollup, ProviderUsageReport, YieldFunnelEvent, YieldFunnelResponse } from "../../api/client";
 import type { OverviewStats } from "../overview/overviewModel";
 
-export type TimeRange = "7d" | "30d" | "90d";
-export type AnalyticsTab = "cost" | "yield" | "tasks";
+export type TimeRange = "24h" | "7d" | "30d";
+export type AnalyticsTab = "cost" | "yield" | "tasks" | "balances" | "apiUsage";
 
-export const rangeOptions: Array<{ key: TimeRange; label: string; days: number }> = [
-  { key: "7d", label: "7 天", days: 7 },
-  { key: "30d", label: "30 天", days: 30 },
-  { key: "90d", label: "90 天", days: 90 },
+export const rangeOptions: Array<{ key: TimeRange; label: string; days: number; hours: number }> = [
+  { key: "24h", label: "24 小时", days: 1, hours: 24 },
+  { key: "7d", label: "7 天", days: 7, hours: 7 * 24 },
+  { key: "30d", label: "30 天", days: 30, hours: 30 * 24 },
 ];
 
 export const analyticsTabs: Array<{ key: AnalyticsTab; label: string }> = [
   { key: "cost", label: "成本 & 用量" },
   { key: "yield", label: "成品率漏斗" },
   { key: "tasks", label: "任务统计" },
+  { key: "balances", label: "余额&配额" },
+  { key: "apiUsage", label: "API 用量监控" },
 ];
 
 export function rangeWindow(range: TimeRange) {
   const days = rangeOptions.find((item) => item.key === range)?.days ?? 7;
   const end = new Date();
   const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000);
-  return { window_start: start.toISOString(), window_end: end.toISOString(), days };
+  const option = rangeOptions.find((item) => item.key === range);
+  return { window_start: start.toISOString(), window_end: end.toISOString(), days, hours: option?.hours ?? days * 24 };
 }
 
 export function moneyAmount(value?: { amount: string; currency: string } | null) {
@@ -114,4 +117,17 @@ export function buildCostBars(rollups: CostRollup[]) {
 
 export function usageHasData(usage?: ProviderUsageReport) {
   return Boolean(usage && (usage.invocations > 0 || moneyAmount(usage.estimated_cost) > 0 || usage.unpriced_invocation_count > 0));
+}
+
+export const providerBalanceStatusLabels = {
+  ok: "正常",
+  unconfigured: "未配置",
+  unsupported: "不支持",
+  unauthorized: "未授权",
+  error: "错误",
+  pending: "等待快照",
+} as const;
+
+export function formatRate(value: number | null | undefined) {
+  return typeof value === "number" ? `${(value * 100).toFixed(1)}%` : "暂无";
 }

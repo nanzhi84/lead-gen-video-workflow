@@ -1382,6 +1382,25 @@ class ProviderUsageReport(ContractModel):
     unpriced_invocation_count: int
 
 
+class ProviderUsageMetricsItem(ContractModel):
+    provider_id: str
+    capability_id: str
+    model_id: str | None = None
+    calls: int
+    success_count: int
+    success_rate: float
+    estimated_cost: Money
+    window_hours: int
+    p50_duration_ms: float | None = None
+
+
+class ProviderUsageMetricsReport(ContractModel):
+    items: list[ProviderUsageMetricsItem]
+    window_hours: int
+    generated_at: datetime
+    request_id: str
+
+
 class CostEstimateLine(ContractModel):
     label: str
     capability_id: str
@@ -1418,12 +1437,29 @@ class ProviderBalanceItem(ContractModel):
     quota_remaining: float | None = None
     unit: str | None = None
     checked_at: datetime
-    status: Literal["ok", "low", "unknown", "failed"]
+    status: Literal["ok", "unconfigured", "unsupported", "unauthorized", "error", "pending"]
+    detail: str | None = None
 
 
 class ProviderBalanceReport(ContractModel):
     items: list[ProviderBalanceItem]
     request_id: str
+    status: Literal["ok", "pending"] = "ok"
+
+
+class RefreshProviderBalancesRequest(ContractModel):
+    reason: str | None = None
+
+
+class ProviderBalanceSnapshot(EntityMeta):
+    provider_id: str
+    account_group: str | None = None
+    balance: Money | None = None
+    quota_remaining: float | None = None
+    unit: str | None = None
+    status: Literal["ok", "unconfigured", "unsupported", "unauthorized", "error", "pending"]
+    detail: str | None = None
+    checked_at: datetime
 
 
 class ReconcileBillingRequest(ContractModel):

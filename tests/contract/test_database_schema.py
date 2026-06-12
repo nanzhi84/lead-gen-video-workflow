@@ -22,6 +22,7 @@ REQUIRED_TABLES = {
     "voice_profiles",
     "provider_profiles",
     "provider_capabilities",
+    "provider_balance_snapshots",
     "provider_invocations",
     "usage_meter_records",
     "provider_price_catalogs",
@@ -75,6 +76,17 @@ def test_contract_columns_for_core_boundaries_exist():
     assert {"input_manifest_hash", "output_artifact_ids", "provider_invocation_ids"} <= set(
         tables["node_runs"].columns.keys()
     )
+    assert {
+        "provider_id",
+        "account_group",
+        "balance_amount",
+        "currency",
+        "quota_remaining",
+        "unit",
+        "status",
+        "detail",
+        "checked_at",
+    } <= set(tables["provider_balance_snapshots"].columns.keys())
     assert {
         "provider_id",
         "model_id",

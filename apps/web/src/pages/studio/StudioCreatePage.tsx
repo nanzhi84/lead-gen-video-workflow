@@ -274,7 +274,7 @@ export default function StudioCreatePage() {
         }}
       >
         <section className="card flex flex-col gap-5">
-          <div className="min-h-[520px] flex-1">
+          <div className="h-[520px] overflow-y-auto pr-1">
             {step === 0 ? (
               <ScriptStep
                 form={form}

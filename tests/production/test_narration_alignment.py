@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 
 from packages.ai.gateway import ProviderResult
@@ -17,8 +19,10 @@ from packages.core.contracts import (
     ProviderProfile,
     ProviderStatus,
     RunStatus,
+    SignedUrlResponse,
     WarningCode,
     WorkflowRun,
+    utcnow,
 )
 from packages.core.storage.repository import Repository
 from packages.core.workflow import NodeExecutionError
@@ -51,6 +55,37 @@ class FailingAsrGateway:
         return invocation, None
 
 
+class SuccessfulAsrGateway:
+    plugins = {"fake.asr": object()}
+
+    def __init__(self) -> None:
+        self.invocation_id = "pinv_success_asr"
+        self.calls = []
+
+    def invoke(self, call):
+        self.calls.append(call)
+        invocation = ProviderInvocation(
+            id=self.invocation_id,
+            case_id=call.case_id,
+            run_id=call.run_id,
+            node_run_id=call.node_run_id,
+            provider_id="fake.asr",
+            model_id="fake-asr",
+            provider_profile_id=call.provider_profile_id,
+            capability_id=call.capability_id,
+            status=ProviderStatus.succeeded,
+        )
+        result = ProviderResult(
+            output={
+                "text": "第一句介绍痛点",
+                "segments": [{"start": 0.0, "end": 2.0, "text": "第一句介绍痛点"}],
+                "source": "asr",
+            },
+            audio_seconds=2.0,
+        )
+        return invocation, result
+
+
 def _workflow_with_failing_asr() -> LocalRuntimeAdapter:
     repository = Repository()
     repository.provider_profiles["fake.asr.profile"] = ProviderProfile(
@@ -68,7 +103,25 @@ def _workflow_with_failing_asr() -> LocalRuntimeAdapter:
     return workflow
 
 
-def _run_state(*, strict_timestamps: bool) -> RunState:
+def _workflow_with_successful_asr() -> tuple[LocalRuntimeAdapter, SuccessfulAsrGateway]:
+    repository = Repository()
+    repository.provider_profiles["fake.asr.profile"] = ProviderProfile(
+        id="fake.asr.profile",
+        provider_id="fake.asr",
+        model_id="fake-asr",
+        capability="asr.transcribe",
+        display_name="Fake ASR",
+        environment="local",
+        options_schema_ref=ProviderOptionsSchemaRef(schema_id="provider.asr.options"),
+    )
+    gateway = SuccessfulAsrGateway()
+    workflow = object.__new__(LocalRuntimeAdapter)
+    workflow.repository = repository
+    workflow.provider_gateway = gateway
+    return workflow, gateway
+
+
+def _run_state(*, strict_timestamps: bool, tts_uri: str = "https://media.example/tts.mp3") -> RunState:
     request = DigitalHumanVideoRequest(
         case_id="case_demo",
         script="第一句介绍痛点。第二句说明方案。第三句引导行动。",
@@ -81,7 +134,7 @@ def _run_state(*, strict_timestamps: bool) -> RunState:
         run_id="run_1",
         node_run_id="nr_tts",
         kind=ArtifactKind.audio_tts,
-        uri="https://media.example/tts.mp3",
+        uri=tts_uri,
         media_info=MediaInfo(
             media_type="audio",
             codec="mp3",
@@ -113,6 +166,38 @@ def _node_run() -> NodeRun:
         status=NodeStatus.running,
         input_manifest_hash="sha256:test",
     )
+
+
+def test_narration_alignment_sends_signed_https_url_to_asr(monkeypatch: pytest.MonkeyPatch):
+    class FakeObjectStore:
+        def signed_url(self, uri):
+            assert uri == "s3://cutagent-demo/generated-audio/tts.mp3"
+            return SignedUrlResponse(
+                url="https://media.example/signed/tts.mp3",
+                expires_at=utcnow() + timedelta(minutes=15),
+                request_id="req_signed",
+            )
+
+    workflow, gateway = _workflow_with_successful_asr()
+    monkeypatch.setattr(
+        "packages.production.pipeline.digital_human.get_object_store",
+        lambda: FakeObjectStore(),
+    )
+
+    output = workflow._narration_alignment(
+        _run(),
+        _node_run(),
+        _run_state(
+            strict_timestamps=True,
+            tts_uri="s3://cutagent-demo/generated-audio/tts.mp3",
+        ),
+    )
+
+    artifacts_by_kind = {artifact.kind: artifact for artifact in output.artifacts}
+    narration = artifacts_by_kind[ArtifactKind.narration_units].payload
+    assert gateway.calls[0].input["audio_uri"] == "https://media.example/signed/tts.mp3"
+    assert output.provider_invocation_ids == ["pinv_success_asr"]
+    assert narration["source"] == "asr"
 
 
 def test_narration_alignment_non_strict_estimates_when_asr_fails():

@@ -43,6 +43,8 @@ The bundled PostgreSQL service binds to host port `55432` by default so it does 
 
 Operations: run `python scripts/gc_objectstore.py --max-age-hours 24 --apply` periodically to clean old generated ObjectStore artifacts; see `docs/ops/objectstore-gc.md`.
 
+For Aliyun OSS-backed ObjectStore configuration for cloud ASR strict timestamp alignment, see `docs/ops/objectstore-oss.md`.
+
 Run API with the SQLAlchemy backend initialized:
 
 ```bash

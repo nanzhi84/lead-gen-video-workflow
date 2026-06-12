@@ -128,6 +128,57 @@ def test_s3_object_store_put_get_exists_signed_url_and_bucket_creation(tmp_path)
     assert (tmp_path / "cache" / ref.key).read_bytes() == b"s3-bytes"
 
 
+def test_s3_object_store_passes_addressing_style_and_checksum_config_to_client_factory(tmp_path):
+    observed: dict[str, object] = {}
+
+    def client_factory(service_name: str, **kwargs):
+        observed["service_name"] = service_name
+        observed.update(kwargs)
+        return FakeS3Client()
+
+    S3ObjectStore(
+        endpoint_url="https://oss-cn-shanghai.aliyuncs.com",
+        bucket="cutagent-demo",
+        access_key="oss-key",
+        secret_key="oss-secret",
+        region_name="oss-cn-shanghai",
+        addressing_style="virtual",
+        client_factory=client_factory,
+        cache_root=tmp_path / "cache",
+    )
+
+    config = observed["config"]
+    assert observed["service_name"] == "s3"
+    assert config.s3 == {"addressing_style": "virtual"}
+    assert config.request_checksum_calculation == "when_required"
+    assert config.response_checksum_validation == "when_required"
+
+
+def test_object_store_from_env_passes_s3_addressing_style(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    observed: dict[str, object] = {}
+
+    def build_client(**kwargs):
+        observed.update(kwargs)
+        return FakeS3Client()
+
+    monkeypatch.setenv("CUTAGENT_OBJECTSTORE_BACKEND", "s3")
+    monkeypatch.setenv("CUTAGENT_OBJECTSTORE_ENDPOINT", "https://oss-cn-shanghai.aliyuncs.com")
+    monkeypatch.setenv("CUTAGENT_OBJECTSTORE_BUCKET", "cutagent-demo")
+    monkeypatch.setenv("CUTAGENT_OBJECTSTORE_ACCESS_KEY", "oss-key")
+    monkeypatch.setenv("CUTAGENT_OBJECTSTORE_SECRET_KEY", "oss-secret")
+    monkeypatch.setenv("CUTAGENT_OBJECTSTORE_REGION", "oss-cn-shanghai")
+    monkeypatch.setenv("CUTAGENT_OBJECTSTORE_ADDRESSING_STYLE", "virtual")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(S3ObjectStore, "_build_client", staticmethod(build_client))
+
+    store = object_store_from_env()
+
+    assert isinstance(store, S3ObjectStore)
+    assert observed["addressing_style"] == "virtual"
+
+
 def test_prepare_upload_accepts_content_key_for_deterministic_s3_key(tmp_path):
     store = S3ObjectStore(
         endpoint_url="http://minio.local:9000",

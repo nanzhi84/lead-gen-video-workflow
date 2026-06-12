@@ -52,3 +52,21 @@
 1. 演示环境改用 OSS 后端（env 切换 endpoint/bucket/keys/addressing=virtual），提交 `strict_timestamps=true`、真 MiniMax 人声 run：TTS✅ → NarrationAlignment 走真 ASR（DashScope 取 OSS 签名 URL）→ 产出 source=asr 的真词级对齐 → 出片✅，字幕时间与语音吻合（抽帧+ASS 时间核对）。
 2. MinIO 后端回归：addressing=path 默认仍正常 put/get/presigned（不回退 M6f）。
 3. 全量 + DB + Temporal 三套绿。
+
+---
+
+## 验收记录（2026-06-12，验收官：Claude，真 OSS + 真 key live）
+
+**判定：核心通过并合入**（merge 5c2a21f + heartbeat 修复 27ec950）。
+
+环境插曲（已绕过）：验收中途 Docker Desktop 的 WSL integration 掉了→cutagent 容器栈 Exited；用户勾回后用原生 docker `start` 重启，数据卷未丢（5 音色 + group_id 在）。
+
+真链路证据（演示切 OSS 后端 = videoretalk-test-bucket@oss-cn-shanghai，addressing=virtual）：
+- **strict_timestamps=true 真人声 run 实证真对齐**：ResolveCreativeIntent → 真 MiniMax TTS（落 `s3://videoretalk-test-bucket/generated-audio/...minimax-tts.mp3`）→ **NarrationAlignment 在 strict 下 succeeded**（strict 失败即硬 fail，成功即真 ASR）。
+- 对齐产物核对（DB）：`narration source=asr, strict=True`；`audio.alignment` 2 段**真词级时间戳** `[0.03–2.9s] / [3.44–9.72s]`（带首尾静音裁剪，区别于估算的 [0–3.61]/[3.61–10.84]）。
+- worker 日志：`POST .../asr/transcription` + 多次 `GET .../tasks/{id}` + 取 `dashscope-result-bj.oss-cn-beijing` 结果 JSON——DashScope 云端成功从 OSS 签名 URL 取音频。
+- 独立 live 预证：oss2 上传 mp3→签名 URL→paraformer-v2 返回真句级时间戳（先于代码改动验过路径）。
+
+heartbeat 修复（27ec950）：`run_node` 是同步 activity 不发 heartbeat，旧 `heartbeat_timeout=30s` 在慢 OSS 上传（视频传上海 >30s）时误取消→重试循环；移除后靠 per-node start_to_close（30min / LipSync 120min）。本地 MinIO 因上传 <30s 从未触发。
+
+遗留（→ 性能优化，非能力缺口）：`S3ObjectStore.put_bytes` 用单发 `put_object`，大视频产物传远端 OSS（上海）慢；原仓库用 multipart（OSS_MULTIPART_*）。建议后续给 put_bytes 加 multipart/并发分片以加速远端 OSS 出片；或工作文件留本地、仅音频/成片上 OSS。render 管线本身已在非 strict MinIO run 完整出片证过，与 OSS 上传速度正交。

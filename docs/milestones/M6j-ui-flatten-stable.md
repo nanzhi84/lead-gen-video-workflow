@@ -63,3 +63,21 @@
 2. 创作向导：切上一步/下一步，卡片总高与按钮位置不变（layout 稳定）。
 3. 案例智能体/案例中心：无伪卡片嵌套，改行式/内联。
 4. 整体观感：扁平、稳定、专业工具感，无明显 AI 味卡片堆叠。
+
+---
+
+## 验收记录（2026-06-12，验收官：Claude）
+
+**判定：通过并合入**（merge 39442d5）。Codex 工作树改动 17 文件 +131/−143，验收官 commit c0e6d04（cherry-pick 到含 M6i/M6k 的当前 main）。
+
+代码级核对（diff）：
+- **提示词页**：版本 diff 框 `max-h-[360px]` → `min-h-[360px] max-h-[360px]`（固定高，切版本不再撑缩浮动）；模板列表 `card card-hover ring-2`（卡片）→ 单 `card p-0` + `divide-y` 行；绑定/变量区 → 扁平 `border-t`/divider；新增 `bindingSummary`（列表显示「用于 X 等 N 处」，回应"不知道提示词用于哪里"）。
+- **创作向导**：步骤容器加 `min-h-[520px] flex-1`（切步骤布局不浮动）；模板项 3 列 `divide-x` 网格、口型预设 `border-l-2` 行、配置摘要/复核/开关/SummaryRow 全部由嵌套卡片改扁平分隔线。
+
+构建门：`tsc --noEmit` 退出 0；`npm run build` 1729 模块绿（547KB/gzip 149KB）。
+
+Playwright 实测（演示 5173 + API 8021，admin 登录，0 console error）：
+- 提示词页：模板列表扁平行 + 各项「用于 ResolveCreativeIntent / MediaAssetAnnotation / CaseAgentScriptGenerate」用途；版本 diff 面板、绑定区扁平。截图 m6j-prompts.png。
+- 创作向导步骤 1→2→3：右侧「配置摘要」面板三步位置恒定不浮动；上一步/下一步按钮底部锚定不跳；模板项/口型预设为扁平分隔线非嵌套卡片。截图 m6j-wizard-step1/2/3.png。
+
+r6 演示已更新到含 M6j 的 main（39442d5），用户可直接在 5173 目检最终观感（审美最终验收归用户）。

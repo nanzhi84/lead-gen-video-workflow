@@ -217,6 +217,15 @@ def _message_content(result: dict[str, Any]) -> str:
 
 
 def _parse_json_object(content: str) -> dict[str, Any]:
+    content = content.strip()
+    if content.startswith("```"):
+        lines = content.splitlines()
+        fence = lines[0].strip()
+        if fence.startswith("```") and fence[3:].strip().lower() in {"", "json"}:
+            lines = lines[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            content = "\n".join(lines).strip()
     try:
         parsed = json.loads(content)
     except json.JSONDecodeError:

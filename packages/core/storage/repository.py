@@ -248,7 +248,18 @@ class Repository:
         version = PromptVersion(
             id="prompt_creative_intent_v1",
             prompt_template_id=template.id,
-            content="Summarize script intent as strict JSON.",
+            content=(
+                "你是资深短视频创意策划。基于下面的口播脚本，提炼创意结构。\n\n"
+                "严格要求：直接输出一个 JSON 对象（以左花括号开头、右花括号结尾）；"
+                "禁止使用 markdown 代码块；禁止任何前后缀说明文字。\n\n"
+                "JSON 必须且只能包含以下字段：\n"
+                "- hook：字符串，一句话开场钩子。\n"
+                "- tone：字符串，整体语气风格。\n"
+                "- audience：字符串，目标受众。\n"
+                "- beats：字符串数组，3 到 6 条，按顺序列出脚本的关键叙事节拍。\n\n"
+                "脚本：\n"
+                "{script}"
+            ),
             status="published",
             approved_at=utcnow(),
             published_at=utcnow(),

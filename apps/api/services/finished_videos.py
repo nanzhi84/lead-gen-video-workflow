@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from fastapi import Request, Response, UploadFile
 from fastapi.responses import JSONResponse
@@ -33,9 +34,11 @@ from packages.core.auth import SqlAlchemyAuthService
 from packages.core.contracts.state_machines import assert_transition
 from packages.core.observability import metric_snapshot
 from packages.core.registration_codes import hash_registration_code
-from packages.core.storage.object_store import parse_local_uri
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
+from packages.media.assets import local_object_path
+from packages.production.editor_handoff import EditorHandoffAsset, EditorHandoffBuilder, EditorHandoffInput
+from packages.production.jianying_draft import JianyingDraftBuilder, JianyingDraftInput
 
 def performance_attribution(request: Request, video_version_id: str) -> c.PerformanceAttributionResponse:
 
@@ -111,15 +114,24 @@ def editor_handoff(
 ) -> c.EditorHandoffPackageArtifact:
     if production_repository(request) is not None:
         return production_repository(request).create_editor_handoff(id, payload)
+    finished = _finished_video_or_error(request, id)
+    handoff = EditorHandoffBuilder(object_store(request)).build(
+        EditorHandoffInput(
+            finished_video_id=id,
+            package_format=payload.format,
+            assets=_handoff_assets(request, finished),
+        )
+    )
     artifact = repository(request).create_artifact(
         kind=c.ArtifactKind.editor_handoff,
         payload_schema="EditorHandoffPackageArtifact.v1",
-        payload={"finished_video_id": id, "format": payload.format},
-        uri=f"sandbox://handoff/{id}.zip",
+        payload=handoff.manifest,
+        uri=handoff.package_uri,
+        sha256=handoff.sha256,
     )
     return c.EditorHandoffPackageArtifact(
         package_artifact=repository(request).artifact_ref(artifact.id),
-        manifest={"finished_video_id": id, "format": payload.format},
+        manifest=handoff.manifest,
     )
 
 
@@ -128,13 +140,105 @@ def jianying_draft(
 ) -> c.JianyingDraftPackageArtifact:
     if production_repository(request) is not None:
         return production_repository(request).create_jianying_draft(id, payload)
+    finished = _finished_video_or_error(request, id)
+    jianying = JianyingDraftBuilder(object_store(request)).build(
+        JianyingDraftInput(
+            finished_video_id=id,
+            title=finished.title,
+            video_path=_artifact_local_path(request, finished.video_artifact),
+            audio_path=_latest_run_artifact_path(request, finished.run_id, c.ArtifactKind.audio_tts),
+            subtitle_path=_artifact_local_path(request, finished.subtitle_artifact) if finished.subtitle_artifact else None,
+            duration_sec=finished.duration_sec,
+            template_id=payload.template_id,
+            timeline_plan=_timeline_plan_payload(request, id),
+            narration_units=_narration_units(request, finished.run_id),
+        )
+    )
     artifact = repository(request).create_artifact(
         kind=c.ArtifactKind.jianying_draft,
         payload_schema="JianyingDraftPackageArtifact.v1",
-        payload={"finished_video_id": id, "template_id": payload.template_id},
-        uri=f"sandbox://jianying/{id}.zip",
+        payload=jianying.manifest,
+        uri=jianying.package_uri,
+        sha256=jianying.sha256,
     )
     return c.JianyingDraftPackageArtifact(
         package_artifact=repository(request).artifact_ref(artifact.id),
-        draft_manifest={"finished_video_id": id, "template_id": payload.template_id or "default"},
+        draft_manifest=jianying.manifest,
+    )
+
+
+def _finished_video_or_error(request: Request, finished_video_id: str) -> c.FinishedVideo:
+    finished = repository(request).finished_videos.get(finished_video_id)
+    if finished is None:
+        raise NodeExecutionError(c.ErrorCode.artifact_missing, "Finished video is missing.")
+    return finished
+
+
+def _artifact_local_path(request: Request, artifact_ref: c.ArtifactRef) -> Path:
+    artifact = repository(request).artifacts.get(artifact_ref.artifact_id)
+    if artifact is None or not artifact.uri:
+        raise NodeExecutionError(c.ErrorCode.artifact_missing, "Artifact URI is missing.")
+    try:
+        return local_object_path(object_store(request), artifact.uri)
+    except ValueError as exc:
+        raise NodeExecutionError(c.ErrorCode.artifact_missing, "Artifact URI is not locally readable.") from exc
+
+
+def _latest_run_artifact_path(request: Request, run_id: str | None, kind: c.ArtifactKind) -> Path | None:
+    if run_id is None:
+        return None
+    artifact = next(
+        (item for item in repository(request).artifacts.values() if item.run_id == run_id and item.kind == kind and item.uri),
+        None,
+    )
+    if artifact is None:
+        return None
+    try:
+        return local_object_path(object_store(request), artifact.uri)
+    except ValueError as exc:
+        raise NodeExecutionError(c.ErrorCode.artifact_missing, f"{kind.value} is not locally readable.") from exc
+
+
+def _timeline_plan_payload(request: Request, finished_video_id: str) -> dict | None:
+    version = next(
+        (item for item in repository(request).video_versions.values() if item.finished_video_id == finished_video_id),
+        None,
+    )
+    if version is None:
+        return None
+    artifact = repository(request).artifacts.get(version.timeline_plan_artifact_id)
+    return artifact.payload if artifact is not None and isinstance(artifact.payload, dict) else None
+
+
+def _narration_units(request: Request, run_id: str | None) -> list[dict]:
+    if run_id is None:
+        return []
+    artifact = next(
+        (
+            item
+            for item in repository(request).artifacts.values()
+            if item.run_id == run_id and item.kind == c.ArtifactKind.narration_units and isinstance(item.payload, dict)
+        ),
+        None,
+    )
+    payload = artifact.payload if artifact is not None else {}
+    units = payload.get("units") if isinstance(payload, dict) else None
+    return list(units or [])
+
+
+def _handoff_assets(request: Request, finished: c.FinishedVideo) -> list[EditorHandoffAsset]:
+    assets = [_handoff_asset(request, "video", finished.video_artifact)]
+    if finished.cover_artifact:
+        assets.append(_handoff_asset(request, "cover", finished.cover_artifact))
+    if finished.subtitle_artifact:
+        assets.append(_handoff_asset(request, "subtitle", finished.subtitle_artifact))
+    return assets
+
+
+def _handoff_asset(request: Request, role: str, artifact_ref: c.ArtifactRef) -> EditorHandoffAsset:
+    return EditorHandoffAsset(
+        role=role,
+        artifact_id=artifact_ref.artifact_id,
+        kind=artifact_ref.kind.value,
+        source_path=_artifact_local_path(request, artifact_ref),
     )

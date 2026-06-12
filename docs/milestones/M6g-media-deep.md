@@ -43,3 +43,11 @@
 2. 标注标无效区→裁剪→输出时长=有效区总和、帧精确、内容正确（抽帧）。
 3. 自动匹配替换：同名上传替换源保留标注；unmatched 如实报告。
 4. 全量 + DB + Temporal 三套绿。
+
+---
+
+## 验收记录（2026-06-12，验收官：Claude）
+
+**判定：通过并合入**（merge 见 git log）。证据：全量 + tsc/build 三绿；**真 ffmpeg 抽查**：合成 4s 测试视频经 `stabilize_video` 输出时长保持 4.0s；`trim_to_valid_segments([1,3])` 精确得 2.0s。新增 4 端点（batch-stabilize / annotations trim / replace-source / auto-match-replace），越界→render.invalid_timeline、空有效区→material insufficient、替换 matched/unmatched/ambiguous 如实报告。前端防抖开关/批量增稳/裁剪/替换入口接通（去 R3 禁用态）。
+
+合并流程备忘：merge 前必须先 `git fetch <clone> branch:branch -f` 更新主仓库分支 ref（与 merge 串一条命令时若前段被信号中断会漏 fetch，导致 "Already up to date" 空合）。

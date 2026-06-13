@@ -16,16 +16,27 @@ from packages.core.contracts import (
     MediaAssetCard,
     MediaAssetDetail,
     MediaAssetRecord,
+    MaterialUsageRankingReport,
     PatchAnnotationRequest,
     PatchVoiceRequest,
     RerunAnnotationRequest,
+    SelectionLedgerEntry,
+    SelectionMedium,
     VoicePreviewRequest,
     VoicePreviewResponse,
     VoiceProfile,
     utcnow,
 )
-from packages.core.storage.database import AnnotationRow, ArtifactRow, MediaAssetRow, UploadSessionRow, VoiceProfileRow
+from packages.core.storage.database import (
+    AnnotationRow,
+    ArtifactRow,
+    MediaAssetRow,
+    SelectionLedgerRow,
+    UploadSessionRow,
+    VoiceProfileRow,
+)
 from packages.core.storage.repository import new_id
+from packages.core.storage.selection_ledger import material_usage_ranking_from_entries
 from packages.core.workflow import NodeExecutionError
 
 
@@ -145,6 +156,45 @@ class SqlAlchemyMediaRepository:
                 asset=media_asset_row_to_contract(row),
                 preview_url=f"local://media/{row.id}",
             )
+
+    def material_usage_ranking(
+        self,
+        *,
+        kind: SelectionMedium,
+        case_id: str | None = None,
+        top_n: int = 20,
+    ) -> MaterialUsageRankingReport:
+        with self.session_factory() as session:
+            statement = select(SelectionLedgerRow).where(SelectionLedgerRow.medium == kind)
+            if case_id:
+                statement = statement.where(SelectionLedgerRow.case_id == case_id)
+            rows = list(session.scalars(statement.order_by(SelectionLedgerRow.created_at.desc())))
+            entries = [
+                SelectionLedgerEntry(
+                    id=row.id,
+                    case_id=row.case_id,
+                    run_id=row.run_id,
+                    medium=row.medium,
+                    asset_id=row.asset_id,
+                    slot_phase=row.slot_phase,
+                    diversity_key=row.diversity_key,
+                    created_at=row.created_at,
+                )
+                for row in rows
+            ]
+            assets = {
+                row.id: media_asset_row_to_contract(row)
+                for row in session.scalars(
+                    select(MediaAssetRow).where(MediaAssetRow.id.in_({entry.asset_id for entry in entries}))
+                )
+            } if entries else {}
+        return material_usage_ranking_from_entries(
+            entries=entries,
+            assets=assets,
+            kind=kind,
+            case_id=case_id,
+            top_n=top_n,
+        )
 
     def create_asset_from_upload(self, payload: CreateMediaAssetFromUploadRequest) -> MediaAssetRecord:
         with self.session_factory() as session:

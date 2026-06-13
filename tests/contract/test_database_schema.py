@@ -23,6 +23,7 @@ REQUIRED_TABLES = {
     "provider_profiles",
     "provider_capabilities",
     "provider_balance_snapshots",
+    "selection_ledger",
     "provider_invocations",
     "usage_meter_records",
     "provider_price_catalogs",
@@ -87,6 +88,15 @@ def test_contract_columns_for_core_boundaries_exist():
         "detail",
         "checked_at",
     } <= set(tables["provider_balance_snapshots"].columns.keys())
+    assert {
+        "case_id",
+        "run_id",
+        "medium",
+        "asset_id",
+        "slot_phase",
+        "diversity_key",
+        "created_at",
+    } <= set(tables["selection_ledger"].columns.keys())
     assert {
         "provider_id",
         "model_id",

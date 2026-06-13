@@ -2,7 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from packages.core.contracts import Artifact, ArtifactKind, ArtifactRef, MediaInfo
-from packages.core.contracts.artifacts import ArtifactSchemaRegistry
+from packages.core.contracts.artifacts import ArtifactSchemaRegistry, BrollPlanArtifact
 
 
 JSON_ARTIFACT_KINDS = {
@@ -96,3 +96,27 @@ def test_artifact_ref_requires_uri():
     assert ref.uri == "local://video.mp4"
     with pytest.raises(ValidationError):
         ArtifactRef(artifact_id="art_1", kind=ArtifactKind.video_final)
+
+
+def test_broll_overlay_old_payload_defaults_preview_fields():
+    plan = BrollPlanArtifact.model_validate(
+        {
+            "enabled": True,
+            "segments": [],
+            "overlays": [
+                {
+                    "overlay_id": "broll_1",
+                    "asset_id": "asset_broll_demo",
+                    "timeline_start": 0,
+                    "timeline_end": 2,
+                    "source_start": 0,
+                    "source_end": 2,
+                    "reason": "legacy payload",
+                    "confidence": 0.8,
+                }
+            ],
+        }
+    )
+
+    assert plan.overlays[0].matched_keywords == []
+    assert plan.overlays[0].scene_name is None

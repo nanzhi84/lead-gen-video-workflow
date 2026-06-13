@@ -6,6 +6,7 @@ import { StatusPill } from "../Status";
 import { TimeText } from "../TimeText";
 import { EditorHandoffActions } from "../editor-handoff/EditorHandoffActions";
 import { Modal } from "../ui/Modal";
+import { BrollTimelinePreview } from "./BrollTimelinePreview";
 import { shortId } from "../../lib/format";
 import { toDisplayUrl } from "../../lib/url";
 import { artifactLabel, severityLabel, warningLabel, type RunAction } from "./runModel";
@@ -83,6 +84,8 @@ export function RunDetailModal({
             <DetailMetric label="开始" value={<TimeText value={card.startedAt} />} />
             <DetailMetric label="更新" value={<TimeText value={card.updatedAt} />} />
           </div>
+
+          <BrollTimelinePreview detail={detail} />
 
           <section className="grid gap-3">
             <h4 className="text-base font-semibold text-text-primary">节点时间线</h4>

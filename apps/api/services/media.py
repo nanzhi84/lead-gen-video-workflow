@@ -64,6 +64,27 @@ def list_media_assets(
     return page([c.MediaAssetCard(asset=asset, preview_url=f"local://media/{asset.id}") for asset in assets], limit)
 
 
+def material_usage_ranking(
+    request: Request,
+    kind: c.SelectionMedium,
+    case_id: str | None = None,
+    top_n: int = 20,
+) -> c.MaterialUsageRankingReport:
+    if media_repository(request) is not None:
+        report = media_repository(request).material_usage_ranking(
+            kind=kind,
+            case_id=case_id,
+            top_n=top_n,
+        )
+    else:
+        report = repository(request).material_usage_ranking(
+            kind=kind,
+            case_id=case_id,
+            top_n=top_n,
+        )
+    return report.model_copy(update={"request_id": request_id()})
+
+
 def create_media_asset(payload: c.CreateMediaAssetFromUploadRequest, request: Request) -> c.MediaAssetRecord:
     if media_repository(request) is not None:
         return media_repository(request).create_asset_from_upload(payload)

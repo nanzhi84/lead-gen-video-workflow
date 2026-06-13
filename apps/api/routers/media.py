@@ -22,6 +22,16 @@ def list_media_assets(
     return service.list_media_assets(request, limit, case_id, kind, annotation_status)
 
 
+@router.get("/api/library/assets/{kind}/usage-ranking", response_model=c.MaterialUsageRankingReport)
+def material_usage_ranking(
+    request: Request,
+    kind: c.SelectionMedium,
+    case_id: str | None = None,
+    top_n: int = 20,
+) -> c.MaterialUsageRankingReport:
+    return service.material_usage_ranking(request, kind, case_id, top_n)
+
+
 @router.post("/api/media/assets", response_model=c.MediaAssetRecord, status_code=201)
 def create_media_asset(payload: c.CreateMediaAssetFromUploadRequest, request: Request) -> c.MediaAssetRecord:
     require_role(request, c.UserRole.operator)

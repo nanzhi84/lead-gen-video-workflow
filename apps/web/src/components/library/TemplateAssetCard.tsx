@@ -1,6 +1,6 @@
 import { Download, Eye, Loader2, Play, RefreshCw, Upload } from "lucide-react";
-import type { MediaAssetCard } from "../../api/client";
-import { shortId } from "../../lib/format";
+import type { MaterialUsageRankingItem, MediaAssetCard } from "../../api/client";
+import { formatRelativeTime, shortId } from "../../lib/format";
 import { annotationStatusLabels, annotationTone } from "./libraryModel";
 
 type TemplateAssetCardProps = {
@@ -10,6 +10,7 @@ type TemplateAssetCardProps = {
   selected: boolean;
   isAnalyzing: boolean;
   isReplacing: boolean;
+  usage?: MaterialUsageRankingItem;
   onToggleSelected: () => void;
   onPreview: () => void;
   onAnalyze: () => void;
@@ -24,6 +25,7 @@ export function TemplateAssetCard({
   selected,
   isAnalyzing,
   isReplacing,
+  usage,
   onToggleSelected,
   onPreview,
   onAnalyze,
@@ -66,9 +68,16 @@ export function TemplateAssetCard({
           <h3 className="truncate text-sm font-semibold text-text-primary">{asset.title}</h3>
           <p className="mt-1 font-mono text-xs text-text-tertiary">{shortId(asset.id, 12)}</p>
         </div>
-        <span className={`badge ${annotationTone(asset.annotation_status)}`}>
-          {annotationStatusLabels[asset.annotation_status]}
-        </span>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <span className={`badge ${annotationTone(asset.annotation_status)}`}>
+            {annotationStatusLabels[asset.annotation_status]}
+          </span>
+          {usage && usage.task_use_count > 0 ? (
+            <span className="badge bg-accent/10 text-accent" title={`最近 ${formatRelativeTime(usage.last_used_at)}`}>
+              使用 {usage.task_use_count}
+            </span>
+          ) : null}
+        </div>
       </div>
       <div className="mt-3 flex flex-wrap gap-1.5">
         {(asset.tags ?? []).slice(0, 4).map((tag) => (

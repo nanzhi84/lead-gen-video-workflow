@@ -1120,6 +1120,44 @@
         }
       }
     },
+    "/api/creative/reference-extract": {
+      "post": {
+        "summary": "Reference Extract",
+        "operationId": "reference_extract_api_creative_reference_extract_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReferenceExtractRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferenceExtractResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/cases/{case_id}/runs": {
       "get": {
         "summary": "Case Run Cards",
@@ -10006,6 +10044,9 @@
           "render.subtitle_failed",
           "publish.failed",
           "import.failed",
+          "reference.unreachable",
+          "reference.unsupported_platform",
+          "reference.asr_failed",
           "idempotency.conflict"
         ],
         "title": "ErrorCode"
@@ -15619,6 +15660,81 @@
           "request_id"
         ],
         "title": "ReconcileBillingResponse"
+      },
+      "ReferenceExtractRequest": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Url"
+          },
+          "language": {
+            "type": "string",
+            "title": "Language",
+            "default": "zh"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "title": "ReferenceExtractRequest"
+      },
+      "ReferenceExtractResult": {
+        "properties": {
+          "reference_script": {
+            "type": "string",
+            "title": "Reference Script"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "subtitle",
+              "asr"
+            ],
+            "title": "Source"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "platform": {
+            "type": "string",
+            "title": "Platform"
+          },
+          "duration_sec": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Sec"
+          },
+          "resolved_url": {
+            "type": "string",
+            "title": "Resolved Url"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "reference_script",
+          "source",
+          "platform",
+          "resolved_url"
+        ],
+        "title": "ReferenceExtractResult"
       },
       "ReflectionRun": {
         "properties": {

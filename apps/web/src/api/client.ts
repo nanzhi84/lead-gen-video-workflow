@@ -234,6 +234,13 @@ export const api = {
         { query },
       ),
   },
+  creative: {
+    extractReference: (payload: JsonRequest<operations["reference_extract_api_creative_reference_extract_post"]>) =>
+      fetchJson<JsonResponse<operations["reference_extract_api_creative_reference_extract_post"]>>(
+        "/api/creative/reference-extract",
+        { method: "POST", body: payload, idempotencyKey: createIdempotencyKey("reference_extract") },
+      ),
+  },
   prompts: {
     list: (query: QueryParams<operations["list_prompts_api_prompts_get"]> = {}) =>
       fetchJson<JsonResponse<operations["list_prompts_api_prompts_get"]>>("/api/prompts", { query }),

@@ -58,6 +58,9 @@ class ErrorCode(str, Enum):
     render_subtitle_failed = "render.subtitle_failed"
     publish_failed = "publish.failed"
     import_failed = "import.failed"
+    reference_unreachable = "reference.unreachable"
+    reference_unsupported_platform = "reference.unsupported_platform"
+    reference_asr_failed = "reference.asr_failed"
     idempotency_conflict = "idempotency.conflict"
 
 
@@ -1652,6 +1655,20 @@ class StartReflectionRunRequest(ContractModel):
 class GenerateScriptWithMemoryRequest(ContractModel):
     brief: str
     memory_ids: list[str] = Field(default_factory=list)
+
+
+class ReferenceExtractRequest(ContractModel):
+    url: str = Field(min_length=1)
+    language: str = "zh"
+
+
+class ReferenceExtractResult(ContractModel):
+    reference_script: str
+    source: Literal["subtitle", "asr"]
+    title: str | None = None
+    platform: str
+    duration_sec: float | None = None
+    resolved_url: str
 
 
 class PerformanceAttributionResponse(ContractModel):

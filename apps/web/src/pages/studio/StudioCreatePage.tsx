@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Calculator, ChevronLeft, ChevronRight, Loader2, Play } from "lucide-react";
+import { Calculator, ChevronLeft, ChevronRight, Link2, Loader2, Play } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, type ApiError, type DigitalHumanVideoCostEstimateResponse } from "../../api/client";
@@ -49,6 +49,8 @@ export default function StudioCreatePage() {
   const [scriptGenerateOpen, setScriptGenerateOpen] = useState(false);
   const [candidatePoolOpen, setCandidatePoolOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [referenceUrl, setReferenceUrl] = useState("");
+  const [referenceSourceTitle, setReferenceSourceTitle] = useState<string | null>(null);
   const [costEstimateOpen, setCostEstimateOpen] = useState(false);
   const [costEstimate, setCostEstimate] = useState<DigitalHumanVideoCostEstimateResponse | null>(null);
   const appliedAgentSource = useRef<string | null>(null);
@@ -166,6 +168,20 @@ export default function StudioCreatePage() {
     },
     onError: (error: ApiError) => setFormError(error),
   });
+  const extractReference = useMutation({
+    mutationFn: () => api.creative.extractReference({ url: referenceUrl.trim(), language: "zh" }),
+    onSuccess: (result) => {
+      setForm((current) => ({
+        ...current,
+        title: result.title || current.title,
+        script: result.reference_script,
+      }));
+      setReferenceSourceTitle(result.title || result.resolved_url);
+      setStep(0);
+      toast.success("对标视频已提取", result.title || result.platform);
+    },
+    onError: (error: ApiError) => toast.error("提取失败", error),
+  });
 
   function setField<Key extends keyof FormState>(key: Key, value: FormState[Key]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -242,6 +258,14 @@ export default function StudioCreatePage() {
     estimateCost.mutate();
   }
 
+  function extractReferenceVideo() {
+    if (!referenceUrl.trim()) {
+      toast.warning("请输入对标视频链接");
+      return;
+    }
+    extractReference.mutate();
+  }
+
   if (caseDetail.isLoading) {
     return <LoadingState />;
   }
@@ -281,16 +305,41 @@ export default function StudioCreatePage() {
                 setField={setField}
                 scriptCount={scriptCount}
                 tools={
-                  <ScriptToolBar
-                    candidateCount={scriptToolbox.candidates.length}
-                    historyCount={scriptToolbox.history.length}
-                    onOpenGenerate={(mode) => {
-                      setScriptToolMode(mode);
-                      setScriptGenerateOpen(true);
-                    }}
-                    onOpenCandidates={() => setCandidatePoolOpen(true)}
-                    onOpenHistory={() => setHistoryOpen(true)}
-                  />
+                  <>
+                    <ScriptToolBar
+                      candidateCount={scriptToolbox.candidates.length}
+                      historyCount={scriptToolbox.history.length}
+                      onOpenGenerate={(mode) => {
+                        setScriptToolMode(mode);
+                        setScriptGenerateOpen(true);
+                      }}
+                      onOpenCandidates={() => setCandidatePoolOpen(true)}
+                      onOpenHistory={() => setHistoryOpen(true)}
+                    />
+                    <div className="grid gap-2 rounded-md border border-border/70 p-3">
+                      <div className="flex flex-wrap items-end gap-2">
+                        <label className="min-w-[220px] flex-1">
+                          <span>对标视频提取</span>
+                          <input
+                            value={referenceUrl}
+                            onChange={(event) => setReferenceUrl(event.target.value)}
+                            placeholder="粘贴抖音/YouTube/B站视频链接"
+                            disabled={extractReference.isPending}
+                          />
+                        </label>
+                        <button
+                          className="btn-secondary min-h-10"
+                          type="button"
+                          disabled={extractReference.isPending}
+                          onClick={extractReferenceVideo}
+                        >
+                          {extractReference.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+                          <span>提取</span>
+                        </button>
+                      </div>
+                      {referenceSourceTitle ? <p className="truncate text-xs text-text-secondary">来源：{referenceSourceTitle}</p> : null}
+                    </div>
+                  </>
                 }
               />
             ) : step === 1 ? (

@@ -7358,7 +7358,8 @@
           "editor.jianying_draft_package",
           "provider.raw_request",
           "provider.raw_response",
-          "import.mapping"
+          "import.mapping",
+          "material.annotation"
         ],
         "title": "ArtifactKind"
       },

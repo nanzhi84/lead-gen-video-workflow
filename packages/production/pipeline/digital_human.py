@@ -271,12 +271,19 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
         repository: Repository,
         provider_gateway: ProviderGateway,
         prompt_registry: PromptRegistry,
+        *,
+        seed_media: bool = True,
     ) -> None:
         self.repository = repository
         self.provider_gateway = provider_gateway
         self.prompt_registry = prompt_registry
         self.template = digital_human_template()
-        self._ensure_seed_media_assets()
+        # ``seed_media`` generates demo seed media via ffmpeg/object-store on
+        # construction. The per-activity Temporal scoping (see
+        # ``TemporalActivityContext.build_runtime``) rehydrates real media
+        # assets from SQL, so it skips this expensive bootstrap.
+        if seed_media:
+            self._ensure_seed_media_assets()
 
     def _ensure_seed_media_assets(self) -> None:
         seed_dir = Path(".data/generated-media/seed")
@@ -2428,11 +2435,13 @@ def build_digital_human_workflow(
     *,
     provider_gateway: ProviderGateway | None = None,
     prompt_registry: PromptRegistry | None = None,
+    seed_media: bool = True,
 ) -> LocalRuntimeAdapter:
     return LocalRuntimeAdapter(
         repository,
         provider_gateway or ProviderGateway(repository),
         prompt_registry or PromptRegistry(repository),
+        seed_media=seed_media,
     )
 
 

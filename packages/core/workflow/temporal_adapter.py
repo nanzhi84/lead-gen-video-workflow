@@ -13,6 +13,8 @@ from temporalio.common import RetryPolicy as TemporalRetryPolicy
 # Domain modules are data/typing + activity-side only; the workflow body never
 # calls their non-deterministic code paths, so they bypass sandbox validation.
 with workflow.unsafe.imports_passed_through():
+    from packages.ai.gateway import ProviderGateway
+    from packages.ai.prompts import PromptRegistry
     from packages.core.observability import (
         bind_observability_context,
         record_temporal_activity_failure,
@@ -33,6 +35,53 @@ class TemporalActivityContext:
     repository: Repository
     local_runtime: LocalRuntimeAdapter
     production_repository: SqlAlchemyProductionRepository | None = None
+
+    def scoping_enabled(self) -> bool:
+        """Per-activity Repository scoping applies only under the SQL backend.
+
+        Without a ``production_repository`` there is no SQL hydrate/persist, so the
+        worker is the pure in-memory runtime (single Repository, single run) and we
+        keep the shared one to preserve existing behavior and passing tests.
+        """
+        return self.production_repository is not None
+
+    def build_runtime(self) -> tuple[Repository, LocalRuntimeAdapter]:
+        """Construct a FRESH, activity-scoped Repository + runtime.
+
+        The mutable run-state Repository MUST NOT be shared across concurrent
+        ``run_node`` activities (the worker runs an 8-thread activity pool): without
+        this, reads/writes for different runs interleave on the same dicts ->
+        cross-run data bleed + unbounded memory growth. We rebuild the mutable
+        repository per activity but REUSE the stateless services (provider plugins
+        and readers, secret/object stores, prompt reader) captured on the
+        worker-global ``local_runtime`` so we avoid re-registering plugins or
+        regenerating seed media on every invocation.
+        """
+        template = self.local_runtime
+        repository = Repository()
+        template_gateway = template.provider_gateway
+        gateway = ProviderGateway(
+            repository,
+            provider_reader=template_gateway.provider_reader,
+            secret_store=template_gateway.secret_store,
+            object_store=template_gateway.object_store,
+            http_client=template_gateway.http_client,
+            auto_register_real_plugins=False,
+        )
+        # Reuse the already-registered (stateless) plugin instances rather than
+        # re-registering real providers on every activity.
+        gateway.plugins = dict(template_gateway.plugins)
+        registry = PromptRegistry(
+            repository,
+            prompt_reader=template.prompt_registry.prompt_reader,
+        )
+        runtime = LocalRuntimeAdapter(
+            repository,
+            gateway,
+            registry,
+            seed_media=False,
+        )
+        return repository, runtime
 
 
 _activity_context: TemporalActivityContext | None = None
@@ -128,21 +177,34 @@ def _retry_policy(policy: dict[str, Any]) -> TemporalRetryPolicy:
     )
 
 
+def _activity_runtime(ctx: TemporalActivityContext) -> tuple[Repository, LocalRuntimeAdapter]:
+    """Resolve the Repository + runtime for a single activity invocation.
+
+    Under the SQL backend each activity gets a FRESH, isolated Repository so
+    concurrent activities for different runs never share mutable run-state. The
+    pure in-memory backend keeps the shared one (single-threaded per run).
+    """
+    if ctx.scoping_enabled():
+        return ctx.build_runtime()
+    return ctx.repository, ctx.local_runtime
+
+
 @activity.defn(name="apply_reuse_plan")
 def apply_reuse_plan(payload: dict[str, Any]) -> dict[str, Any]:
     ctx = _context()
     run_id = str(payload["run_id"])
     source_run_id = str(payload["source_run_id"])
-    token = _bind_activity_context(ctx, run_id)
+    repository, runtime = _activity_runtime(ctx)
+    if ctx.production_repository is not None:
+        ctx.production_repository.hydrate_workflow_runtime_snapshot(repository, run_id)
+    token = _bind_activity_context(repository, run_id)
     try:
-        if ctx.production_repository is not None:
-            ctx.production_repository.hydrate_workflow_runtime_snapshot(ctx.repository, run_id)
-        summary = ctx.local_runtime.apply_reuse_plan(
+        summary = runtime.apply_reuse_plan(
             run_id,
             source_run_id,
             ReusePlan.model_validate(payload["reuse_plan"]),
         )
-        _sync_if_configured(ctx, run_id)
+        _sync_if_configured(ctx, repository, run_id)
         return summary
     except Exception:
         record_temporal_activity_failure()
@@ -156,13 +218,14 @@ def run_node(payload: dict[str, Any]) -> dict[str, Any]:
     ctx = _context()
     run_id = str(payload["run_id"])
     node_id = str(payload["node_id"])
-    token = _bind_activity_context(ctx, run_id, node_id=node_id)
+    repository, runtime = _activity_runtime(ctx)
+    if ctx.production_repository is not None:
+        ctx.production_repository.hydrate_workflow_runtime_snapshot(repository, run_id)
+    token = _bind_activity_context(repository, run_id, node_id=node_id)
     try:
-        if ctx.production_repository is not None:
-            ctx.production_repository.hydrate_workflow_runtime_snapshot(ctx.repository, run_id)
         activity.heartbeat({"run_id": run_id, "node_id": node_id, "phase": "started"})
-        summary = ctx.local_runtime.run_node_activity(run_id, node_id)
-        _sync_if_configured(ctx, run_id)
+        summary = runtime.run_node_activity(run_id, node_id)
+        _sync_if_configured(ctx, repository, run_id)
         activity.heartbeat({"run_id": run_id, "node_id": node_id, "phase": "finished"})
         return summary
     except Exception:
@@ -176,12 +239,13 @@ def run_node(payload: dict[str, Any]) -> dict[str, Any]:
 def mark_run_cancelled(payload: dict[str, Any]) -> dict[str, Any]:
     ctx = _context()
     run_id = str(payload["run_id"])
-    token = _bind_activity_context(ctx, run_id)
+    repository, runtime = _activity_runtime(ctx)
+    if ctx.production_repository is not None:
+        ctx.production_repository.hydrate_workflow_runtime_snapshot(repository, run_id)
+    token = _bind_activity_context(repository, run_id)
     try:
-        if ctx.production_repository is not None:
-            ctx.production_repository.hydrate_workflow_runtime_snapshot(ctx.repository, run_id)
-        run = ctx.local_runtime.request_cancel(run_id)
-        _sync_if_configured(ctx, run_id)
+        run = runtime.request_cancel(run_id)
+        _sync_if_configured(ctx, repository, run_id)
         return {"run_id": run.id, "run_status": run.status.value}
     except Exception:
         record_temporal_activity_failure()
@@ -190,8 +254,8 @@ def mark_run_cancelled(payload: dict[str, Any]) -> dict[str, Any]:
         reset_observability_context(token)
 
 
-def _bind_activity_context(ctx: TemporalActivityContext, run_id: str, node_id: str | None = None):
-    run = ctx.repository.runs.get(run_id)
+def _bind_activity_context(repository: Repository, run_id: str, node_id: str | None = None):
+    run = repository.runs.get(run_id)
     return bind_observability_context(
         job_id=run.job_id if run is not None else None,
         run_id=run_id,
@@ -199,14 +263,14 @@ def _bind_activity_context(ctx: TemporalActivityContext, run_id: str, node_id: s
     )
 
 
-def _sync_if_configured(ctx: TemporalActivityContext, run_id: str) -> None:
+def _sync_if_configured(ctx: TemporalActivityContext, repository: Repository, run_id: str) -> None:
     if ctx.production_repository is None:
         return
-    run = ctx.repository.runs[run_id]
+    run = repository.runs[run_id]
     ctx.production_repository.sync_workflow_snapshot(
-        job=ctx.repository.jobs[run.job_id],
+        job=repository.jobs[run.job_id],
         run=run,
-        repository=ctx.repository,
+        repository=repository,
     )
 
 

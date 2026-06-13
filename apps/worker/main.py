@@ -46,6 +46,12 @@ async def async_main() -> None:
         secret_store=secret_store,
     )
     prompt_registry = PromptRegistry(runtime_repository, prompt_reader=prompt_reader)
+    # Under the SQL backend this worker-global runtime is only a stateless-service
+    # template (provider plugins/readers, secret/object stores, prompt reader): each
+    # Temporal activity builds a FRESH, isolated Repository via
+    # TemporalActivityContext.build_runtime() so concurrent runs never share mutable
+    # run-state. It still seeds demo media once here so per-activity runtimes can
+    # skip that expensive bootstrap.
     local_runtime = build_digital_human_workflow(
         runtime_repository,
         provider_gateway=provider_gateway,

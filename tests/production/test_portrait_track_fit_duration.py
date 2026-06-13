@@ -26,7 +26,7 @@ from unittest import mock
 
 import pytest
 
-from packages.core.contracts import ArtifactKind, ErrorCode, MediaInfo
+from packages.core.contracts import ErrorCode, MediaInfo
 from packages.core.workflow import NodeExecutionError
 from packages.media.video.ffmpeg import ffmpeg_bin, probe_media
 from packages.production.pipeline import digital_human as dh

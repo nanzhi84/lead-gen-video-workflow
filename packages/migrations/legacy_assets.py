@@ -210,8 +210,6 @@ class LegacyAssetMigrator:
             self._add_media_row(result, kind, row)
 
     def _collect_fonts(self, result: MigrationResult, selected: set[str]) -> None:
-        if "font" not in selected:
-            return
         return
 
     def _collect_covers(self, result: MigrationResult, selected: set[str]) -> None:
@@ -308,9 +306,6 @@ class LegacyAssetMigrator:
         while text.startswith("uploads/"):
             text = text.removeprefix("uploads/")
         return f"{self.upload_prefix}{text}" if text else None
-
-    def _key_from_uri(self, uri: str) -> str:
-        return urlsplit(uri).path.lstrip("/")
 
     def _post(self, import_type: str, rows: list[dict], result: MigrationResult) -> dict:
         clean_rows = [{k: v for k, v in row.items() if not k.startswith("_")} for row in rows]

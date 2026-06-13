@@ -321,10 +321,6 @@ class TemporalRuntimeAdapter:
             self._mark_local_force_cancelled(run_id)
         return self.repository.runs.get(run_id) if self.repository is not None else None
 
-    def get_run_status(self, run_id: str) -> RunStatus | None:
-        value = self._run(self._query_status(run_id))
-        return RunStatus(value) if value else None
-
     async def _client(self) -> Client:
         return await Client.connect(
             self.settings.temporal_address,
@@ -347,11 +343,6 @@ class TemporalRuntimeAdapter:
             await handle.terminate(reason=reason or "force cancel requested")
         else:
             await handle.signal("cancel", {"reason": reason or ""})
-
-    async def _query_status(self, run_id: str) -> str | None:
-        client = await self._client()
-        handle = client.get_workflow_handle(run_id)
-        return await handle.query("status")
 
     def _run(self, coroutine):
         try:

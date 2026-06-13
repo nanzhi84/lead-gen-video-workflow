@@ -25,8 +25,6 @@ from packages.core.contracts import (
     NodeStatus,
     PerformanceObservation,
     PublishBatchRequest,
-    PublishDefaults,
-    PublishPackage,
     PublishRecord,
     RunStatus,
     VideoVersion,
@@ -40,7 +38,6 @@ from packages.core.storage.database import (
     JobRow,
     NodeRunRow,
     PerformanceObservationRow,
-    PublishPackageRow,
     PublishRecordRow,
     VideoVersionRow,
     WorkflowRunRow,
@@ -196,21 +193,6 @@ def video_version_row_to_contract(row: VideoVersionRow) -> VideoVersion:
         finished_video_id=row.finished_video_id,
         timeline_plan_artifact_id=row.timeline_plan_artifact_id,
         style_plan_artifact_id=row.style_plan_artifact_id,
-        schema_version=row.schema_version,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
-
-
-def publish_package_row_to_contract(row: PublishPackageRow) -> PublishPackage:
-    return PublishPackage(
-        id=row.id,
-        case_id=row.case_id,
-        source_finished_video_id=row.source_finished_video_id,
-        upload_artifact_id=row.upload_artifact_id,
-        video_artifact=ArtifactRef.model_validate(row.video_artifact),
-        cover_artifact=ArtifactRef.model_validate(row.cover_artifact) if row.cover_artifact else None,
-        platform_defaults=PublishDefaults.model_validate(row.platform_defaults),
         schema_version=row.schema_version,
         created_at=row.created_at,
         updated_at=row.updated_at,

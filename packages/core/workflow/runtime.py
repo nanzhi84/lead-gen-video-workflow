@@ -14,7 +14,6 @@ from packages.core.contracts import (
     NodeError,
     NodeStatus,
     Job,
-    RunStatus,
     WarningCode,
     WorkflowRun,
     WorkflowTemplate,
@@ -96,7 +95,4 @@ class WorkflowRuntimeAdapter(Protocol):
         new_run: WorkflowRun,
         reuse_plan: Any,
     ) -> None:
-        ...
-
-    def get_run_status(self, run_id: str) -> RunStatus | None:
         ...

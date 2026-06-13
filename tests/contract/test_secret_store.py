@@ -1,4 +1,3 @@
-from pathlib import Path
 
 from packages.core.storage.secret_store import LocalSecretStore
 

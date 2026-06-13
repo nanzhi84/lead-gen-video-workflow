@@ -26,7 +26,7 @@ export function rangeWindow(range: TimeRange) {
   return { window_start: start.toISOString(), window_end: end.toISOString(), days, hours: option?.hours ?? days * 24 };
 }
 
-export function moneyAmount(value?: { amount: string; currency: string } | null) {
+function moneyAmount(value?: { amount: string; currency: string } | null) {
   const amount = Number(value?.amount ?? 0);
   return Number.isFinite(amount) ? amount : 0;
 }
@@ -57,7 +57,7 @@ function bucketWorkflowStatus(status: string): keyof OverviewStats | "other" {
   return "other";
 }
 
-export function latestWorkflowEvents(events: YieldFunnelEvent[]) {
+function latestWorkflowEvents(events: YieldFunnelEvent[]) {
   const latestByRun = new Map<string, YieldFunnelEvent>();
   events
     .filter((event) => event.event_type.startsWith("workflow_"))

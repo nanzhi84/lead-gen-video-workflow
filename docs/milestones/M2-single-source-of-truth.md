@@ -2,7 +2,7 @@
 
 负责：Codex（执行）/ Claude（架构 + 验收）
 分两阶段串行：**M2a 行为改造**（本文件主体）→ **M2b 结构拆分**（main.py 拆 routers/services，另行派发）。
-Spec：仓库根 `树影_Cutagent_CleanSlate重写Spec_v3_2026-06-11.md`（1A.3、3.2、11.3、14 章、15.1、19.4）。
+Spec：`docs/树影_Cutagent_CleanSlate重写Spec_v3_2026-06-11.md`（1A.3、3.2、11.3、14 章、15.1、19.4）。
 
 ## M2a Goal
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import delete
 from sqlalchemy.orm import Session, sessionmaker
 
 from packages.core.storage.database import IdempotencyRecordRow
@@ -50,9 +49,3 @@ class SqlAlchemyIdempotencyRepository:
             )
             session.merge(row)
             session.commit()
-
-    def cleanup_expired(self, *, now: datetime) -> int:
-        with self.session_factory() as session:
-            result = session.execute(delete(IdempotencyRecordRow).where(IdempotencyRecordRow.expires_at <= now))
-            session.commit()
-            return result.rowcount or 0

@@ -2,9 +2,9 @@ import { AlertCircle, CheckCircle, Info, X, XCircle } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ApiError } from "../../api/client";
 
-export type ToastType = "success" | "error" | "warning" | "info";
+type ToastType = "success" | "error" | "warning" | "info";
 
-export type Toast = {
+type Toast = {
   id: string;
   type: ToastType;
   title: string;
@@ -24,7 +24,7 @@ type ToastContextValue = {
 const ToastContext = createContext<ToastContextValue | null>(null);
 const TOAST_EVENT = "cutagent:toast";
 
-export function formatToastText(value: unknown): string | undefined {
+function formatToastText(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
@@ -97,7 +97,7 @@ function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: (id: string) =
   );
 }
 
-export function ToastContainer({ toasts, onRemove }: { toasts: Toast[]; onRemove: (id: string) => void }) {
+function ToastContainer({ toasts, onRemove }: { toasts: Toast[]; onRemove: (id: string) => void }) {
   return (
     <div className="fixed right-4 top-4 z-[100] flex max-w-sm flex-col gap-2">
       {toasts.map((toast) => (

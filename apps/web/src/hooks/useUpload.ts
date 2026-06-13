@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { api, type CompleteUploadResponse, type UploadKind, type UploadSession } from "../api/client";
 
-export type UploadStage = "idle" | "preparing" | "uploading" | "completing" | "completed" | "failed";
+type UploadStage = "idle" | "preparing" | "uploading" | "completing" | "completed" | "failed";
 
 type UploadFileInput = {
   file: File;

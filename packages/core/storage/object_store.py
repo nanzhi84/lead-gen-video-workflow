@@ -369,8 +369,7 @@ def parse_local_uri(uri: str) -> ObjectRef:
     for prefix in ("local://", "s3://"):
         if uri.startswith(prefix):
             return _parse_uri_tail(uri, prefix)
-    else:
-        raise ValueError(f"Unsupported local object URI: {uri}")
+    raise ValueError(f"Unsupported local object URI: {uri}")
 
 
 def parse_object_uri(uri: str) -> ObjectRef:

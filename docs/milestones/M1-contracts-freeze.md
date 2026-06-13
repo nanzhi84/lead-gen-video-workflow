@@ -2,7 +2,7 @@
 
 负责：Codex（执行）/ Claude（架构 + 验收）
 分支：`feat/m1-contracts-freeze`
-Spec：仓库根 `树影_Cutagent_CleanSlate重写Spec_v3_2026-06-11.md`（引用行号均指该文件；第 32 章是终值，与前文冲突以 32 章为准）
+Spec：`docs/树影_Cutagent_CleanSlate重写Spec_v3_2026-06-11.md`（引用行号均指该文件；第 32 章是终值，与前文冲突以 32 章为准）
 
 ## Goal
 

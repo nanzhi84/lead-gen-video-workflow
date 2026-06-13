@@ -2,7 +2,7 @@
 
 This is a clean-room implementation of the Case-first digital human content production system described in:
 
-`树影_Cutagent_CleanSlate重写Spec_v3_2026-06-11.md`
+`docs/树影_Cutagent_CleanSlate重写Spec_v3_2026-06-11.md`
 
 The first implementation slice is contract-first:
 

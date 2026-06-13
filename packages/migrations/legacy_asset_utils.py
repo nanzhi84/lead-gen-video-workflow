@@ -106,34 +106,6 @@ def template_kind(item: dict) -> str:
     return "video" if suffix in {".mp4", ".mov", ".m4v", ".webm"} else "other"
 
 
-def font_records(data: Any, group: str | None = None):
-    if isinstance(data, list):
-        for item in data:
-            if isinstance(item, dict):
-                yield item, group
-    elif isinstance(data, dict):
-        if any(key in data for key in ("path", "filename", "file", "name", "family", "id")):
-            yield data, group
-            return
-        for key, value in data.items():
-            next_group = key if key in {"subtitle", "system", "user"} else group
-            yield from font_records(value, next_group)
-
-
-def font_path(item: dict, group: str | None) -> str | None:
-    path = item.get("path") or item.get("file_path") or item.get("font_path")
-    if path:
-        return str(path)
-    filename = item.get("filename") or item.get("file") or item.get("font_file")
-    if not filename:
-        return None
-    filename = str(filename)
-    if "/" in filename:
-        return filename
-    category = str(item.get("category") or item.get("type") or group or "user")
-    return f"fonts/{category}/{filename}"
-
-
 def idempotency_key(import_type: str, rows: list[dict]) -> str:
     payload = json.dumps({"import_type": import_type, "rows": rows}, sort_keys=True, ensure_ascii=False)
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]

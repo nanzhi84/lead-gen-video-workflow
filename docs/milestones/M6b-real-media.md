@@ -91,7 +91,7 @@ Spec：1A.7（FFmpeg/确定性媒体传感器）、第 7 章节点契约（7.5 T
 
 ## 验收记录（2026-06-12，验收官：Claude）
 
-**判定：通过**（merge 见 git log）。证据：115 单测 + 23 DB 集成 + 4 Temporal 集成全绿；真环境提交 run 产出真实 mp4（1080×1920 H264 30fps + AAC 48kHz，7.57s，8.4MB），ffprobe 探针 + 抽帧目检确认中文字幕真实烧制（帧图存档 m6b-final-frame.png）；ASS 文件按句切分时间轴正确；strict 模式按 spec 7.7 拒绝 estimated 时间戳（真 ASR 接入前的正确行为，非 strict 提交出片）。
+**判定：通过**（merge 见 git log）。证据：115 单测 + 23 DB 集成 + 4 Temporal 集成全绿；真环境提交 run 产出真实 mp4（1080×1920 H264 30fps + AAC 48kHz，7.57s，8.4MB），ffprobe 探针 + 抽帧目检确认中文字幕真实烧制（帧图存档 docs/assets/m6b-final-frame.png）；ASS 文件按句切分时间轴正确；strict 模式按 spec 7.7 拒绝 estimated 时间戳（真 ASR 接入前的正确行为，非 strict 提交出片）。
 
 验收修复 2 处：上传探针失败错误码从 render.failed 归正为 upload.unsupported_type；voices 集成测试改用真实 WAV fixture（假字节被探针拒绝是正确行为，修测试不放宽探针）。
 

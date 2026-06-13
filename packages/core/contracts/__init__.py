@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from enum import Enum
 from typing import Annotated, Any, Generic, Literal, TypeVar
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
@@ -865,6 +866,7 @@ class RunDetailResponse(ContractModel):
     run: WorkflowRun
     node_runs: list[NodeRun]
     artifacts: list[ArtifactRef]
+    artifact_payloads: dict[str, JsonValue] = Field(default_factory=dict)
     request_id: str = "req_local"
 
 
@@ -941,6 +943,38 @@ class MediaAssetRecord(EntityMeta):
     tags: list[str] = Field(default_factory=list)
     annotation_status: Literal["pending", "annotated", "annotation_failed"] = "pending"
     usable: bool = True
+
+
+SelectionMedium = Literal["portrait", "broll", "bgm", "font"]
+
+
+class SelectionLedgerEntry(ContractModel):
+    id: str = Field(default_factory=lambda: f"sel_{uuid4().hex[:12]}")
+    case_id: str
+    run_id: str
+    medium: SelectionMedium
+    asset_id: str
+    slot_phase: str
+    diversity_key: str | None = None
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class MaterialUsageRankingItem(ContractModel):
+    asset_id: str
+    medium: SelectionMedium
+    asset: MediaAssetRecord | None = None
+    task_use_count: int = 0
+    segment_use_count: int = 0
+    last_used_at: datetime | None = None
+    recent_score: float = 0
+
+
+class MaterialUsageRankingReport(ContractModel):
+    kind: SelectionMedium
+    case_id: str | None = None
+    top_n: int = Field(20, ge=1, le=100)
+    items: list[MaterialUsageRankingItem] = Field(default_factory=list)
+    request_id: str = "req_local"
 
 
 class MediaAssetQuery(BaseListQuery):

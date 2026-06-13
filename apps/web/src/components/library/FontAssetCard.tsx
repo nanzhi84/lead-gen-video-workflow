@@ -1,17 +1,18 @@
 import { Eye, Info, Trash2, Type } from "lucide-react";
-import type { MediaAssetRecord } from "../../api/client";
-import { shortId } from "../../lib/format";
+import type { MaterialUsageRankingItem, MediaAssetRecord } from "../../api/client";
+import { formatRelativeTime, shortId } from "../../lib/format";
 import { annotationStatusLabels, annotationTone, fontFamilyName } from "./libraryModel";
 import { FontFaceStyle } from "./FontFaceStyle";
 
 type FontAssetCardProps = {
   asset: MediaAssetRecord;
+  usage?: MaterialUsageRankingItem;
   previewUrl: string | null;
   onLoadPreview: () => void;
   onDetail: () => void;
 };
 
-export function FontAssetCard({ asset, previewUrl, onLoadPreview, onDetail }: FontAssetCardProps) {
+export function FontAssetCard({ asset, usage, previewUrl, onLoadPreview, onDetail }: FontAssetCardProps) {
   const family = fontFamilyName(asset.id);
   return (
     <article className="rounded-[24px] border border-border/80 bg-white/65 p-4 shadow-glow">
@@ -19,6 +20,11 @@ export function FontAssetCard({ asset, previewUrl, onLoadPreview, onDetail }: Fo
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <span className={`badge ${annotationTone(asset.annotation_status)}`}>{annotationStatusLabels[asset.annotation_status]}</span>
+          {usage && usage.task_use_count > 0 ? (
+            <span className="mt-2 inline-flex badge bg-accent/10 text-accent" title={`最近 ${formatRelativeTime(usage.last_used_at)}`}>
+              使用 {usage.task_use_count}
+            </span>
+          ) : null}
           <h3 className="mt-3 truncate text-lg font-semibold text-text-primary">{asset.title}</h3>
           <p className="mt-1 font-mono text-xs text-text-tertiary">{shortId(asset.id, 12)}</p>
         </div>

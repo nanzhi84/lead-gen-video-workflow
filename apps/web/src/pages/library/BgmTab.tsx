@@ -6,6 +6,7 @@ import { AnnotationEditorModal } from "../../components/annotation/AnnotationEdi
 import { BgmAssetCard } from "../../components/library/BgmAssetCard";
 import { LibraryAssetUploadModal } from "../../components/library/LibraryAssetUploadModal";
 import { TemplateGridSkeleton } from "../../components/library/TemplateGridSkeleton";
+import { UsageRankingPanel } from "../../components/library/UsageRankingPanel";
 import { collectUsefulTags, toDisplayUrl } from "../../components/library/libraryModel";
 import { SearchInput } from "../../components/ui/SearchInput";
 import { useToast } from "../../components/ui/Toast";
@@ -27,9 +28,17 @@ export function BgmTab() {
     queryKey: ["library", "media", "bgm", limit],
     queryFn: () => api.mediaAssets.list({ limit, kind: "bgm" }),
   });
+  const usageQuery = useQuery({
+    queryKey: ["library", "usage-ranking", "bgm"],
+    queryFn: () => api.mediaAssets.usageRanking("bgm", { top_n: 20 }),
+  });
 
   const items = bgmQuery.data?.items ?? [];
   const hasMore = Boolean(bgmQuery.data && items.length >= limit);
+  const usageByAssetId = useMemo(
+    () => new Map((usageQuery.data?.items ?? []).map((item) => [item.asset_id, item])),
+    [usageQuery.data],
+  );
   const styles = useMemo(() => collectUsefulTags(items, ["bgm", "upload"]), [items]);
   const filteredItems = useMemo(() => {
     const keyword = search.trim().toLowerCase();
@@ -92,6 +101,8 @@ export function BgmTab() {
         </select>
       </div>
 
+      <UsageRankingPanel report={usageQuery.data} isLoading={usageQuery.isLoading} error={usageQuery.error} />
+
       {bgmQuery.isLoading ? <TemplateGridSkeleton /> : null}
       {bgmQuery.error ? (
         <p className="rounded-2xl border border-status-error/30 bg-status-error/10 p-4 text-sm text-status-error">
@@ -104,6 +115,7 @@ export function BgmTab() {
           <BgmAssetCard
             key={card.asset.id}
             asset={card.asset}
+            usage={usageByAssetId.get(card.asset.id)}
             isPlaying={playing?.asset.id === card.asset.id}
             onPlay={() => void handlePlay(card.asset)}
             onAnnotation={() => setAnnotationAssetId(card.asset.id)}

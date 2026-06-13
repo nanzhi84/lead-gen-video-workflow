@@ -54,6 +54,7 @@ from packages.core.contracts import (
     RunPublicReportArtifact,
     RunReportResponse,
     RunStatus,
+    SelectionLedgerEntry,
     UsageMeterRecord,
     VideoVersion,
     WorkflowRun,
@@ -81,6 +82,7 @@ from packages.core.storage.database import (
     PublishPackageRow,
     PublishRecordRow,
     ScriptVersionRow,
+    SelectionLedgerRow,
     UsageMeterRecordRow,
     VoiceProfileRow,
     WorkflowRunRow,
@@ -508,6 +510,9 @@ class SqlAlchemyProductionRepository:
             for event in repository.yield_events.values():
                 if getattr(event, "run_id", None) == run.id:
                     session.merge(self._yield_funnel_event_row(event, run.case_id))
+            for entry in repository.selection_ledger.values():
+                if entry.run_id == run.id:
+                    session.merge(self._selection_ledger_row(entry))
             session.commit()
 
     def case_run_cards(self, *, case_id: str, request_id: str, limit: int = 50) -> PageResponse[RunCard] | None:
@@ -644,18 +649,20 @@ class SqlAlchemyProductionRepository:
                     .order_by(NodeRunRow.created_at.asc())
                 )
             ]
-            artifacts = [
-                artifact_ref_from_row(row)
-                for row in session.scalars(
+            artifact_rows = list(
+                session.scalars(
                     select(ArtifactRow)
                     .where(ArtifactRow.run_id == run_id)
                     .order_by(ArtifactRow.created_at.asc())
                 )
-            ]
+            )
+            artifacts = [artifact_ref_from_row(row) for row in artifact_rows]
+            payloads = {row.id: row.payload for row in artifact_rows if row.payload is not None}
             return RunDetailResponse(
                 run=workflow_run_row_to_contract(run),
                 node_runs=node_runs,
                 artifacts=artifacts,
+                artifact_payloads=payloads,
                 request_id=request_id,
             )
 
@@ -1310,6 +1317,18 @@ class SqlAlchemyProductionRepository:
             schema_version=node_run.schema_version,
             created_at=node_run.created_at,
             updated_at=node_run.updated_at,
+        )
+
+    def _selection_ledger_row(self, entry: SelectionLedgerEntry) -> SelectionLedgerRow:
+        return SelectionLedgerRow(
+            id=entry.id,
+            case_id=entry.case_id,
+            run_id=entry.run_id,
+            medium=entry.medium,
+            asset_id=entry.asset_id,
+            slot_phase=entry.slot_phase,
+            diversity_key=entry.diversity_key,
+            created_at=entry.created_at,
         )
 
     def _provider_invocation_row(self, invocation: ProviderInvocation) -> ProviderInvocationRow:

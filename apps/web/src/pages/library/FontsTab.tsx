@@ -6,6 +6,7 @@ import { FontAssetCard } from "../../components/library/FontAssetCard";
 import { FontDetailModal } from "../../components/library/FontDetailModal";
 import { LibraryAssetUploadModal } from "../../components/library/LibraryAssetUploadModal";
 import { TemplateGridSkeleton } from "../../components/library/TemplateGridSkeleton";
+import { UsageRankingPanel } from "../../components/library/UsageRankingPanel";
 import { collectUsefulTags, toDisplayUrl } from "../../components/library/libraryModel";
 import { SearchInput } from "../../components/ui/SearchInput";
 import { useToast } from "../../components/ui/Toast";
@@ -23,8 +24,16 @@ export function FontsTab() {
     queryKey: ["library", "media", "font"],
     queryFn: () => api.mediaAssets.list({ limit: 200, kind: "font" }),
   });
+  const usageQuery = useQuery({
+    queryKey: ["library", "usage-ranking", "font"],
+    queryFn: () => api.mediaAssets.usageRanking("font", { top_n: 20 }),
+  });
 
   const items = fontsQuery.data?.items ?? [];
+  const usageByAssetId = useMemo(
+    () => new Map((usageQuery.data?.items ?? []).map((item) => [item.asset_id, item])),
+    [usageQuery.data],
+  );
   const categories = useMemo(() => collectUsefulTags(items, ["font", "upload"]), [items]);
   const filteredItems = useMemo(() => {
     const keyword = search.trim().toLowerCase();
@@ -82,6 +91,8 @@ export function FontsTab() {
         </select>
       </div>
 
+      <UsageRankingPanel report={usageQuery.data} isLoading={usageQuery.isLoading} error={usageQuery.error} />
+
       {fontsQuery.isLoading ? <TemplateGridSkeleton /> : null}
       {fontsQuery.error ? (
         <p className="rounded-2xl border border-status-error/30 bg-status-error/10 p-4 text-sm text-status-error">
@@ -94,6 +105,7 @@ export function FontsTab() {
           <FontAssetCard
             key={card.asset.id}
             asset={card.asset}
+            usage={usageByAssetId.get(card.asset.id)}
             previewUrl={previewUrls[card.asset.id] ?? null}
             onLoadPreview={() => void ensurePreview(card.asset)}
             onDetail={async () => {

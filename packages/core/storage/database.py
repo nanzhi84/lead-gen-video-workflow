@@ -243,6 +243,25 @@ class MediaAssetRow(TimestampMixin, Base):
     usable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
+class SelectionLedgerRow(Base):
+    __tablename__ = "selection_ledger"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    case_id: Mapped[str] = mapped_column(String, nullable=False)
+    run_id: Mapped[str] = mapped_column(String, nullable=False)
+    medium: Mapped[str] = mapped_column(String, nullable=False)
+    asset_id: Mapped[str] = mapped_column(String, nullable=False)
+    slot_phase: Mapped[str] = mapped_column(String, nullable=False)
+    diversity_key: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("case_id", "run_id", "medium", "asset_id", "slot_phase"),
+    )
+
+
 class AnnotationRow(TimestampMixin, Base):
     __tablename__ = "annotations"
 
@@ -777,6 +796,8 @@ Index(
     ProviderBalanceSnapshotRow.provider_id,
     ProviderBalanceSnapshotRow.account_group,
 )
+Index("idx_selection_ledger_case_medium", SelectionLedgerRow.case_id, SelectionLedgerRow.medium)
+Index("idx_selection_ledger_asset", SelectionLedgerRow.medium, SelectionLedgerRow.asset_id)
 Index("idx_provider_invocations_case", ProviderInvocationRow.case_id, ProviderInvocationRow.provider_id)
 Index("idx_usage_meter_provider", UsageMeterRecordRow.provider_id, UsageMeterRecordRow.capability_id)
 Index("idx_case_memories_case_status", CaseMemoryRow.case_id, CaseMemoryRow.status)

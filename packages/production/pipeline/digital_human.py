@@ -25,6 +25,7 @@ from packages.core.contracts import (
     RunPublicReportArtifact,
     RunStatus,
     ScriptVersion,
+    SelectionLedgerEntry,
     ValidatedProductionSpec,
     VideoVersion,
     WarningCode,
@@ -193,6 +194,76 @@ def degradation_notice(
         node_id=node_id,
         affects_true_yield=affects_true_yield,
     )
+
+
+def _candidate_metadata(asset) -> dict:
+    tags = list(getattr(asset, "tags", []) or [])
+    return {"matched_keywords": tags} if tags else {}
+
+
+def _candidate_keywords(candidate: dict | None) -> list[str]:
+    metadata = candidate.get("metadata") if isinstance(candidate, dict) else None
+    if not isinstance(metadata, dict):
+        return []
+    values = metadata.get("matched_keywords") or metadata.get("keywords") or metadata.get("tags")
+    if not isinstance(values, list):
+        return []
+    return [str(value) for value in values if str(value).strip()]
+
+
+def _candidate_scene_name(candidate: dict | None) -> str | None:
+    metadata = candidate.get("metadata") if isinstance(candidate, dict) else None
+    if not isinstance(metadata, dict):
+        return None
+    value = metadata.get("scene_name") or metadata.get("scene")
+    return str(value) if isinstance(value, str) and value.strip() else None
+
+
+def _selection_entries_from_state(run: WorkflowRun, state: RunState) -> list[SelectionLedgerEntry]:
+    case_id = run.case_id or state.request.case_id
+    entries: list[SelectionLedgerEntry] = []
+
+    def add(medium: str, asset_id, slot_phase: str, diversity_key=None) -> None:
+        if isinstance(asset_id, str) and asset_id:
+            entries.append(
+                SelectionLedgerEntry(
+                    case_id=case_id,
+                    run_id=run.id,
+                    medium=medium,
+                    asset_id=asset_id,
+                    slot_phase=slot_phase,
+                    diversity_key=diversity_key if isinstance(diversity_key, str) else None,
+                )
+            )
+
+    portrait = state.artifacts.get(ArtifactKind.plan_portrait)
+    portrait_payload = portrait.payload if portrait and isinstance(portrait.payload, dict) else {}
+    add("portrait", portrait_payload.get("asset_id"), "portrait_main")
+
+    broll = state.artifacts.get(ArtifactKind.plan_broll)
+    broll_payload = broll.payload if broll and isinstance(broll.payload, dict) else {}
+    overlays = broll_payload.get("overlays")
+    segments = broll_payload.get("segments")
+    broll_items = overlays if isinstance(overlays, list) and overlays else segments
+    if isinstance(broll_items, list):
+        for index, item in enumerate(broll_items):
+            if not isinstance(item, dict):
+                continue
+            slot_phase = str(item.get("overlay_id") or item.get("segment_id") or f"broll_{index + 1}")
+            add("broll", item.get("asset_id"), slot_phase, item.get("diversity_key"))
+
+    style = state.artifacts.get(ArtifactKind.plan_style)
+    style_payload = style.payload if style and isinstance(style.payload, dict) else {}
+    bgm = style_payload.get("bgm") if isinstance(style_payload.get("bgm"), dict) else {}
+    font = style_payload.get("font") if isinstance(style_payload.get("font"), dict) else {}
+    subtitle = style_payload.get("subtitle") if isinstance(style_payload.get("subtitle"), dict) else {}
+    add("bgm", style_payload.get("bgm_asset_id") or bgm.get("asset_id"), "bgm")
+    add(
+        "font",
+        style_payload.get("font_asset_id") or font.get("font_id") or subtitle.get("font_id"),
+        "font",
+    )
+    return entries
 
 
 class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
@@ -951,6 +1022,7 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
     ) -> NodeOutput:
         request = state.request
         assets = list(self.repository.media_assets.values())
+        asset_by_id = {asset.id: asset for asset in assets}
         portrait = [
             asset.id
             for asset in assets
@@ -984,19 +1056,39 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
         payload = MaterialPackArtifact(
             case_id=request.case_id,
             portrait_candidates=[
-                MaterialCandidate(asset_id=asset_id, score=1, reason="seeded usable portrait")
+                MaterialCandidate(
+                    asset_id=asset_id,
+                    score=1,
+                    reason="seeded usable portrait",
+                    metadata=_candidate_metadata(asset_by_id.get(asset_id)),
+                )
                 for asset_id in portrait
             ],
             broll_candidates=[
-                MaterialCandidate(asset_id=asset_id, score=1, reason="seeded usable b-roll")
+                MaterialCandidate(
+                    asset_id=asset_id,
+                    score=1,
+                    reason="seeded usable b-roll",
+                    metadata=_candidate_metadata(asset_by_id.get(asset_id)),
+                )
                 for asset_id in broll
             ],
             bgm_candidates=[
-                MaterialCandidate(asset_id=asset_id, score=1, reason="seeded usable bgm")
+                MaterialCandidate(
+                    asset_id=asset_id,
+                    score=1,
+                    reason="seeded usable bgm",
+                    metadata=_candidate_metadata(asset_by_id.get(asset_id)),
+                )
                 for asset_id in bgm
             ],
             font_candidates=[
-                MaterialCandidate(asset_id=asset_id, score=1, reason="seeded usable font")
+                MaterialCandidate(
+                    asset_id=asset_id,
+                    score=1,
+                    reason="seeded usable font",
+                    metadata=_candidate_metadata(asset_by_id.get(asset_id)),
+                )
                 for asset_id in fonts
             ],
             diagnostics={
@@ -1615,7 +1707,12 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
 
     def _broll_planning(self, run: WorkflowRun, node_run: NodeRun, state: RunState) -> NodeOutput:
         material = state.require(ArtifactKind.plan_material_pack).payload or {}
-        broll = [item.get("asset_id") for item in material.get("broll_candidates", []) if item.get("asset_id")]
+        broll_candidates = [
+            item for item in material.get("broll_candidates", [])
+            if isinstance(item, dict) and item.get("asset_id")
+        ]
+        broll = [item.get("asset_id") for item in broll_candidates]
+        candidate_by_id = {item["asset_id"]: item for item in broll_candidates}
         if not state.request.broll.enabled:
             return NodeOutput(
                 artifacts=[
@@ -1656,6 +1753,7 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
         for index, asset_id in enumerate(broll[: state.request.broll.max_inserts]):
             start_sec = index * 3
             end_sec = start_sec + 2
+            candidate = candidate_by_id.get(asset_id)
             segments.append(
                 {
                     "asset_id": asset_id,
@@ -1665,6 +1763,8 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
                     "source_end": end_sec - start_sec,
                     "reason": "seeded usable b-roll",
                     "confidence": 1,
+                    "matched_keywords": _candidate_keywords(candidate),
+                    "scene_name": _candidate_scene_name(candidate),
                 }
             )
         return NodeOutput(
@@ -1686,6 +1786,8 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
                                 "source_end": segment["source_end"],
                                 "reason": segment["reason"],
                                 "confidence": segment["confidence"],
+                                "matched_keywords": segment["matched_keywords"],
+                                "scene_name": segment["scene_name"],
                             }
                             for index, segment in enumerate(segments)
                         ],
@@ -2255,6 +2357,10 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
 
     def _finalize_run_report(self, run: WorkflowRun, node_run: NodeRun, state: RunState) -> NodeOutput:
         public_artifact, debug_artifact = self._write_report(run, state, failed=False, node_run=node_run)
+        try:
+            self.repository.record_selection_ledger_entries(_selection_entries_from_state(run, state))
+        except Exception:
+            logger.warning("Failed to record selection ledger for run %s.", run.id, exc_info=True)
         for artifact in state.artifacts.values():
             if artifact.kind not in _EPHEMERAL_ARTIFACT_KINDS or not artifact.uri:
                 continue

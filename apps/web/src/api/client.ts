@@ -38,6 +38,8 @@ export type ApiError = Error & {
   status: number;
   details?: unknown;
 };
+export type MaterialUsageRankingReport = components["schemas"]["MaterialUsageRankingReport"];
+export type MaterialUsageRankingItem = components["schemas"]["MaterialUsageRankingItem"];
 
 type FetchOptions = Omit<RequestInit, "body"> & {
   body?: unknown;
@@ -369,6 +371,14 @@ export const api = {
   mediaAssets: {
     list: (query: QueryParams<operations["list_media_assets_api_media_assets_get"]> = {}) =>
       fetchJson<JsonResponse<operations["list_media_assets_api_media_assets_get"]>>("/api/media/assets", { query }),
+    usageRanking: (
+      kind: "portrait" | "broll" | "bgm" | "font",
+      query: QueryParams<operations["material_usage_ranking_api_library_assets__kind__usage_ranking_get"]> = {},
+    ) =>
+      fetchJson<JsonResponse<operations["material_usage_ranking_api_library_assets__kind__usage_ranking_get"]>>(
+        `/api/library/assets/${enc(kind)}/usage-ranking`,
+        { query },
+      ),
     create: (payload: JsonRequest<operations["create_media_asset_api_media_assets_post"]>) =>
       fetchJson<JsonResponse<operations["create_media_asset_api_media_assets_post"]>>("/api/media/assets", {
         method: "POST",

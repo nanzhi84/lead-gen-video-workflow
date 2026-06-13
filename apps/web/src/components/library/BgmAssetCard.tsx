@@ -1,16 +1,17 @@
 import { Eye, Music4, PauseCircle, Play, Trash2 } from "lucide-react";
-import type { MediaAssetRecord } from "../../api/client";
-import { shortId } from "../../lib/format";
+import type { MaterialUsageRankingItem, MediaAssetRecord } from "../../api/client";
+import { formatRelativeTime, shortId } from "../../lib/format";
 import { annotationStatusLabels, annotationTone } from "./libraryModel";
 
 type BgmAssetCardProps = {
   asset: MediaAssetRecord;
+  usage?: MaterialUsageRankingItem;
   isPlaying: boolean;
   onPlay: () => void;
   onAnnotation: () => void;
 };
 
-export function BgmAssetCard({ asset, isPlaying, onPlay, onAnnotation }: BgmAssetCardProps) {
+export function BgmAssetCard({ asset, usage, isPlaying, onPlay, onAnnotation }: BgmAssetCardProps) {
   return (
     <article className="rounded-[24px] border border-border/80 bg-white/65 p-4 shadow-glow">
       <div className="flex aspect-video items-center justify-center rounded-2xl bg-[linear-gradient(135deg,rgba(94,109,81,0.14),rgba(214,255,72,0.16))] text-accent">
@@ -21,9 +22,16 @@ export function BgmAssetCard({ asset, isPlaying, onPlay, onAnnotation }: BgmAsse
           <h3 className="truncate text-base font-semibold text-text-primary">{asset.title}</h3>
           <p className="mt-1 font-mono text-xs text-text-tertiary">{shortId(asset.id, 12)}</p>
         </div>
-        <span className={`badge ${annotationTone(asset.annotation_status)}`}>
-          {annotationStatusLabels[asset.annotation_status]}
-        </span>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <span className={`badge ${annotationTone(asset.annotation_status)}`}>
+            {annotationStatusLabels[asset.annotation_status]}
+          </span>
+          {usage && usage.task_use_count > 0 ? (
+            <span className="badge bg-accent/10 text-accent" title={`最近 ${formatRelativeTime(usage.last_used_at)}`}>
+              使用 {usage.task_use_count}
+            </span>
+          ) : null}
+        </div>
       </div>
       <div className="mt-3 flex flex-wrap gap-1.5">
         {(asset.tags ?? []).map((tag) => (

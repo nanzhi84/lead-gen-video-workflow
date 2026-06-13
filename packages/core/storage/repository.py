@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from packages.core.registration_codes import hash_registration_code
 from packages.core.storage.prompt_groups import seed_prompt_groups
 from packages.core.storage.provider_seed import seed_real_provider_configuration
+from packages.core.storage.selection_ledger import material_usage_ranking_from_entries
 from packages.core.contracts import (
     AnnotationEditorVm,
     Artifact,
@@ -29,6 +30,8 @@ from packages.core.contracts import (
     Job,
     MediaInfo,
     MediaAssetRecord,
+    MaterialUsageRankingItem,
+    MaterialUsageRankingReport,
     MemoryProposal,
     Money,
     OpsAlertEvent,
@@ -60,6 +63,8 @@ from packages.core.contracts import (
     ScriptDraft,
     ScriptVersion,
     SecretPreview,
+    SelectionLedgerEntry,
+    SelectionMedium,
     UploadSession,
     UsageMeterRecord,
     UserRole,
@@ -95,6 +100,7 @@ class Repository:
         self.node_runs: dict[str, list] = {}
         self.artifacts: dict[str, Artifact] = {}
         self.media_assets: dict[str, MediaAssetRecord] = {}
+        self.selection_ledger: dict[str, SelectionLedgerEntry] = {}
         self.annotations: dict[str, AnnotationEditorVm] = {}
         self.voices: dict[str, VoiceProfile] = {}
         self.prompt_templates: dict[str, PromptTemplate] = {}
@@ -314,6 +320,43 @@ class Repository:
 
     def page(self, values: Iterable[TModel], limit: int = 50) -> list[TModel]:
         return list(values)[:limit]
+
+    def record_selection_ledger_entries(
+        self, entries: Iterable[SelectionLedgerEntry]
+    ) -> list[SelectionLedgerEntry]:
+        existing = {
+            (entry.case_id, entry.run_id, entry.medium, entry.asset_id, entry.slot_phase)
+            for entry in self.selection_ledger.values()
+        }
+        recorded: list[SelectionLedgerEntry] = []
+        for entry in entries:
+            key = (entry.case_id, entry.run_id, entry.medium, entry.asset_id, entry.slot_phase)
+            if key in existing:
+                continue
+            self.selection_ledger[entry.id] = entry
+            existing.add(key)
+            recorded.append(entry)
+        return recorded
+
+    def material_usage_ranking(
+        self,
+        *,
+        kind: SelectionMedium,
+        case_id: str | None = None,
+        top_n: int = 20,
+    ) -> MaterialUsageRankingReport:
+        entries = [
+            entry
+            for entry in self.selection_ledger.values()
+            if entry.medium == kind and (case_id is None or entry.case_id == case_id)
+        ]
+        return material_usage_ranking_from_entries(
+            entries=entries,
+            assets=self.media_assets,
+            kind=kind,
+            case_id=case_id,
+            top_n=top_n,
+        )
 
     def artifact_ref(self, artifact_id: str) -> ArtifactRef:
         artifact = self.artifacts[artifact_id]

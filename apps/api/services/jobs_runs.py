@@ -478,7 +478,18 @@ def run_detail(request: Request, run_id: str) -> c.RunDetailResponse:
     artifacts = [
         repository(request).artifact_ref(artifact.id) for artifact in repository(request).artifacts.values() if artifact.run_id == run_id
     ]
-    return c.RunDetailResponse(run=run, node_runs=node_runs, artifacts=artifacts, request_id=request_id())
+    payloads = {
+        artifact.id: artifact.payload
+        for artifact in repository(request).artifacts.values()
+        if artifact.run_id == run_id and artifact.payload is not None
+    }
+    return c.RunDetailResponse(
+        run=run,
+        node_runs=node_runs,
+        artifacts=artifacts,
+        artifact_payloads=payloads,
+        request_id=request_id(),
+    )
 
 
 def cancel_run(run_id: str, payload: c.CancelRunRequest, request: Request) -> c.RunActionResponse:

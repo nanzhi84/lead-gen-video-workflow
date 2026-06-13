@@ -8,6 +8,7 @@ import { TemplateAssetCard } from "../../components/library/TemplateAssetCard";
 import { TemplateGridSkeleton } from "../../components/library/TemplateGridSkeleton";
 import { TemplateUploadModal } from "../../components/library/TemplateUploadModal";
 import { UploadPlaceholderCard } from "../../components/library/UploadPlaceholderCard";
+import { UsageRankingPanel } from "../../components/library/UsageRankingPanel";
 import { templateKindLabels, type TemplateKind, type UploadPlaceholder, toDisplayUrl } from "../../components/library/libraryModel";
 import { SearchInput } from "../../components/ui/SearchInput";
 import { useToast } from "../../components/ui/Toast";
@@ -65,10 +66,21 @@ export function TemplatesTab() {
     refetchInterval: pageVisible ? 10_000 : false,
   });
 
+  const usageQuery = useQuery({
+    queryKey: ["library", "usage-ranking", selectedCaseId, kind],
+    queryFn: () => api.mediaAssets.usageRanking(kind, { case_id: selectedCaseId, top_n: 20 }),
+    enabled: Boolean(selectedCaseId),
+    refetchInterval: pageVisible ? 10_000 : false,
+  });
+
   const activeQuery = kind === "portrait" ? portraitQuery : brollQuery;
   const activeItems = activeQuery.data?.items ?? [];
   const hasMoreAssets = Boolean(activeQuery.data && activeItems.length >= assetLimit);
   const selectedCase = cases.find((item) => item.id === selectedCaseId) ?? null;
+  const usageByAssetId = useMemo(
+    () => new Map((usageQuery.data?.items ?? []).map((item) => [item.asset_id, item])),
+    [usageQuery.data],
+  );
   const scenes = useMemo(() => {
     const values = new Set<string>();
     activeItems.forEach((card) => card.asset.tags?.forEach((tag) => values.add(tag)));
@@ -274,6 +286,8 @@ export function TemplatesTab() {
           </select>
         </div>
 
+        <UsageRankingPanel report={usageQuery.data} isLoading={usageQuery.isLoading} error={usageQuery.error} />
+
         {batchMode ? (
           <TemplateBatchActionBar
             selectedCount={selectedAssetIds.length}
@@ -303,6 +317,7 @@ export function TemplatesTab() {
               selected={selectedAssetIds.includes(card.asset.id)}
               isAnalyzing={rerunMutation.isPending && rerunMutation.variables === card.asset.id}
               isReplacing={replaceMutation.isPending && replaceMutation.variables?.assetId === card.asset.id}
+              usage={usageByAssetId.get(card.asset.id)}
               onToggleSelected={() =>
                 setSelectedAssetIds((current) =>
                   current.includes(card.asset.id) ? current.filter((id) => id !== card.asset.id) : [...current, card.asset.id],

@@ -608,6 +608,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/library/assets/{kind}/usage-ranking": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Material Usage Ranking */
+        get: operations["material_usage_ranking_api_library_assets__kind__usage_ranking_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/media/assets/batch-stabilize": {
         parameters: {
             query?: never;
@@ -3601,6 +3618,56 @@ export interface components {
             /** Password */
             password: string;
         };
+        /** MaterialUsageRankingItem */
+        MaterialUsageRankingItem: {
+            /** Asset Id */
+            asset_id: string;
+            /**
+             * Medium
+             * @enum {string}
+             */
+            medium: "portrait" | "broll" | "bgm" | "font";
+            asset?: components["schemas"]["MediaAssetRecord"] | null;
+            /**
+             * Task Use Count
+             * @default 0
+             */
+            task_use_count: number;
+            /**
+             * Segment Use Count
+             * @default 0
+             */
+            segment_use_count: number;
+            /** Last Used At */
+            last_used_at?: string | null;
+            /**
+             * Recent Score
+             * @default 0
+             */
+            recent_score: number;
+        };
+        /** MaterialUsageRankingReport */
+        MaterialUsageRankingReport: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "portrait" | "broll" | "bgm" | "font";
+            /** Case Id */
+            case_id?: string | null;
+            /**
+             * Top N
+             * @default 20
+             */
+            top_n: number;
+            /** Items */
+            items?: components["schemas"]["MaterialUsageRankingItem"][];
+            /**
+             * Request Id
+             * @default req_local
+             */
+            request_id: string;
+        };
         /** MediaAssetCard */
         MediaAssetCard: {
             asset: components["schemas"]["MediaAssetRecord"];
@@ -5649,6 +5716,10 @@ export interface components {
             node_runs: components["schemas"]["NodeRun"][];
             /** Artifacts */
             artifacts: components["schemas"]["ArtifactRef"][];
+            /** Artifact Payloads */
+            artifact_payloads?: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
             /**
              * Request Id
              * @default req_local
@@ -7661,6 +7732,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PageResponse_MediaAssetCard_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    material_usage_ranking_api_library_assets__kind__usage_ranking_get: {
+        parameters: {
+            query?: {
+                case_id?: string | null;
+                top_n?: number;
+            };
+            header?: never;
+            path: {
+                kind: "portrait" | "broll" | "bgm" | "font";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaterialUsageRankingReport"];
                 };
             };
             /** @description Validation Error */

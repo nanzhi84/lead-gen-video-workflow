@@ -266,6 +266,8 @@ class BrollOverlay(ContractModel):
     source_end: float
     reason: str
     confidence: float
+    matched_keywords: list[str] = Field(default_factory=list)
+    scene_name: str | None = None
 
 
 class BrollPlanArtifact(ContractModel):

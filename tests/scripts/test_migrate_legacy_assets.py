@@ -118,14 +118,16 @@ def _oss_payload(prefix: str):
             ]
         },
         f"{prefix}templates_pool/index.json": {
-            "tpl-1": {
-                "id": "tpl-1",
-                "name": "Portrait One",
-                "path": "video_templates/portrait.mp4",
-                "material_type": "portrait",
-                "duration": 12,
-                "case_id": "case-1",
-            }
+            "templates": [
+                {
+                    "id": "tpl-1",
+                    "name": "Portrait One",
+                    "path": "video_templates/portrait.mp4",
+                    "material_type": "portrait",
+                    "duration": 12,
+                    "case_id": "case-1",
+                }
+            ]
         },
         f"{prefix}fonts/font_annotations.json": {
             "version": 1,

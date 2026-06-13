@@ -188,7 +188,13 @@ class LegacyAssetMigrator:
         if not include_extra and not selected.intersection({"portrait", "bgm", "broll"}):
             return
         data = self._load_oss_json(f"{self.upload_prefix}templates_pool/index.json", result)
-        values = data.values() if isinstance(data, dict) else as_list(data)
+        if isinstance(data, dict):
+            inner = data.get("templates")
+            values = inner if isinstance(inner, list) else [
+                value for value in data.values() if isinstance(value, dict)
+            ]
+        else:
+            values = as_list(data)
         for item in values:
             if not isinstance(item, dict):
                 continue

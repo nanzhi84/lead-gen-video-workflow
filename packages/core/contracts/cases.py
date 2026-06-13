@@ -264,3 +264,30 @@ class CaseInsightCard(EntityMeta):
 class MetricsImportRequest(ContractModel):
     rows: list[dict[str, JsonValue]]
     dry_run: bool = False
+
+
+OceanEngineSourcePage = Literal[
+    "video_analysis",
+    "localpush_account",
+    "localpush_unit",
+    "comment_content",
+]
+
+
+class OceanEngineMetricRow(ContractModel):
+    """A single normalized OceanEngine (巨量) offline-import metric/comment record.
+
+    ``source_page`` identifies the RPA export the row came from. ``external_ref``
+    is the most stable identifier the export carries (material/video/unit id)
+    used for downstream matching. ``metrics`` holds the numeric measures keyed by
+    canonical metric name; ``attributes`` keeps non-numeric context. ``raw`` is the
+    untouched source row, and ``row_fingerprint`` is a content hash for dedupe.
+    """
+
+    source_page: OceanEngineSourcePage
+    external_ref: str | None = None
+    title: str | None = None
+    metrics: dict[str, float] = Field(default_factory=dict)
+    attributes: dict[str, str] = Field(default_factory=dict)
+    raw: dict[str, str] = Field(default_factory=dict)
+    row_fingerprint: str

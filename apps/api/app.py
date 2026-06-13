@@ -89,9 +89,15 @@ async def lifespan(app: FastAPI):
     dispatcher_task = None
     if not app.state.settings.api.disable_background_dispatcher:
         dispatcher_task = asyncio.create_task(app.state.outbox_dispatcher.run())
+    from apps.api.services.providers import build_balance_poller_service
+
+    balance_poller = build_balance_poller_service(app)
+    app.state.balance_poller = balance_poller
+    await balance_poller.start()  # no-op unless settings.balance.poller_enabled
     try:
         yield
     finally:
+        await balance_poller.stop()
         app.state.outbox_dispatcher.stop()
         if dispatcher_task is not None:
             dispatcher_task.cancel()

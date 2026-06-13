@@ -202,6 +202,27 @@ class ApiSettings(BaseModel):
     disable_background_dispatcher: bool = False
 
 
+class BalanceSettings(BaseModel):
+    """Provider balance polling knobs (``settings.balance.*``).
+
+    The pollers themselves never need a secret to be SAFE: a missing provider
+    secret degrades to ``unconfigured`` rather than erroring. These settings only
+    govern the OPTIONAL periodic background poller and the per-request HTTP
+    timeout. The periodic poller is OFF by default — it is opt-in infra that
+    fans out real (gated) provider calls, so it must be explicitly enabled per
+    deployment."""
+
+    model_config = ConfigDict(frozen=True)
+
+    # CUTAGENT_BALANCE_POLLER_ENABLED: "1" turns on the background periodic
+    # poller. Off by default so no-key / test deployments never fan out.
+    poller_enabled: bool = False
+    # CUTAGENT_BALANCE_POLL_INTERVAL_SECONDS: seconds between periodic refreshes.
+    poll_interval_seconds: int = 900
+    # CUTAGENT_BALANCE_REQUEST_TIMEOUT_SECONDS: per-provider HTTP timeout.
+    request_timeout_seconds: int = 10
+
+
 class Settings(BaseModel):
     """Typed, immutable snapshot of all infrastructure configuration.
 
@@ -218,6 +239,7 @@ class Settings(BaseModel):
     secret_store: SecretStoreSettings = Field(default_factory=SecretStoreSettings)
     media: MediaSettings = Field(default_factory=MediaSettings)
     api: ApiSettings = Field(default_factory=ApiSettings)
+    balance: BalanceSettings = Field(default_factory=BalanceSettings)
 
 
 # ----------------------------------------------------------------------------
@@ -312,6 +334,15 @@ def build_settings() -> Settings:
                 "CUTAGENT_DISABLE_BACKGROUND_DISPATCHER"
             )
             == "1",
+        ),
+        balance=BalanceSettings(
+            poller_enabled=os.getenv("CUTAGENT_BALANCE_POLLER_ENABLED") == "1",
+            poll_interval_seconds=_env_int(
+                "CUTAGENT_BALANCE_POLL_INTERVAL_SECONDS", 900
+            ),
+            request_timeout_seconds=_env_int(
+                "CUTAGENT_BALANCE_REQUEST_TIMEOUT_SECONDS", 10
+            ),
         ),
     )
 

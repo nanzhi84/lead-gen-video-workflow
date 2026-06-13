@@ -7,6 +7,7 @@ design rationale (infra-only, env read at build time, no cached singleton)."""
 from .settings import (
     ApiSettings,
     AuthSettings,
+    BalanceSettings,
     EphemeralObjectStoreSettings,
     MediaSettings,
     ObjectStoreSettings,
@@ -22,6 +23,7 @@ from .settings import (
 __all__ = [
     "ApiSettings",
     "AuthSettings",
+    "BalanceSettings",
     "EphemeralObjectStoreSettings",
     "MediaSettings",
     "ObjectStoreSettings",

@@ -10,11 +10,8 @@ from packages.migrations.legacy_asset_utils import (
     DEFAULT_BUCKET,
     DEFAULT_KINDS,
     DEFAULT_UPLOAD_PREFIX,
-    FONT_EXTENSIONS,
     IMAGE_EXTENSIONS,
     as_list,
-    font_path,
-    font_records,
     guess_mime,
     idempotency_key,
     optional_float,
@@ -76,7 +73,12 @@ class LegacyAssetMigrator:
         self._collect_bgm(result, selected)
         for case in cases:
             if isinstance(case, dict) and case.get("id"):
-                self._collect_broll(result, str(case["id"]), selected)
+                self._collect_broll(
+                    result,
+                    str(case["id"]),
+                    str(case.get("name") or case.get("case_name") or case["id"]),
+                    selected,
+                )
         self._collect_templates(result, selected, kinds is None)
         self._collect_fonts(result, selected)
         self._collect_covers(result, selected)
@@ -147,10 +149,17 @@ class LegacyAssetMigrator:
             )
             self._add_media_row(result, "bgm", row)
 
-    def _collect_broll(self, result: MigrationResult, legacy_case_id: str, selected: set[str]) -> None:
+    def _collect_broll(
+        self,
+        result: MigrationResult,
+        legacy_case_id: str,
+        legacy_case_name: str,
+        selected: set[str],
+    ) -> None:
         if "broll" not in selected:
             return
-        data = self._load_oss_json(f"{self.upload_prefix}cases/{legacy_case_id}/broll/library.json", result)
+        case_dir = f"{legacy_case_name.strip()}_{legacy_case_id[:8]}"
+        data = self._load_oss_json(f"{self.upload_prefix}cases/{case_dir}/broll/library.json", result)
         for item in as_list(data.get("videos") if isinstance(data, dict) else data):
             row = self._media_row(
                 item, kind="broll", group="broll", path=item.get("path") or item.get("filename"),
@@ -161,6 +170,8 @@ class LegacyAssetMigrator:
             self._add_media_row(result, "broll", row)
 
     def _collect_templates(self, result: MigrationResult, selected: set[str], include_extra: bool) -> None:
+        if not include_extra and not selected.intersection({"portrait", "bgm", "broll"}):
+            return
         data = self._load_oss_json(f"{self.upload_prefix}templates_pool/index.json", result)
         values = data.values() if isinstance(data, dict) else as_list(data)
         for item in values:
@@ -180,26 +191,7 @@ class LegacyAssetMigrator:
     def _collect_fonts(self, result: MigrationResult, selected: set[str]) -> None:
         if "font" not in selected:
             return
-        data = self._load_oss_json(f"{self.upload_prefix}fonts/font_annotations.json", result)
-        seen: set[str] = set()
-        for item, group in font_records(data):
-            row = self._media_row(
-                item, kind="font", group="font", path=font_path(item, group),
-                title=item.get("name") or item.get("family") or item.get("filename") or item.get("id"),
-                external_id=item.get("id") or item.get("name") or item.get("filename"),
-                duration=None, legacy_case_id=None, result=result,
-            )
-            if row:
-                seen.add(self._key_from_uri(row["uri"]))
-            self._add_media_row(result, "font", row)
-        for key in self.oss.list_keys(f"{self.upload_prefix}fonts/"):
-            if Path(key).suffix.lower() in FONT_EXTENSIONS and key not in seen:
-                row = self._media_row(
-                    {"path": key}, kind="font", group="font", path=key, title=Path(key).stem,
-                    external_id=f"font:{Path(key).name}", duration=None,
-                    legacy_case_id=None, result=result,
-                )
-                self._add_media_row(result, "font", row)
+        return
 
     def _collect_covers(self, result: MigrationResult, selected: set[str]) -> None:
         if "cover" not in selected:
@@ -265,7 +257,11 @@ class LegacyAssetMigrator:
             if legacy_case_id:
                 mapped = case_id_map.get(legacy_case_id)
                 if not mapped:
-                    result.failures.append(f"media {row.get('external_id')} has no mapped case_id for {legacy_case_id}")
+                    message = f"media {row.get('external_id')} has no mapped case_id for {legacy_case_id}"
+                    if row.get("kind") == "portrait":
+                        result.warnings.append(f"WARN {message}; skipped")
+                    else:
+                        result.failures.append(message)
                     continue
                 row["case_id"] = mapped
             finalized.append(row)

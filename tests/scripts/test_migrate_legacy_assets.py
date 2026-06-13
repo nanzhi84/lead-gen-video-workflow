@@ -12,13 +12,17 @@ class FakeOss:
         self.existing_keys = existing_keys
         self.listed = listed or []
         self.checked: list[str] = []
+        self.json_requested: list[str] = []
+        self.list_requested: list[str] = []
 
     def get_json(self, key: str):
+        self.json_requested.append(key)
         if key not in self.json_by_key:
             raise FileNotFoundError(key)
         return self.json_by_key[key]
 
     def list_keys(self, prefix: str) -> list[str]:
+        self.list_requested.append(prefix)
         return [key for key in self.listed if key.startswith(prefix)]
 
     def object_exists(self, key: str) -> bool:
@@ -96,7 +100,7 @@ def _oss_payload(prefix: str):
                 }
             ]
         },
-        f"{prefix}cases/case-1/broll/library.json": {
+        f"{prefix}cases/Case One_case-1/broll/library.json": {
             "videos": [
                 {
                     "id": "broll-1",
@@ -117,9 +121,17 @@ def _oss_payload(prefix: str):
                 "case_id": "case-1",
             }
         },
-        f"{prefix}fonts/font_annotations.json": [
-            {"id": "font-1", "name": "Font One", "path": "fonts/user/font.ttf"}
-        ],
+        f"{prefix}fonts/font_annotations.json": {
+            "version": 1,
+            "fonts": {
+                "font-1": {
+                    "font_id": "font-1",
+                    "font_name": "Font One",
+                    "category": "system",
+                }
+            },
+            "last_updated": "2026-06-13T00:00:00Z",
+        },
     }
 
 
@@ -130,7 +142,6 @@ def test_apply_imports_cases_first_and_maps_legacy_case_ids_into_script_and_medi
         f"{prefix}bgm_library/bgm.mp3",
         f"{prefix}cases/case-1/broll/videos/clip.mp4",
         f"{prefix}video_templates/portrait.mp4",
-        f"{prefix}fonts/user/font.ttf",
         f"{prefix}cover_templates/case-1/cover.png",
     }
     oss = FakeOss(
@@ -167,12 +178,11 @@ def test_apply_imports_cases_first_and_maps_legacy_case_ids_into_script_and_medi
     assert api.calls[1][1][0]["case_id"] == "gen_case_0"
     assert api.calls[1][1][0]["external_id"] == "script-1"
     media_rows = api.calls[2][1]
-    assert {row["kind"] for row in media_rows} == {"bgm", "broll", "portrait", "font", "cover_template"}
+    assert {row["kind"] for row in media_rows} == {"bgm", "broll", "portrait", "cover_template"}
     assert {row["uri"] for row in media_rows} == {
         f"s3://videoretalk-test-bucket/{prefix}bgm_library/bgm.mp3",
         f"s3://videoretalk-test-bucket/{prefix}cases/case-1/broll/videos/clip.mp4",
         f"s3://videoretalk-test-bucket/{prefix}video_templates/portrait.mp4",
-        f"s3://videoretalk-test-bucket/{prefix}fonts/user/font.ttf",
         f"s3://videoretalk-test-bucket/{prefix}cover_templates/case-1/cover.png",
     }
     assert next(row for row in media_rows if row["kind"] == "bgm")["case_id"] is None
@@ -197,6 +207,80 @@ def test_missing_oss_key_is_skipped_and_reported_as_warning(tmp_path):
     assert [row["kind"] for row in result.media_rows] == ["bgm"]
     assert any("WARN missing OSS key" in warning for warning in result.warnings)
     assert f"{prefix}cases/case-1/broll/videos/clip.mp4" in oss.checked
+
+
+def test_portrait_with_unmapped_case_id_warns_and_skips_without_failing_batch(tmp_path):
+    _write_case_meta(tmp_path)
+    prefix = "digital-human-platform/dev/uploads/"
+    oss = FakeOss(
+        {
+            f"{prefix}templates_pool/index.json": {
+                "tpl-unknown": {
+                    "id": "tpl-unknown",
+                    "name": "Unknown Portrait",
+                    "path": "video_templates/unknown.mp4",
+                    "material_type": "portrait",
+                    "case_id": "unknown-case",
+                }
+            }
+        },
+        {f"{prefix}video_templates/unknown.mp4"},
+    )
+    api = FakeImportApi()
+
+    result = migrate.run_migration(
+        case_meta_dir=tmp_path,
+        oss_client=oss,
+        import_client=api,
+        apply=True,
+        kinds={"case", "portrait"},
+        out=None,
+    )
+
+    assert result.failed_count == 0
+    assert [call[0] for call in api.calls] == ["case"]
+    assert any(
+        warning == "WARN media tpl-unknown has no mapped case_id for unknown-case; skipped"
+        for warning in result.warnings
+    )
+
+
+def test_font_kind_is_clean_noop_without_reading_legacy_font_metadata(tmp_path):
+    _write_case_meta(tmp_path)
+    prefix = "digital-human-platform/dev/uploads/"
+    oss = FakeOss(
+        {
+            f"{prefix}fonts/font_annotations.json": {
+                "version": 1,
+                "fonts": {
+                    "font-1": {
+                        "font_id": "font-1",
+                        "font_name": "Font One",
+                        "category": "system",
+                    }
+                },
+                "last_updated": "2026-06-13T00:00:00Z",
+            }
+        },
+        {f"{prefix}fonts/previews/font-1.png"},
+        listed=[f"{prefix}fonts/previews/font-1.png"],
+    )
+
+    result = migrate.run_migration(
+        case_meta_dir=tmp_path,
+        oss_client=oss,
+        import_client=FakeImportApi(),
+        apply=False,
+        kinds={"font"},
+        out=None,
+    )
+
+    assert result.media_rows == []
+    assert result.rows_by_kind == {}
+    assert result.warnings == []
+    assert oss.json_requested == []
+    assert oss.list_requested == []
+    assert oss.checked == []
 
 
 def test_dry_run_does_not_call_import_api(tmp_path):

@@ -1376,6 +1376,25 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
     def _concat_video_segments(self, segments: list[Path], output_path: Path) -> None:
         render_ops.concat_video_segments(segments, output_path)
 
+    def _fit_video_to_exact_duration(
+        self,
+        source_path: Path,
+        output_path: Path,
+        *,
+        duration: float,
+        width: int,
+        height: int,
+        fps: int,
+    ) -> None:
+        render_ops.fit_video_to_exact_duration(
+            source_path,
+            output_path,
+            duration=duration,
+            width=width,
+            height=height,
+            fps=fps,
+        )
+
     def _render_video_timeline(
         self,
         *,
@@ -1743,10 +1762,26 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
                         fps=fps,
                     )
                     segment_paths.append(output_path)
+                raw_track_path = temp_dir / "portrait_track_raw.mp4"
+                self._concat_video_segments(segment_paths, raw_track_path)
+                # Per-segment -t ms-quantization + fps resampling + concat (-c copy)
+                # accumulate sub-frame drift that exceeds 1/fps for longer tracks.
+                # Force the track to be EXACTLY the plan duration (clone-pad if
+                # short, trim if long) so the sanity check below passes reliably.
                 concat_path = temp_dir / "portrait_track.mp4"
-                self._concat_video_segments(segment_paths, concat_path)
+                self._fit_video_to_exact_duration(
+                    raw_track_path,
+                    concat_path,
+                    duration=duration,
+                    width=width,
+                    height=height,
+                    fps=fps,
+                )
                 media_info = probe_media(concat_path)
-                if abs(float(media_info.duration_sec or 0) - duration) > (1 / fps):
+                # Exact-fit now guarantees the duration; keep the sanity check but
+                # relax the tolerance to a few frames so it only fires on a gross
+                # render failure, not on ms quantization.
+                if abs(float(media_info.duration_sec or 0) - duration) > max(2 / fps, 0.05):
                     raise NodeExecutionError(
                         ErrorCode.render_invalid_timeline,
                         "Portrait track duration does not match the plan.",

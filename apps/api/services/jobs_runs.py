@@ -296,6 +296,7 @@ def create_digital_human_job(
     case = get_case(request, payload.case_id)
     if payload.case_id not in repository(request).cases:
         repository(request).cases[payload.case_id] = case
+    _link_adopted_script(request, payload)
     job = c.Job(
         id=new_id("job"),
         type=c.JobType.digital_human_video,
@@ -307,6 +308,29 @@ def create_digital_human_job(
     repository(request).jobs[job.id] = job
     run = _start_submitted_run(request, job_id=job.id, mode="new", from_run_id=None, reason=None)
     return c.CreateJobResponse(job=repository(request).jobs[job.id], initial_run=run, request_id=request_id())
+
+
+def _link_adopted_script(request: Request, payload: c.DigitalHumanVideoRequest) -> None:
+    """Persist the link to the adopted ScriptVersion referenced by the job request.
+
+    The contract carries ``script_version_id`` on the request, which is stored on
+    the job row inside the request payload. To stop the adopted ScriptVersion from
+    being orphaned (and to preserve its ``adopted_from_draft_id`` provenance through
+    the run snapshot), hydrate the existing ScriptVersion into the runtime repository
+    so ExportFinishedVideo reuses it instead of fabricating a fresh row. We validate
+    it belongs to the request's case; a cross-case or unknown id is ignored (the
+    pipeline then mints a fresh ScriptVersion under that id, as before).
+    """
+    script_version_id = payload.script_version_id
+    if not script_version_id:
+        return
+    repo = repository(request)
+    existing = repo.scripts.get(script_version_id)
+    if existing is None and production_repository(request) is not None:
+        existing = production_repository(request).hydrate_adopted_script(repo, script_version_id)
+    if existing is not None and existing.case_id != payload.case_id:
+        # Defensive: never relink a ScriptVersion across cases.
+        repo.scripts.pop(script_version_id, None)
 
 
 def estimate_digital_human_video_cost(

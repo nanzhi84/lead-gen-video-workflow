@@ -17,7 +17,9 @@ from packages.core.storage.database import (
     PromptInvocationRow,
     ProviderInvocationRow,
     PublishPackageRow,
+    ScriptVersionRow,
     UsageMeterRecordRow,
+    VideoVersionRow,
     WorkflowRunRow,
 )
 
@@ -125,3 +127,65 @@ def test_sqlalchemy_workflow_job_run_report_and_artifacts_are_persisted():
         assert outbox_row.status == "pending"
         assert outbox_row.payload["run_id"] == run_id
         assert any(row.source_finished_video_id for row in package_rows)
+
+
+def test_sqlalchemy_job_links_adopted_script_version_not_orphaned():
+    session_factory = sqlalchemy_session_factory()
+
+    # Seed an adopted ScriptVersion (as the Case Agent draft-adoption flow would).
+    script_id = "script_link_test"
+    with session_factory() as session:
+        session.merge(
+            ScriptVersionRow(
+                id=script_id,
+                case_id="case_demo",
+                title="Adopted draft title",
+                script="Adopted draft body.",
+                adopted_from_draft_id="draft_link_test",
+            )
+        )
+        session.commit()
+
+    with TestClient(app) as client:
+        admin_login = client.post(
+            "/api/auth/login",
+            json={"email": "admin@local.cutagent", "password": "local-admin"},
+        )
+        assert admin_login.status_code == 200, admin_login.text
+
+        created = client.post(
+            "/api/jobs/digital-human-video",
+            json={
+                "case_id": "case_demo",
+                "title": "Script-linked workflow video",
+                "script": "携带 script_version_id 的请求脚本。",
+                "script_version_id": script_id,
+                "voice": {"voice_id": "voice_sandbox"},
+                "portrait": {"template_mode": "agent"},
+                "strictness": {"strict_timestamps": False},
+            },
+        )
+        assert created.status_code == 201, created.text
+        body = created.json()
+        job_id = body["job"]["id"]
+
+        # The job row persists the link (inside the request payload) and GET surfaces it.
+        assert body["job"]["request"]["script_version_id"] == script_id
+        detail = client.get(f"/api/jobs/{job_id}")
+        assert detail.status_code == 200, detail.text
+        assert detail.json()["job"]["request"]["script_version_id"] == script_id
+
+    with session_factory() as session:
+        # The adopted ScriptVersion is preserved (provenance intact), not overwritten.
+        script_row = session.get(ScriptVersionRow, script_id)
+        assert script_row is not None
+        assert script_row.adopted_from_draft_id == "draft_link_test"
+        assert script_row.title == "Adopted draft title"
+
+        # A VideoVersion links back to the adopted ScriptVersion id (no orphan).
+        version_rows = list(
+            session.scalars(
+                select(VideoVersionRow).where(VideoVersionRow.script_version_id == script_id)
+            )
+        )
+        assert version_rows, "expected a VideoVersion linked to the adopted ScriptVersion"

@@ -29,6 +29,7 @@ from packages.core.workflow import NodeExecutionError, NodeOutput
 from packages.media.assets import store_file
 from packages.media.cover import CoverPromptInputs, build_cover_prompt
 from packages.media.video.ffmpeg import FfmpegCommandError, extract_thumbnails
+from packages.ops.funnel import record_funnel_event
 from packages.production.pipeline._node_context import NodeContext
 from packages.production.pipeline._run_state import degradation_notice
 
@@ -102,14 +103,25 @@ def run(ctx: NodeContext) -> NodeOutput:
         status=NodeStatus.running.value,
         message=f"Finished video {finished.id} created.",
     )
-    repository.record_yield_funnel_event(
+    record_funnel_event(
+        repository,
+        event_type="finished_video_created",
         job_id=run.job_id,
         run_id=run.id,
         finished_video_id=finished.id,
         publish_package_id=package.id,
-        event_type="finished_video_created",
         dedupe_key=f"{finished.id}:finished_video_created",
         event_time=finished.created_at,
+    )
+    record_funnel_event(
+        repository,
+        event_type="publish_package_created",
+        job_id=run.job_id,
+        run_id=run.id,
+        finished_video_id=finished.id,
+        publish_package_id=package.id,
+        dedupe_key=f"{package.id}:publish_package_created",
+        event_time=package.created_at,
     )
     package_artifact = ctx.artifact(
         ArtifactKind.publish_package,

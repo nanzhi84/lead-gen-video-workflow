@@ -21,6 +21,7 @@ from packages.core.observability.outbox import OutboxWriter
 from packages.core.contracts.state_machines import assert_transition
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
+from packages.ops.funnel import record_funnel_event, workflow_stage
 from packages.production.pipeline import ReusePlan, ReuseSourceRun, compute_reuse_plan
 from packages.production.pipeline.digital_human import digital_human_template
 
@@ -123,6 +124,24 @@ def _admit_run(
         dedupe_key=f"{run.id}:run:{run.status.value}",
         status=run.status.value,
         message="Run admitted.",
+    )
+    # Funnel head: the run passes through created -> admitted in this one call, so
+    # emit both stages here (the run never lingers in ``created`` anywhere else).
+    record_funnel_event(
+        repo,
+        event_type=workflow_stage(c.RunStatus.created),
+        job_id=job_id,
+        run_id=run.id,
+        dedupe_aggregate_id=run.id,
+        event_time=run.created_at,
+    )
+    record_funnel_event(
+        repo,
+        event_type=workflow_stage(c.RunStatus.admitted),
+        job_id=job_id,
+        run_id=run.id,
+        dedupe_aggregate_id=run.id,
+        event_time=run.updated_at,
     )
     return job, run, template
 

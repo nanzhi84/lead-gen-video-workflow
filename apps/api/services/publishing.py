@@ -16,6 +16,62 @@ from packages.core import contracts as c
 from packages.core.contracts.state_machines import assert_transition
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
+from packages.ops.funnel import record_funnel_event
+
+
+def _publish_run_ids(repo, package_id: str | None) -> tuple[str | None, str | None]:
+    """Best-effort resolution of (run_id, job_id) for a publish package so funnel
+    events stay linked to the originating run/job. Returns (None, None) when the
+    package is detached from a finished video (e.g. raw upload-artifact packages)."""
+
+    package = repo.publish_packages.get(package_id) if package_id else None
+    finished_video_id = getattr(package, "source_finished_video_id", None) if package else None
+    finished = repo.finished_videos.get(finished_video_id) if finished_video_id else None
+    run_id = getattr(finished, "run_id", None) if finished else None
+    run = repo.runs.get(run_id) if run_id else None
+    job_id = getattr(run, "job_id", None) if run else None
+    return run_id, job_id
+
+
+def _record_publish_attempt_funnel(repo, batch, item, attempt) -> None:
+    """Emit the submitted -> terminal funnel pair for one publish attempt.
+
+    Always records ``publish_attempt_submitted``; then records the terminal
+    stage (``publish_attempt_succeeded`` for a published attempt,
+    ``publish_attempt_failed`` for a failed one). Dry-run / manual-review-ready
+    attempts emit only the submitted stage. All writes are best-effort."""
+
+    run_id, job_id = _publish_run_ids(repo, getattr(item, "publish_package_id", None))
+    record_funnel_event(
+        repo,
+        event_type="publish_attempt_submitted",
+        job_id=job_id,
+        run_id=run_id,
+        publish_attempt_id=attempt.id,
+        dedupe_key=f"{attempt.id}:publish_attempt_submitted",
+        event_time=attempt.created_at,
+    )
+    status_value = attempt.status.value if hasattr(attempt.status, "value") else str(attempt.status)
+    if status_value == "published":
+        record_funnel_event(
+            repo,
+            event_type="publish_attempt_succeeded",
+            job_id=job_id,
+            run_id=run_id,
+            publish_attempt_id=attempt.id,
+            dedupe_key=f"{attempt.id}:publish_attempt_succeeded",
+            event_time=attempt.finished_at or attempt.updated_at,
+        )
+    elif status_value == "failed":
+        record_funnel_event(
+            repo,
+            event_type="publish_attempt_failed",
+            job_id=job_id,
+            run_id=run_id,
+            publish_attempt_id=attempt.id,
+            dedupe_key=f"{attempt.id}:publish_attempt_failed",
+            event_time=attempt.finished_at or attempt.updated_at,
+        )
 
 def publish_packages(request: Request, limit: int = 50) -> c.PageResponse[c.PublishPackage]:
 
@@ -28,21 +84,34 @@ def publish_packages(request: Request, limit: int = 50) -> c.PageResponse[c.Publ
 def create_publish_package(payload: c.CreatePublishPackageRequest, request: Request) -> c.PublishPackage:
     if publishing_repository(request) is not None:
         return publishing_repository(request).create_package(payload)
+    repo = repository(request)
     if payload.source_finished_video_id:
-        return repository(request).create_publish_package_from_finished_video(
-            repository(request).finished_videos[payload.source_finished_video_id],
+        package = repo.create_publish_package_from_finished_video(
+            repo.finished_videos[payload.source_finished_video_id],
             title=payload.title,
             description=payload.description,
         )
-    if not payload.upload_artifact_id:
+    elif not payload.upload_artifact_id:
         raise NodeExecutionError(c.ErrorCode.artifact_missing, "Upload artifact is required.")
-    package = c.PublishPackage(
-        id=new_id("pkg"),
-        upload_artifact_id=payload.upload_artifact_id,
-        video_artifact=ensure_artifact_ref(request, payload.upload_artifact_id),
-        platform_defaults=c.PublishDefaults(title=payload.title, description=payload.description),
+    else:
+        package = c.PublishPackage(
+            id=new_id("pkg"),
+            upload_artifact_id=payload.upload_artifact_id,
+            video_artifact=ensure_artifact_ref(request, payload.upload_artifact_id),
+            platform_defaults=c.PublishDefaults(title=payload.title, description=payload.description),
+        )
+        repo.publish_packages[package.id] = package
+    run_id, job_id = _publish_run_ids(repo, package.id)
+    record_funnel_event(
+        repo,
+        event_type="publish_package_created",
+        job_id=job_id,
+        run_id=run_id,
+        finished_video_id=package.source_finished_video_id,
+        publish_package_id=package.id,
+        dedupe_key=f"{package.id}:publish_package_created",
+        event_time=package.created_at,
     )
-    repository(request).publish_packages[package.id] = package
     return package
 
 
@@ -218,6 +287,7 @@ def submit_publish_batch(
             finished_at=c.utcnow() if attempt_status == "published" else None,
         )
         repository(request).publish_attempts[attempt.id] = attempt
+        _record_publish_attempt_funnel(repository(request), batch, item, attempt)
     if selected_count == 0:
         raise NodeExecutionError(c.ErrorCode.validation_invalid_options, "At least one publish item must be selected.")
     assert_transition("publish_batch", batch.status, "processing")
@@ -277,6 +347,7 @@ def retry_publish_item(batch_id: str, item_id: str, request: Request) -> c.Publi
             finished_at=c.utcnow(),
         )
         repository(request).publish_attempts[attempt.id] = attempt
+        _record_publish_attempt_funnel(repository(request), batch, item, attempt)
         return updated
     return not_found_response("Publish item not found")
 

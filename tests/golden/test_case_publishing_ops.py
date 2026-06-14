@@ -222,6 +222,60 @@ def test_publish_attempts_can_be_listed_by_batch():
         assert attempts.json()["items"][0]["adapter_id"] == "sandbox.publish"
 
 
+def test_yield_funnel_records_full_lifecycle_stages():
+    """G3: the §9 funnel records every lifecycle stage, not just two.
+
+    A run that goes admit -> production -> finished video -> publish must surface
+    the workflow_* family plus the finished-video and publish-attempt stages.
+    """
+    with TestClient(create_app()) as active_client:
+        login_admin_for(active_client)
+        finished_video_id = create_finished_video(active_client, "Funnel coverage seed")
+        batch = create_publish_batch(active_client, finished_video_id)
+        submitted = active_client.post(
+            f"/api/publish/batches/{batch['id']}/submit", json={"dry_run": False}
+        )
+        assert submitted.status_code == 202, submitted.text
+        assert submitted.json()["items"][0]["status"] == "published"
+
+        funnel = active_client.get("/api/ops/yield-funnel")
+        assert funnel.status_code == 200, funnel.text
+        event_types = {event["event_type"] for event in funnel.json()["events"]}
+
+        # Run lifecycle head + terminal success.
+        assert "workflow_created" in event_types
+        assert "workflow_admitted" in event_types
+        assert "workflow_running" in event_types
+        assert "workflow_succeeded" in event_types
+        # Finished-video and publish stages.
+        assert "finished_video_created" in event_types
+        assert "publish_package_created" in event_types
+        assert "publish_attempt_submitted" in event_types
+        assert "publish_attempt_succeeded" in event_types
+        # Funnel grew well past the original two-stage shape.
+        assert len(event_types) >= 7
+
+
+def test_yield_funnel_records_publish_failure_stage():
+    """G3: a simulated publish failure surfaces publish_attempt_failed."""
+    with TestClient(create_app()) as active_client:
+        login_admin_for(active_client)
+        finished_video_id = create_finished_video(active_client, "Funnel failure seed")
+        batch = create_publish_batch(active_client, finished_video_id)
+        failed = active_client.post(
+            f"/api/publish/batches/{batch['id']}/submit",
+            json={"dry_run": False, "simulate_publish_failure": True},
+        )
+        assert failed.status_code == 202, failed.text
+        assert failed.json()["items"][0]["status"] == "publish_failed"
+
+        funnel = active_client.get("/api/ops/yield-funnel")
+        assert funnel.status_code == 200, funnel.text
+        event_types = {event["event_type"] for event in funnel.json()["events"]}
+        assert "publish_attempt_submitted" in event_types
+        assert "publish_attempt_failed" in event_types
+
+
 def test_spec_20_2_16_case_reflection_after_five_published_videos_creates_memory_proposal():
     """Spec 20.2 #16: five published videos can trigger reflection memory proposal generation."""
     with TestClient(create_app()) as active_client:

@@ -49,6 +49,7 @@ from packages.media.assets import local_object_path, store_file
 from packages.media.video.ffmpeg import FfmpegCommandError, probe_media
 from packages.core.observability import record_node_run, record_workflow_run
 from packages.core.contracts.state_machines import assert_transition
+from packages.ops.funnel import record_funnel_event, workflow_stage
 from packages.production.pipeline import nodes
 from packages.production.pipeline._ffmpeg import generate_seed_audio, generate_seed_video
 from packages.production.pipeline._node_context import NodeContext
@@ -352,6 +353,14 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
             status=RunStatus.running.value,
             message="Run is running.",
         )
+        record_funnel_event(
+            self.repository,
+            event_type=workflow_stage(RunStatus.running),
+            job_id=job.id,
+            run_id=run.id,
+            dedupe_aggregate_id=run.id,
+            event_time=run.started_at,
+        )
         if mode == "resume" and from_run_id:
             start_index = self._reuse_prefix(run, state, from_run_id, reuse_plan)
         for index, node_id in enumerate(NODE_SEQUENCE[start_index:], start=start_index):
@@ -386,6 +395,14 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
                 dedupe_key=f"{run.id}:run:{RunStatus.running.value}",
                 status=RunStatus.running.value,
                 message="Run is running.",
+            )
+            record_funnel_event(
+                self.repository,
+                event_type=workflow_stage(RunStatus.running),
+                job_id=job.id,
+                run_id=run.id,
+                dedupe_aggregate_id=run.id,
+                event_time=run.started_at,
             )
         if self.repository.runs[run_id].status != RunStatus.running:
             return self._node_activity_summary(run_id, node_id)
@@ -545,6 +562,14 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
                 status=NodeStatus.failed.value,
                 message=f"Node {node_id} failed.",
             )
+            record_funnel_event(
+                self.repository,
+                event_type=workflow_stage(RunStatus.failed),
+                job_id=job.id,
+                run_id=run.id,
+                dedupe_aggregate_id=run.id,
+                event_time=self.repository.runs[run.id].finished_at,
+            )
             return False
 
     def _complete_run(self, run_id: str) -> None:
@@ -569,11 +594,12 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
             status=final_status.value,
             message="Run completed.",
         )
-        self.repository.record_yield_funnel_event(
+        record_funnel_event(
+            self.repository,
+            event_type=workflow_stage(final_status),
             job_id=job.id,
             run_id=run.id,
-            event_type=f"workflow_{final_status.value}",
-            dedupe_key=f"{run.id}:workflow_{final_status.value}",
+            dedupe_aggregate_id=run.id,
             event_time=self.repository.runs[run.id].updated_at,
         )
 
@@ -585,6 +611,14 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
             assert_transition("run", run.status, RunStatus.cancelling)
             run = run.model_copy(update={"status": RunStatus.cancelling, "updated_at": utcnow()})
             self.repository.runs[run.id] = run
+            record_funnel_event(
+                self.repository,
+                event_type=workflow_stage(RunStatus.cancelling),
+                job_id=run.job_id,
+                run_id=run.id,
+                dedupe_aggregate_id=run.id,
+                event_time=run.updated_at,
+            )
         assert_transition("run", self.repository.runs[run.id].status, RunStatus.cancelled)
         self.repository.runs[run.id] = self.repository.runs[run.id].model_copy(
             update={"status": RunStatus.cancelled, "finished_at": utcnow(), "updated_at": utcnow()}
@@ -598,6 +632,14 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
             dedupe_key=f"{run.id}:run:{RunStatus.cancelled.value}",
             status=RunStatus.cancelled.value,
             message="Run cancelled.",
+        )
+        record_funnel_event(
+            self.repository,
+            event_type=workflow_stage(RunStatus.cancelled),
+            job_id=run.job_id,
+            run_id=run.id,
+            dedupe_aggregate_id=run.id,
+            event_time=self.repository.runs[run.id].finished_at,
         )
         job = self.repository.jobs[run.job_id]
         if job.status != JobStatus.cancelled:

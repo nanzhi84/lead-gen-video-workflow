@@ -4,8 +4,9 @@ import json
 
 from fastapi import Request
 
-from apps.api.common import repository
+from apps.api.common import get_case, repository
 from packages.ai.gateway import ProviderCall
+from packages.ai.prompts.registry import case_prompt_variables
 from packages.core import contracts as c
 from packages.core.workflow import NodeExecutionError
 
@@ -20,9 +21,19 @@ def generate_script_with_llm(
     profile = _select_real_llm_profile(request)
     if profile is None:
         return None
+    # #B prompt wiring: fill the case profile vocabulary ({case_name}{product_name}
+    # {industry}{target_audience}{ip_persona}{brand_voice}{key_selling_points}
+    # {description}{tags}) so downstream templates no longer get permanent empties.
+    # render() only substitutes tokens the template references, so these extras are
+    # harmless for templates (like CaseAgentScriptGenerate) that ignore them.
+    variables: dict[str, object] = {
+        "brief": brief,
+        "memories": " / ".join(memories) if memories else "暂无",
+    }
+    variables.update(case_prompt_variables(get_case(request, case_id)))
     prompt_invocation, rendered = request.app.state.prompt_registry.render(
         node_id="CaseAgentScriptGenerate",
-        variables={"brief": brief, "memories": " / ".join(memories) if memories else "暂无"},
+        variables=variables,
         case_id=case_id,
         provider_profile_id=profile.id,
     )

@@ -20,6 +20,9 @@ export type AdoptedAgentScriptState = {
     title: string;
     script: string;
     source: string;
+    // Canonical adopted ScriptVersion id (E-UI): carried through StudioFlow so the
+    // digital-human job submits script_version_id, not only the raw script text.
+    scriptVersionId: string | null;
   };
 };
 
@@ -132,6 +135,7 @@ export default function CaseAgentPage() {
             title: script.title,
             script: script.script,
             source: `案例智能体草稿 ${shortId(draft.id)}`,
+            scriptVersionId: script.id,
           },
         } satisfies AdoptedAgentScriptState,
       });

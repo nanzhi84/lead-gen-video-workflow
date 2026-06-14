@@ -82,6 +82,7 @@ from packages.core.storage.database import (
     YieldFunnelEventRow,
 )
 from packages.ai.gateway.sqlalchemy_repository import provider_profile_row_to_contract
+from packages.creative.cases.sqlalchemy_learning_mappers import script_version_row_to_contract
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
 from packages.media.assets import local_object_path
@@ -370,6 +371,16 @@ class SqlAlchemyProductionRepository:
             run = workflow_run_row_to_contract(run_row)
             repository.jobs[job.id] = job
             repository.runs[run.id] = run
+            # Hydrate the adopted ScriptVersion into the run-scoped runtime repo so the
+            # adopted-script provenance survives under the Temporal runtime too. Each
+            # run_node activity builds a FRESH Repository, so unless we load it here the
+            # export node mints a fresh ScriptVersion and overwrites adopted_from_draft_id.
+            adopted_script_version_id = getattr(job.request, "script_version_id", None)
+            if adopted_script_version_id and adopted_script_version_id not in repository.scripts:
+                script_row = session.get(ScriptVersionRow, adopted_script_version_id)
+                if script_row is not None:
+                    adopted_script = script_version_row_to_contract(script_row)
+                    repository.scripts[adopted_script.id] = adopted_script
             if run.case_id:
                 for row in session.scalars(select(MediaAssetRow).where(MediaAssetRow.case_id == run.case_id)):
                     asset = media_asset_row_to_contract(row)
@@ -398,6 +409,25 @@ class SqlAlchemyProductionRepository:
             for artifact in session.scalars(select(ArtifactRow).where(ArtifactRow.run_id.in_(run_ids))):
                 contract = artifact_row_to_contract(artifact)
                 repository.artifacts[contract.id] = contract
+
+    def hydrate_adopted_script(
+        self, repository: Repository, script_version_id: str
+    ) -> ScriptVersion | None:
+        """Load a previously adopted ScriptVersion into the in-memory runtime repo.
+
+        Called when a DigitalHumanVideo job/run is created with an explicit
+        ``script_version_id`` so the adopted ScriptVersion (with its
+        ``adopted_from_draft_id`` provenance) is preserved through the run snapshot
+        instead of being overwritten by a freshly fabricated row. Returns the
+        contract if found, otherwise ``None``.
+        """
+        with self.session_factory() as session:
+            row = session.get(ScriptVersionRow, script_version_id)
+            if row is None:
+                return None
+            script = script_version_row_to_contract(row)
+            repository.scripts[script.id] = script
+            return script
 
     def job_detail(self, job_id: str, request_id: str) -> JobDetailResponse | None:
         with self.session_factory() as session:

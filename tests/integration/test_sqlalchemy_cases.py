@@ -55,20 +55,44 @@ def test_cases_api_persists_created_and_patched_case():
                 "industry": "education",
                 "product": "course",
                 "target_audience": "creators",
+                "key_selling_points": ["fast", "cheap"],
+                "ip_persona": "friendly expert",
+                "brand_voice": "warm and direct",
+                "strategy_tags": ["promo", "q3"],
+                "brand_keywords": ["acme"],
+                "competitor_names": ["globex"],
             },
         )
         assert created.status_code == 201, created.text
         case = created.json()
+        assert case["key_selling_points"] == ["fast", "cheap"]
+        assert case["ip_persona"] == "friendly expert"
+        assert case["brand_voice"] == "warm and direct"
+        assert case["strategy_tags"] == ["promo", "q3"]
+        assert case["brand_keywords"] == ["acme"]
+        assert case["competitor_names"] == ["globex"]
 
         patched = client.patch(
             f"/api/cases/{case['id']}",
             json={
                 "product": "membership",
                 "target_audience": "creator operators",
+                "industry": "edtech",
+                "key_selling_points": ["personalized"],
+                "ip_persona": "mentor",
             },
         )
         assert patched.status_code == 200, patched.text
         assert patched.json()["product"] == "membership"
+        assert patched.json()["industry"] == "edtech"
+        assert patched.json()["key_selling_points"] == ["personalized"]
+        assert patched.json()["ip_persona"] == "mentor"
+
+        industry_filtered = client.get("/api/cases", params={"industry": "edtech"})
+        assert industry_filtered.status_code == 200, industry_filtered.text
+        assert any(item["id"] == case["id"] for item in industry_filtered.json()["items"])
+        for item in industry_filtered.json()["items"]:
+            assert {"material_count", "script_count", "voice_count", "quality_count"} <= set(item)
 
         filtered = client.get(
             "/api/cases",
@@ -87,6 +111,13 @@ def test_cases_api_persists_created_and_patched_case():
         assert row.owner_user_id == "usr_admin"
         assert row.product == "membership"
         assert row.target_audience == "creator operators"
+        assert row.industry == "edtech"
+        assert list(row.key_selling_points) == ["personalized"]
+        assert row.ip_persona == "mentor"
+        assert row.brand_voice == "warm and direct"
+        assert list(row.strategy_tags) == ["promo", "q3"]
+        assert list(row.brand_keywords) == ["acme"]
+        assert list(row.competitor_names) == ["globex"]
 
 
 def test_sqlalchemy_idempotency_replays_after_app_reconfiguration():

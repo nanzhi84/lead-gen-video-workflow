@@ -12,6 +12,7 @@ from .base import BaseListQuery, ContractModel, EntityMeta, RunStatus, utcnow
 class CaseListQuery(BaseListQuery):
     search: str | None = None
     owner_user_id: str | None = None
+    industry: str | None = None
 
 
 class CreateCaseRequest(ContractModel):
@@ -20,6 +21,12 @@ class CreateCaseRequest(ContractModel):
     industry: str | None = None
     product: str | None = None
     target_audience: str | None = None
+    key_selling_points: list[str] = Field(default_factory=list)
+    ip_persona: str | None = None
+    brand_voice: str | None = None
+    strategy_tags: list[str] = Field(default_factory=list)
+    brand_keywords: list[str] = Field(default_factory=list)
+    competitor_names: list[str] = Field(default_factory=list)
 
 
 class PatchCaseRequest(ContractModel):
@@ -28,6 +35,13 @@ class PatchCaseRequest(ContractModel):
     product: str | None = None
     target_audience: str | None = None
     status: Literal["active", "archived"] | None = None
+    industry: str | None = None
+    key_selling_points: list[str] | None = None
+    ip_persona: str | None = None
+    brand_voice: str | None = None
+    strategy_tags: list[str] | None = None
+    brand_keywords: list[str] | None = None
+    competitor_names: list[str] | None = None
 
 
 class DeleteCaseRequest(ContractModel):
@@ -39,13 +53,23 @@ class CaseListItem(EntityMeta):
     owner_user_id: str | None = None
     active_memory_count: int = 0
     status: Literal["active", "archived"] = "active"
+    industry: str | None = None
+    material_count: int = 0
+    script_count: int = 0
+    voice_count: int = 0
+    quality_count: int = 0
 
 
 class CaseDetail(CaseListItem):
     description: str | None = None
-    industry: str | None = None
     product: str | None = None
     target_audience: str | None = None
+    key_selling_points: list[str] = Field(default_factory=list)
+    ip_persona: str | None = None
+    brand_voice: str | None = None
+    strategy_tags: list[str] = Field(default_factory=list)
+    brand_keywords: list[str] = Field(default_factory=list)
+    competitor_names: list[str] = Field(default_factory=list)
 
 
 class ScriptVersion(EntityMeta):
@@ -135,6 +159,11 @@ class CreativeBrief(EntityMeta):
     case_id: str
     summary: str
     source_binding_ids: list[str] = Field(default_factory=list)
+    topic: str | None = None
+    audience: str | None = None
+    key_insights: list[str] = Field(default_factory=list)
+    source_refs: list[str] = Field(default_factory=list)
+    generated_by_run_id: str | None = None
 
 
 class ScriptDraft(EntityMeta):

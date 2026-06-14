@@ -37,9 +37,11 @@ def delete_source_binding(case_id: str, binding_id: str, request: Request) -> c.
 
 
 @router.post("/api/cases/{case_id}/agent/import-source", response_model=c.CaseAgentRun, status_code=202)
-def import_case_source(case_id: str, payload: c.ImportCaseSourceRequest, request: Request) -> c.CaseAgentRun:
+async def import_case_source(
+    case_id: str, payload: c.ImportCaseSourceRequest, request: Request
+) -> c.CaseAgentRun:
     require_role(request, c.UserRole.operator)
-    return service.import_case_source(case_id, payload, request)
+    return await service.import_case_source(case_id, payload, request)
 
 
 @router.post("/api/cases/{case_id}/agent/runs", response_model=c.CaseAgentRun, status_code=202)

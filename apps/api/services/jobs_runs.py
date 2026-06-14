@@ -21,6 +21,7 @@ from packages.core.observability.outbox import OutboxWriter
 from packages.core.contracts.state_machines import assert_transition
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
+from packages.core.observability import record_funnel_event, workflow_stage
 from packages.production.pipeline import ReusePlan, ReuseSourceRun, compute_reuse_plan
 from packages.production.pipeline.digital_human import digital_human_template
 
@@ -123,6 +124,25 @@ def _admit_run(
         dedupe_key=f"{run.id}:run:{run.status.value}",
         status=run.status.value,
         message="Run admitted.",
+    )
+    # Funnel head: the run passes through created -> admitted in this one call, so
+    # emit both §9.5 stages here (RunStatus.created -> "submitted",
+    # RunStatus.admitted -> "admitted"); the run never lingers in ``created``.
+    record_funnel_event(
+        repo,
+        event_type=workflow_stage(c.RunStatus.created),
+        job_id=job_id,
+        run_id=run.id,
+        dedupe_aggregate_id=run.id,
+        event_time=run.created_at,
+    )
+    record_funnel_event(
+        repo,
+        event_type=workflow_stage(c.RunStatus.admitted),
+        job_id=job_id,
+        run_id=run.id,
+        dedupe_aggregate_id=run.id,
+        event_time=run.updated_at,
     )
     return job, run, template
 
@@ -296,6 +316,7 @@ def create_digital_human_job(
     case = get_case(request, payload.case_id)
     if payload.case_id not in repository(request).cases:
         repository(request).cases[payload.case_id] = case
+    _link_adopted_script(request, payload)
     job = c.Job(
         id=new_id("job"),
         type=c.JobType.digital_human_video,
@@ -307,6 +328,29 @@ def create_digital_human_job(
     repository(request).jobs[job.id] = job
     run = _start_submitted_run(request, job_id=job.id, mode="new", from_run_id=None, reason=None)
     return c.CreateJobResponse(job=repository(request).jobs[job.id], initial_run=run, request_id=request_id())
+
+
+def _link_adopted_script(request: Request, payload: c.DigitalHumanVideoRequest) -> None:
+    """Persist the link to the adopted ScriptVersion referenced by the job request.
+
+    The contract carries ``script_version_id`` on the request, which is stored on
+    the job row inside the request payload. To stop the adopted ScriptVersion from
+    being orphaned (and to preserve its ``adopted_from_draft_id`` provenance through
+    the run snapshot), hydrate the existing ScriptVersion into the runtime repository
+    so ExportFinishedVideo reuses it instead of fabricating a fresh row. We validate
+    it belongs to the request's case; a cross-case or unknown id is ignored (the
+    pipeline then mints a fresh ScriptVersion under that id, as before).
+    """
+    script_version_id = payload.script_version_id
+    if not script_version_id:
+        return
+    repo = repository(request)
+    existing = repo.scripts.get(script_version_id)
+    if existing is None and production_repository(request) is not None:
+        existing = production_repository(request).hydrate_adopted_script(repo, script_version_id)
+    if existing is not None and existing.case_id != payload.case_id:
+        # Defensive: never relink a ScriptVersion across cases.
+        repo.scripts.pop(script_version_id, None)
 
 
 def estimate_digital_human_video_cost(

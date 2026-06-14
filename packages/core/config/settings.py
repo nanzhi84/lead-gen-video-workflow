@@ -187,6 +187,19 @@ class AuthSettings(BaseModel):
     registration_open: bool = True
     # CUTAGENT_REGISTRATION_CODE_SALT: salt mixed into registration-code hashes.
     registration_code_salt: str = "local-dev-registration-code-salt"
+    # Brute-force rate-limit knobs (R2). Sliding window per client/identifier.
+    # CUTAGENT_AUTH_MAX_LOGIN_ATTEMPTS / _LOGIN_WINDOW_MINUTES /
+    # _MAX_REGISTRATION_ATTEMPTS / _REGISTRATION_WINDOW_MINUTES.
+    max_login_attempts: int = 8
+    login_window_minutes: int = 15
+    max_registration_attempts: int = 5
+    registration_window_minutes: int = 60
+    # CUTAGENT_AUTH_TRUST_FORWARDED_FOR: trust the X-Forwarded-For header for
+    # rate-limit client bucketing. OFF by default — the header is client-supplied,
+    # so trusting it lets an attacker rotate it to mint a fresh limiter bucket per
+    # request and bypass the brute-force throttle. Enable ONLY when the API sits
+    # behind a trusted proxy/LB that overwrites the header.
+    trust_forwarded_for: bool = False
 
 
 class SecretStoreSettings(BaseModel):
@@ -345,6 +358,18 @@ def build_settings() -> Settings:
             registration_code_salt=_env_str(
                 "CUTAGENT_REGISTRATION_CODE_SALT", "local-dev-registration-code-salt"
             ),
+            max_login_attempts=_env_int("CUTAGENT_AUTH_MAX_LOGIN_ATTEMPTS", 8),
+            login_window_minutes=_env_int("CUTAGENT_AUTH_LOGIN_WINDOW_MINUTES", 15),
+            max_registration_attempts=_env_int(
+                "CUTAGENT_AUTH_MAX_REGISTRATION_ATTEMPTS", 5
+            ),
+            registration_window_minutes=_env_int(
+                "CUTAGENT_AUTH_REGISTRATION_WINDOW_MINUTES", 60
+            ),
+            trust_forwarded_for=_env_str(
+                "CUTAGENT_AUTH_TRUST_FORWARDED_FOR", "false"
+            ).strip().lower()
+            in {"1", "true", "yes", "on"},
         ),
         secret_store=SecretStoreSettings(
             dir=_env_str("CUTAGENT_SECRET_STORE_DIR", ".data/secrets"),

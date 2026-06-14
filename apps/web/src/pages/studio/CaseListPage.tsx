@@ -1,60 +1,48 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, FolderOpen, Plus, Trash2 } from "lucide-react";
+import { ArrowRight, FolderOpen, Pencil, Plus, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, type ApiError } from "../../api/client";
+import { api, type ApiError, type CaseDetail, type CaseListItem, type CreateCaseRequest, type PatchCaseRequest } from "../../api/client";
+import { CaseModal } from "../../components/modals/CaseModal";
 import { EmptyState, ErrorState, LoadingState } from "../../components/State";
-import { Modal } from "../../components/Modal";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { SearchInput } from "../../components/ui/SearchInput";
 import { useToast } from "../../components/Toast";
 import { TimeText } from "../../components/TimeText";
 import { routes } from "../../routes";
 
-type CaseForm = {
-  name: string;
-  description: string;
-  industry: string;
-  product: string;
-  target_audience: string;
-};
-
-const emptyForm: CaseForm = {
-  name: "",
-  description: "",
-  industry: "",
-  product: "",
-  target_audience: "",
-};
+type ModalState = { mode: "create" } | { mode: "edit"; detail: CaseDetail } | null;
 
 export default function CaseListPage() {
   const [search, setSearch] = useState("");
-  const [modalOpen, setModalOpen] = useState(false);
+  const [industry, setIndustry] = useState("");
+  const [modal, setModal] = useState<ModalState>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
-  const [form, setForm] = useState<CaseForm>(emptyForm);
   const [formError, setFormError] = useState<unknown>(null);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const toast = useToast();
   const cases = useQuery({
-    queryKey: ["cases", search],
-    queryFn: () => api.cases.list({ search: search || null, limit: 100 }),
+    queryKey: ["cases", search, industry],
+    queryFn: () => api.cases.list({ search: search || null, industry: industry || null, limit: 100 }),
   });
   const createCase = useMutation({
-    mutationFn: () =>
-      api.cases.create({
-        name: form.name.trim(),
-        description: form.description.trim() || null,
-        industry: form.industry.trim() || null,
-        product: form.product.trim() || null,
-        target_audience: form.target_audience.trim() || null,
-      }),
+    mutationFn: (payload: CreateCaseRequest) => api.cases.create(payload),
     onSuccess: async (created) => {
       await queryClient.invalidateQueries({ queryKey: ["cases"] });
-      setModalOpen(false);
-      setForm(emptyForm);
+      setModal(null);
       toast.success("案例已创建", created.name);
       navigate(routes.caseStudio(created.id));
+    },
+    onError: (error: ApiError) => setFormError(error),
+  });
+  const patchCase = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: PatchCaseRequest }) => api.cases.patch(id, payload),
+    onSuccess: async (updated) => {
+      await queryClient.invalidateQueries({ queryKey: ["cases"] });
+      await queryClient.invalidateQueries({ queryKey: ["case", updated.id] });
+      setModal(null);
+      toast.success("案例已更新", updated.name);
     },
     onError: (error: ApiError) => setFormError(error),
   });
@@ -68,8 +56,24 @@ export default function CaseListPage() {
     },
     onError: (error: ApiError) => toast.error("删除失败", error),
   });
+  const openEdit = useMutation({
+    mutationFn: (caseId: string) => api.cases.detail(caseId),
+    onSuccess: (detail) => {
+      setFormError(null);
+      setModal({ mode: "edit", detail });
+    },
+    onError: (error: ApiError) => toast.error("无法加载案例详情", error),
+  });
 
   const items = useMemo(() => cases.data?.items ?? [], [cases.data?.items]);
+  const industryOptions = useMemo(() => {
+    const seen = new Set<string>();
+    for (const item of items) {
+      if (item.industry) seen.add(item.industry);
+    }
+    if (industry) seen.add(industry);
+    return [...seen].sort((a, b) => a.localeCompare(b, "zh"));
+  }, [items, industry]);
 
   return (
     <section className="pageStack">
@@ -78,14 +82,37 @@ export default function CaseListPage() {
           <h1>案例中心</h1>
           <p>{cases.data?.total_hint ?? items.length} 个案例工作空间，统一管理创作、成片和发布准备。</p>
         </div>
-        <button className="btn-primary" type="button" onClick={() => setModalOpen(true)}>
+        <button
+          className="btn-primary"
+          type="button"
+          onClick={() => {
+            setFormError(null);
+            setModal({ mode: "create" });
+          }}
+        >
           <Plus size={16} />
           <span>新建案例</span>
         </button>
       </header>
 
-      <div className="card p-3">
-        <SearchInput value={search} onChange={setSearch} placeholder="搜索案例名称" className="max-w-xl" />
+      <div className="card flex flex-wrap items-center gap-3 p-3">
+        <SearchInput value={search} onChange={setSearch} placeholder="搜索案例名称" className="max-w-xl flex-1" />
+        <label className="flex items-center gap-2 text-sm text-text-secondary">
+          <span>行业</span>
+          <select
+            className="rounded-md border border-border/70 bg-surface px-2 py-1 text-text-primary"
+            value={industry}
+            onChange={(event) => setIndustry(event.target.value)}
+            aria-label="行业筛选"
+          >
+            <option value="">全部行业</option>
+            {industryOptions.map((option) => (
+              <option value={option} key={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
       {cases.isLoading ? <LoadingState /> : null}
@@ -104,12 +131,16 @@ export default function CaseListPage() {
                     <FolderOpen className="h-5 w-5" />
                   </div>
                   <h2 className="truncate text-lg font-semibold text-text-primary">{item.name}</h2>
-                  <p className="mt-1 text-sm">最近更新 <TimeText value={item.updated_at} /></p>
+                  <p className="mt-1 text-sm">
+                    {item.industry ? <span className="text-text-secondary">{item.industry} · </span> : null}
+                    最近更新 <TimeText value={item.updated_at} />
+                  </p>
                 </div>
                 <Link className="icon-button no-underline" to={routes.caseStudio(item.id)} aria-label={`进入 ${item.name}`}>
                   <ArrowRight className="h-4 w-4" />
                 </Link>
               </div>
+              <CaseCounts item={item} />
               <p className="text-sm text-text-secondary">
                 {item.active_memory_count} 条活跃记忆 · v{item.version} · {item.owner_user_id ? "已分配负责人" : "默认负责人"}
               </p>
@@ -118,81 +149,55 @@ export default function CaseListPage() {
                   <ArrowRight className="h-4 w-4" />
                   <span>进入工作台</span>
                 </Link>
-                <button
-                  className="btn-danger"
-                  type="button"
-                  onClick={() => setDeleteTarget({ id: item.id, name: item.name })}
-                >
-                  <Trash2 className="h-4 w-4" />
-                  <span>删除</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    className="btn-secondary"
+                    type="button"
+                    onClick={() => openEdit.mutate(item.id)}
+                    disabled={openEdit.isPending && openEdit.variables === item.id}
+                  >
+                    <Pencil className="h-4 w-4" />
+                    <span>编辑</span>
+                  </button>
+                  <button
+                    className="btn-danger"
+                    type="button"
+                    onClick={() => setDeleteTarget({ id: item.id, name: item.name })}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    <span>删除</span>
+                  </button>
+                </div>
               </div>
             </article>
           ))}
         </div>
       ) : null}
 
-      {modalOpen ? (
-        <Modal title="新建案例" onClose={() => setModalOpen(false)}>
-          <form
-            className="formGrid"
-            onSubmit={(event) => {
-              event.preventDefault();
-              setFormError(null);
-              createCase.mutate();
-            }}
-          >
-            <label>
-              <span>名称</span>
-              <input
-                value={form.name}
-                onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-                required
-              />
-            </label>
-            <label>
-              <span>描述</span>
-              <textarea
-                value={form.description}
-                onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
-                rows={3}
-              />
-            </label>
-            <div className="twoCol">
-              <label>
-                <span>行业</span>
-                <input
-                  value={form.industry}
-                  onChange={(event) => setForm((current) => ({ ...current, industry: event.target.value }))}
-                />
-              </label>
-              <label>
-                <span>产品</span>
-                <input
-                  value={form.product}
-                  onChange={(event) => setForm((current) => ({ ...current, product: event.target.value }))}
-                />
-              </label>
-            </div>
-            <label>
-              <span>目标受众</span>
-              <input
-                value={form.target_audience}
-                onChange={(event) => setForm((current) => ({ ...current, target_audience: event.target.value }))}
-              />
-            </label>
-            {formError ? <ErrorState error={formError} /> : null}
-            <div className="formActions">
-              <button className="ghostButton" type="button" onClick={() => setModalOpen(false)}>
-                取消
-              </button>
-              <button className="primaryButton" type="submit" disabled={createCase.isPending || !form.name.trim()}>
-                <Plus size={16} />
-                <span>创建</span>
-              </button>
-            </div>
-          </form>
-        </Modal>
+      {modal?.mode === "create" ? (
+        <CaseModal
+          mode="create"
+          isSaving={createCase.isPending}
+          error={formError}
+          onClose={() => setModal(null)}
+          onCreate={(payload) => {
+            setFormError(null);
+            createCase.mutate(payload);
+          }}
+        />
+      ) : null}
+      {modal?.mode === "edit" ? (
+        <CaseModal
+          mode="edit"
+          initial={modal.detail}
+          isSaving={patchCase.isPending}
+          error={formError}
+          onClose={() => setModal(null)}
+          onPatch={(payload) => {
+            setFormError(null);
+            patchCase.mutate({ id: modal.detail.id, payload });
+          }}
+        />
       ) : null}
 
       <ConfirmDialog
@@ -213,5 +218,24 @@ export default function CaseListPage() {
         isLoading={deleteCase.isPending}
       />
     </section>
+  );
+}
+
+function CaseCounts({ item }: { item: CaseListItem }) {
+  const counts = [
+    { label: "素材", value: item.material_count ?? 0 },
+    { label: "脚本", value: item.script_count ?? 0 },
+    { label: "声音", value: item.voice_count ?? 0 },
+    { label: "质检", value: item.quality_count ?? 0 },
+  ];
+  return (
+    <dl className="grid grid-cols-4 gap-2 text-center">
+      {counts.map((count) => (
+        <div className="rounded-xl bg-surface-muted/60 px-2 py-2" key={count.label}>
+          <dd className="text-lg font-semibold text-text-primary">{count.value}</dd>
+          <dt className="text-xs text-text-secondary">{count.label}</dt>
+        </div>
+      ))}
+    </dl>
   );
 }

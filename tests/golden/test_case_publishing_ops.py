@@ -222,6 +222,160 @@ def test_publish_attempts_can_be_listed_by_batch():
         assert attempts.json()["items"][0]["adapter_id"] == "sandbox.publish"
 
 
+# The exact §9.5 funnel taxonomy (spec 树影 v3 §9.5 成品率漏斗). Tests assert the
+# funnel emits these spec strings — NOT the legacy workflow_*/publish_attempt_*.
+SPEC_9_5_FUNNEL_STAGES = {
+    "submitted",
+    "admitted",
+    "started",
+    "node_started",
+    "node_succeeded",
+    "node_failed",
+    "finished_video_created",
+    "qc_started",
+    "qc_passed",
+    "qc_failed",
+    "manual_approved",
+    "manual_rejected",
+    "publish_started",
+    "published",
+    "publish_failed",
+}
+
+
+def _funnel_event_types(active_client) -> set[str]:
+    funnel = active_client.get("/api/ops/yield-funnel")
+    assert funnel.status_code == 200, funnel.text
+    return {event["event_type"] for event in funnel.json()["events"]}
+
+
+def _finished_video(active_client, finished_video_id: str) -> dict:
+    videos = active_client.get("/api/cases/case_demo/finished-videos").json()["items"]
+    return next(v for v in videos if v["id"] == finished_video_id)
+
+
+def test_yield_funnel_records_full_lifecycle_stages():
+    """G3: the §9.5 funnel records the run/node/finished-video/qc/publish stages.
+
+    A run that goes submit -> start -> nodes -> finished video -> publish surfaces
+    the bare §9.5 spec strings (submitted/admitted/started/node_*/published/...),
+    and a manual approval surfaces manual_approved.
+    """
+    with TestClient(create_app()) as active_client:
+        login_admin_for(active_client)
+        finished_video_id = create_finished_video(active_client, "Funnel coverage seed")
+        run_id = _finished_video(active_client, finished_video_id)["run_id"]
+
+        # A passing run-level quality check -> qc_started + qc_passed.
+        qc = active_client.post(
+            f"/api/runs/{run_id}/quality-checks",
+            json={"check_type": "manual", "result": "passed"},
+        )
+        assert qc.status_code == 201, qc.text
+        # A manual approval decision -> manual_approved.
+        approved = active_client.post(
+            "/api/approval-requests/ar_funnel_ok/approve", json={"reason": "looks good"}
+        )
+        assert approved.status_code == 200, approved.text
+
+        batch = create_publish_batch(active_client, finished_video_id)
+        submitted = active_client.post(
+            f"/api/publish/batches/{batch['id']}/submit", json={"dry_run": False}
+        )
+        assert submitted.status_code == 202, submitted.text
+        assert submitted.json()["items"][0]["status"] == "published"
+
+        event_types = _funnel_event_types(active_client)
+
+        # Run admission + start.
+        assert "submitted" in event_types
+        assert "admitted" in event_types
+        assert "started" in event_types
+        # Node runner lifecycle (the core missing piece before this fix).
+        assert "node_started" in event_types
+        assert "node_succeeded" in event_types
+        # Finished video.
+        assert "finished_video_created" in event_types
+        # QC + manual review stages.
+        assert "qc_started" in event_types
+        assert "qc_passed" in event_types
+        assert "manual_approved" in event_types
+        # Publish stages.
+        assert "publish_started" in event_types
+        assert "published" in event_types
+        # Every emitted stage is a §9.5 spec string (no legacy workflow_* leaks).
+        assert event_types <= SPEC_9_5_FUNNEL_STAGES
+        assert "workflow_succeeded" not in event_types
+        assert "publish_attempt_submitted" not in event_types
+        assert "publish_package_created" not in event_types
+
+
+def test_yield_funnel_records_publish_failure_stage():
+    """G3: a simulated publish failure surfaces publish_failed."""
+    with TestClient(create_app()) as active_client:
+        login_admin_for(active_client)
+        finished_video_id = create_finished_video(active_client, "Funnel failure seed")
+        batch = create_publish_batch(active_client, finished_video_id)
+        failed = active_client.post(
+            f"/api/publish/batches/{batch['id']}/submit",
+            json={"dry_run": False, "simulate_publish_failure": True},
+        )
+        assert failed.status_code == 202, failed.text
+        assert failed.json()["items"][0]["status"] == "publish_failed"
+
+        event_types = _funnel_event_types(active_client)
+        assert "publish_started" in event_types
+        assert "publish_failed" in event_types
+        assert "published" not in event_types
+
+
+def test_true_yield_rate_is_run_scoped_and_excludes_qc_failed_run():
+    """G3 / §9.5: true_yield_rate counts DISTINCT runs that reached ``published``
+    and were not ``qc_failed`` — NOT successes/total_events. A qc_failed run is
+    excluded even though it published, so a single run that qc-fails yields 0.0."""
+    with TestClient(create_app()) as active_client:
+        login_admin_for(active_client)
+        finished_video_id = create_finished_video(active_client, "True yield qc-fail seed")
+        run_id = _finished_video(active_client, finished_video_id)["run_id"]
+
+        # Publish the run -> it reaches ``published`` (technically successful).
+        batch = create_publish_batch(active_client, finished_video_id)
+        published = active_client.post(
+            f"/api/publish/batches/{batch['id']}/submit", json={"dry_run": False}
+        )
+        assert published.status_code == 202, published.text
+
+        baseline = active_client.get("/api/ops/yield-funnel").json()
+        assert "published" in {e["event_type"] for e in baseline["events"]}
+        # Before the qc failure, the published run counts as true yield (1.0).
+        assert baseline["true_yield_rate"] == 1.0
+
+        # Now record a failing QC on that run -> it must be excluded from true yield.
+        qc = active_client.post(
+            f"/api/runs/{run_id}/quality-checks",
+            json={"check_type": "manual", "result": "failed"},
+        )
+        assert qc.status_code == 201, qc.text
+
+        after = active_client.get("/api/ops/yield-funnel").json()
+        event_types = {e["event_type"] for e in after["events"]}
+        assert "qc_failed" in event_types
+        # 技术成功但 QC 不通过不能计入 true yield -> the only run is excluded -> 0.0.
+        assert after["true_yield_rate"] == 0.0
+
+
+def test_yield_funnel_records_manual_rejected_stage():
+    """G3 / §9.5: a manual rejection surfaces manual_rejected."""
+    with TestClient(create_app()) as active_client:
+        login_admin_for(active_client)
+        rejected = active_client.post(
+            "/api/approval-requests/ar_funnel_reject/reject", json={"reason": "off-brand"}
+        )
+        assert rejected.status_code == 200, rejected.text
+        event_types = _funnel_event_types(active_client)
+        assert "manual_rejected" in event_types
+
+
 def test_spec_20_2_16_case_reflection_after_five_published_videos_creates_memory_proposal():
     """Spec 20.2 #16: five published videos can trigger reflection memory proposal generation."""
     with TestClient(create_app()) as active_client:

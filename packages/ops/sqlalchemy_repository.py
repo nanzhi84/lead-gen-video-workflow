@@ -31,11 +31,14 @@ from packages.core.storage.database import (
     AuditEventRow,
     BudgetRow,
     CostRollupRow,
+    FinishedVideoRow,
     OpsAlertEventRow,
     ProviderInvocationRow,
     ProductionQualityCheckRow,
+    WorkflowRunRow,
     YieldFunnelEventRow,
 )
+from packages.core.observability import compute_true_yield_rate, persist_funnel_event_rows
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
 from packages.ops.sqlalchemy_mappers import (
@@ -151,8 +154,11 @@ class SqlAlchemyOpsRepository:
             if window_end:
                 statement = statement.where(YieldFunnelEventRow.created_at <= window_end)
             events = [yield_event_row_to_contract(row) for row in session.scalars(statement)]
-        success = len([event for event in events if event.event_type == "workflow_succeeded"])
-        rate = success / len(events) if events else None
+        # §9.5: true_yield_rate is run-scoped (distinct runs that reached
+        # ``published`` and were never ``qc_failed`` / ``manual_rejected``) over
+        # distinct runs that entered the funnel — NOT successes/total_events,
+        # which inflates as the taxonomy grows.
+        rate = compute_true_yield_rate(events)
         return YieldFunnelResponse(events=events, true_yield_rate=rate)
 
     def list_budgets(self, *, limit: int = 50) -> list[Budget]:
@@ -234,9 +240,53 @@ class SqlAlchemyOpsRepository:
                 resource_id=target_id,
                 details={"quality_check_id": row.id, "result": payload.result},
             )
+            # §9.5: stage the run-linked qc_* funnel events (persisted best-effort
+            # after commit). qc_failed disqualifies the run from true yield; without
+            # these the SQL backend never records the disqualifier.
+            qc_id = row.id
+            event_time = row.created_at or utcnow()
+            run_id, job_id, case_id, finished_video_id = self._qc_funnel_linkage(
+                session, target_type, target_id
+            )
             session.commit()
             session.refresh(row)
-            return quality_check_row_to_contract(row)
+        base_event = {
+            "job_id": job_id,
+            "run_id": run_id,
+            "case_id": case_id,
+            "finished_video_id": finished_video_id,
+            "event_time": event_time,
+        }
+        funnel_events = [
+            {**base_event, "event_type": "qc_started", "dedupe_key": f"{qc_id}:qc_started"}
+        ]
+        result_value = getattr(payload.result, "value", payload.result)
+        terminal = {"passed": "qc_passed", "failed": "qc_failed"}.get(str(result_value))
+        if terminal is not None:
+            funnel_events.append(
+                {**base_event, "event_type": terminal, "dedupe_key": f"{qc_id}:{terminal}"}
+            )
+        persist_funnel_event_rows(self.session_factory, funnel_events)
+        return quality_check_row_to_contract(row)
+
+    def _qc_funnel_linkage(
+        self, session: Session, target_type: str, target_id: str
+    ) -> tuple[str | None, str | None, str | None, str | None]:
+        """Resolve (run_id, job_id, case_id, finished_video_id) for a quality-check
+        target so qc_* funnel events stay run-scoped (spec §9.5). A ``run`` target IS
+        the run; a ``finished_video`` target resolves through its ``run_id``."""
+
+        if target_type == "run":
+            run = session.get(WorkflowRunRow, target_id)
+            if run is None:
+                return None, None, None, None
+            return target_id, run.job_id, run.case_id, None
+        finished = session.get(FinishedVideoRow, target_id) if target_id else None
+        if finished is None:
+            return None, None, None, target_id
+        run = session.get(WorkflowRunRow, finished.run_id) if finished.run_id else None
+        job_id = run.job_id if run is not None else None
+        return finished.run_id, job_id, finished.case_id, target_id
 
     def decide_approval(
         self, approval_id: str, status: str, payload: ApprovalDecisionRequest
@@ -263,9 +313,46 @@ class SqlAlchemyOpsRepository:
                 resource_id=row.resource_id or approval_id,
                 details={"approval_id": approval_id, "reason": payload.reason},
             )
+            # §9.5: stage the run-linked manual_* funnel event (persisted best-effort
+            # after commit). manual_rejected disqualifies the run from true yield.
+            event_time = utcnow()
+            run_id, job_id, case_id = self._approval_funnel_linkage(session, row.resource_id)
             session.commit()
             session.refresh(row)
-            return approval_row_to_contract(row)
+        event_type = "manual_approved" if status == "approved" else "manual_rejected"
+        persist_funnel_event_rows(
+            self.session_factory,
+            [
+                {
+                    "event_type": event_type,
+                    "dedupe_key": f"{approval_id}:{event_type}",
+                    "job_id": job_id,
+                    "run_id": run_id,
+                    "case_id": case_id,
+                    "event_time": event_time,
+                }
+            ],
+        )
+        return approval_row_to_contract(row)
+
+    def _approval_funnel_linkage(
+        self, session: Session, resource_id: str | None
+    ) -> tuple[str | None, str | None, str | None]:
+        """Resolve (run_id, job_id, case_id) for an approval decision so manual_*
+        funnel events stay run-scoped (spec §9.5). The approval's ``resource_id`` may
+        reference a run directly or a finished video that resolves to its run."""
+
+        if not resource_id:
+            return None, None, None
+        run = session.get(WorkflowRunRow, resource_id)
+        if run is not None:
+            return run.id, run.job_id, run.case_id
+        finished = session.get(FinishedVideoRow, resource_id)
+        if finished is None or not finished.run_id:
+            return None, None, getattr(finished, "case_id", None)
+        run = session.get(WorkflowRunRow, finished.run_id)
+        job_id = run.job_id if run is not None else None
+        return finished.run_id, job_id, finished.case_id
 
     def list_audit_events(self, *, limit: int = 50) -> list[AuditEvent]:
         with self.session_factory() as session:

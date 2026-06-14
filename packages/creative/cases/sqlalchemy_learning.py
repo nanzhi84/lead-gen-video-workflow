@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -20,6 +22,21 @@ from packages.creative.cases.sqlalchemy_learning_mappers import (
 )
 from packages.core.storage.repository import new_id
 from packages.core.contracts.state_machines import assert_transition
+
+
+@dataclass
+class BriefFields:
+    """Synthesized CreativeBrief content for an imported case source (§32.4).
+
+    The async service layer extracts these from the bound source content
+    (via reference_extract) and hands them to the sync import_case_source method.
+    """
+
+    summary: str
+    topic: str | None = None
+    audience: str | None = None
+    key_insights: list[str] = field(default_factory=list)
+    source_refs: list[str] = field(default_factory=list)
 
 
 class SqlAlchemyCaseLearningRepository:
@@ -52,6 +69,13 @@ class SqlAlchemyCaseLearningRepository:
             session.refresh(row)
             return source_binding_row_to_contract(row)
 
+    def get_source_binding(self, *, case_id: str, binding_id: str) -> CaseAgentSourceBinding | None:
+        with self.session_factory() as session:
+            row = session.get(CaseAgentSourceBindingRow, binding_id)
+            if row is None or row.case_id != case_id:
+                return None
+            return source_binding_row_to_contract(row)
+
     def delete_source_binding(self, *, case_id: str, binding_id: str) -> bool:
         with self.session_factory() as session:
             row = session.get(CaseAgentSourceBindingRow, binding_id)
@@ -61,7 +85,13 @@ class SqlAlchemyCaseLearningRepository:
             session.commit()
             return True
 
-    def import_case_source(self, *, case_id: str, payload: ImportCaseSourceRequest) -> CaseAgentRun | None:
+    def import_case_source(
+        self,
+        *,
+        case_id: str,
+        payload: ImportCaseSourceRequest,
+        brief_fields: BriefFields | None = None,
+    ) -> CaseAgentRun | None:
         with self.session_factory() as session:
             binding = session.get(CaseAgentSourceBindingRow, payload.source_binding_id)
             if binding is None or binding.case_id != case_id:
@@ -72,12 +102,18 @@ class SqlAlchemyCaseLearningRepository:
                 source_binding_ids=[payload.source_binding_id],
             )
             session.add(run)
+            fields = brief_fields or BriefFields(summary=binding.title or binding.source_ref)
             session.add(
                 CreativeBriefRow(
                     id=new_id("brief"),
                     case_id=case_id,
-                    summary="Imported source summary.",
+                    summary=fields.summary,
                     source_binding_ids=[payload.source_binding_id],
+                    topic=fields.topic,
+                    audience=fields.audience,
+                    key_insights=list(fields.key_insights),
+                    source_refs=list(fields.source_refs),
+                    generated_by_run_id=run.id,
                 )
             )
             session.commit()

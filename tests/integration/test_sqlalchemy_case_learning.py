@@ -53,7 +53,19 @@ def test_sqlalchemy_case_agent_learning_boundary_is_persisted():
 
         run_detail = client.get(f"/api/cases/case_demo/agent/runs/{import_run['id']}")
         assert run_detail.status_code == 200, run_detail.text
-        assert run_detail.json()["briefs"]
+        briefs = run_detail.json()["briefs"]
+        assert briefs
+        # F/#2: import-source emits a real CreativeBrief from the bound source
+        # content (§32.4 fields), not the old "Imported source summary." stub.
+        imported_brief = next(
+            (item for item in briefs if item.get("generated_by_run_id") == import_run["id"]),
+            briefs[-1],
+        )
+        assert imported_brief["summary"] != "Imported source summary."
+        assert imported_brief["summary"]
+        assert imported_brief["key_insights"]
+        assert imported_brief["source_refs"]
+        assert imported_brief["generated_by_run_id"] == import_run["id"]
 
         script_run = client.post(
             "/api/cases/case_demo/agent/runs",

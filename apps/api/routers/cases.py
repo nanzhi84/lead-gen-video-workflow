@@ -15,8 +15,9 @@ def list_cases(
     limit: int = 50,
     search: str | None = None,
     owner_user_id: str | None = None,
+    industry: str | None = None,
 ) -> c.PageResponse[c.CaseListItem]:
-    return service.list_cases(request, limit, search, owner_user_id)
+    return service.list_cases(request, limit, search, owner_user_id, industry)
 
 
 @router.post("/api/cases", response_model=c.CaseDetail, status_code=201)

@@ -5,16 +5,21 @@ from fastapi import Request
 from apps.api.common import (
     case_learning_repository,
     get_case,
+    object_store,
     page,
     production_repository,
+    provider_repository,
     repository,
     request_id,
+    secret_store,
 )
 from apps.api.services.case_agent_llm import generate_script_with_llm
 from packages.core import contracts as c
 from packages.core.contracts.state_machines import assert_transition
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
+from packages.creative.cases import BriefFields
+from packages.creative.reference_extract import ReferenceExtractError, extract_reference
 
 def source_bindings(request: Request, case_id: str, limit: int = 50) -> c.PageResponse[c.CaseAgentSourceBinding]:
 
@@ -50,10 +55,17 @@ def delete_source_binding(case_id: str, binding_id: str, request: Request) -> c.
     return c.OkResponse(ok=True, request_id=request_id())
 
 
-def import_case_source(case_id: str, payload: c.ImportCaseSourceRequest, request: Request) -> c.CaseAgentRun:
+async def import_case_source(
+    case_id: str, payload: c.ImportCaseSourceRequest, request: Request
+) -> c.CaseAgentRun:
     get_case(request, case_id)
     if case_learning_repository(request) is not None:
-        run = case_learning_repository(request).import_case_source(case_id=case_id, payload=payload)
+        learning = case_learning_repository(request)
+        binding = learning.get_source_binding(case_id=case_id, binding_id=payload.source_binding_id)
+        if binding is None:
+            raise NodeExecutionError(c.ErrorCode.validation_invalid_options, "Source binding is missing.")
+        brief_fields = await _synthesize_brief_fields(binding, request)
+        run = learning.import_case_source(case_id=case_id, payload=payload, brief_fields=brief_fields)
         if run is None:
             raise NodeExecutionError(c.ErrorCode.validation_invalid_options, "Source binding is missing.")
         return run
@@ -68,9 +80,122 @@ def import_case_source(case_id: str, payload: c.ImportCaseSourceRequest, request
         source_binding_ids=[payload.source_binding_id],
     )
     repository(request).case_agent_runs[run.id] = run
-    brief = c.CreativeBrief(id=new_id("brief"), case_id=case_id, summary="Imported source summary.")
+    brief_fields = await _synthesize_brief_fields(binding, request)
+    brief = c.CreativeBrief(
+        id=new_id("brief"),
+        case_id=case_id,
+        summary=brief_fields.summary,
+        source_binding_ids=[payload.source_binding_id],
+        topic=brief_fields.topic,
+        audience=brief_fields.audience,
+        key_insights=list(brief_fields.key_insights),
+        source_refs=list(brief_fields.source_refs),
+        generated_by_run_id=run.id,
+    )
     repository(request).briefs[brief.id] = brief
     return run
+
+
+async def _synthesize_brief_fields(binding: c.CaseAgentSourceBinding, request: Request) -> BriefFields:
+    """Build a real CreativeBrief from a bound source instead of a stub summary (F/#2).
+
+    - text / manual_note: the source_ref is the content; use it inline (no extraction).
+    - url: extract the reference script via reference_extract and summarize it.
+    - file: out-of-scope this round; fall back to the binding title (or ref).
+    """
+    source_ref = (binding.source_ref or "").strip()
+    title = (binding.title or "").strip() or None
+    if binding.source_type in {"text", "manual_note"}:
+        summary = _shorten(source_ref) if source_ref else (title or "Imported source.")
+        return BriefFields(
+            summary=summary,
+            topic=title,
+            key_insights=_insights_from_text(source_ref),
+            source_refs=[source_ref] if source_ref else [],
+        )
+    if binding.source_type == "url":
+        try:
+            result = await extract_reference(
+                source_ref,
+                "zh",
+                asr_invoke=lambda audio_url, language: _invoke_asr(request, audio_url, language),
+                object_store=object_store(request),
+                secret_store=secret_store(request),
+            )
+        except ReferenceExtractError as exc:
+            raise NodeExecutionError(exc.code, exc.message, details=exc.details) from exc
+        reference_script = (result.reference_script or "").strip()
+        return BriefFields(
+            summary=_shorten(reference_script) if reference_script else (result.title or source_ref),
+            topic=result.title or title,
+            key_insights=_insights_from_text(reference_script),
+            source_refs=[result.resolved_url or source_ref],
+        )
+    # file (and any other type): no content extraction this round.
+    return BriefFields(
+        summary=title or source_ref or "Imported source.",
+        topic=title,
+        source_refs=[source_ref] if source_ref else [],
+    )
+
+
+def _shorten(text: str, *, limit: int = 280) -> str:
+    cleaned = " ".join(text.split())
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[: limit - 1].rstrip() + "…"
+
+
+def _insights_from_text(text: str, *, limit: int = 5) -> list[str]:
+    """Split source content into a few candidate key-insight lines for the brief."""
+    raw_lines = [line.strip() for line in text.splitlines()]
+    insights = [line for line in raw_lines if line]
+    if len(insights) <= 1 and text.strip():
+        # Single block: fall back to sentence-ish segmentation on Chinese/Latin stops.
+        import re
+
+        insights = [seg.strip() for seg in re.split(r"[。!?\n.!?]", text) if seg.strip()]
+    return insights[:limit]
+
+
+def _invoke_asr(request: Request, audio_url: str, language: str) -> str:
+    from packages.ai.gateway import ProviderCall
+
+    profile = _first_asr_profile(request)
+    if profile is None:
+        raise ReferenceExtractError(c.ErrorCode.reference_asr_failed, "ASR provider profile is not configured.")
+    invocation, result = request.app.state.provider_gateway.invoke(
+        ProviderCall(
+            provider_profile_id=profile.id,
+            capability_id="asr.transcribe",
+            input={"audio_uri": audio_url, "language_hints": [language]},
+        )
+    )
+    if result is None or invocation.error:
+        raise ReferenceExtractError(
+            c.ErrorCode.reference_asr_failed,
+            invocation.error.message if invocation.error else "ASR provider failed.",
+        )
+    text = result.output.get("text")
+    if not isinstance(text, str) or not text.strip():
+        raise ReferenceExtractError(c.ErrorCode.reference_asr_failed, "ASR response did not include text.")
+    return text.strip()
+
+
+def _first_asr_profile(request: Request) -> c.ProviderProfile | None:
+    db_repo = provider_repository(request)
+    if db_repo is not None:
+        profiles = db_repo.list_profiles(capability="asr.transcribe", limit=20)
+    else:
+        profiles = [
+            profile
+            for profile in repository(request).provider_profiles.values()
+            if profile.capability == "asr.transcribe"
+        ]
+    for profile in profiles:
+        if profile.enabled:
+            return profile
+    return None
 
 
 def start_case_agent_run(

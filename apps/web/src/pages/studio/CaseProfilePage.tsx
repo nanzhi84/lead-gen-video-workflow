@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Briefcase, Save, Sparkles, UserCircle } from "lucide-react";
+import { Briefcase, Loader2, Save, Sparkles, UserCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api, type ApiError, type CaseDetail, type PatchCaseRequest } from "../../api/client";
@@ -263,8 +263,8 @@ export default function CaseProfilePage() {
               重置
             </button>
             <button className="primaryButton" type="submit" disabled={save.isPending || !form.name.trim()}>
-              <Save size={16} />
-              <span>{save.isPending ? "保存中…" : "保存画像"}</span>
+              {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save size={16} />}
+              <span>{save.isPending ? "保存中" : "保存画像"}</span>
             </button>
           </div>
         </form>

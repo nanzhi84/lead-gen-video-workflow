@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, RadioTower } from "lucide-react";
+import { RadioTower } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { api, type FinishedVideo, type PublishBatch, type PublishBatchItem, type PublishPackage } from "../../api/client";
+import { EmptyState, LoadingState } from "../../components/ui/State";
 import { DraftEditorStep } from "../../components/publish/DraftEditorStep";
 import { PublishReviewStep } from "../../components/publish/PublishReviewStep";
 import { RecentBatchesSidebar } from "../../components/publish/RecentBatchesSidebar";
@@ -313,9 +314,12 @@ export default function PublishCenterPage() {
           ) : null}
 
           {activeStep > 0 && !batch ? (
-            <div className="card flex min-h-48 items-center justify-center gap-2 text-sm text-text-secondary">
-              {batchQuery.isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              {batchQuery.isLoading ? "加载批次中..." : "请选择或创建发布批次。"}
+            <div className="card">
+              {batchQuery.isLoading ? (
+                <LoadingState block label="加载发布批次" />
+              ) : (
+                <EmptyState title="请选择或创建发布批次" detail="在来源步骤选择成片并生成批次后继续。" />
+              )}
             </div>
           ) : null}
 

@@ -1,6 +1,7 @@
 import { BarChart3 } from "lucide-react";
 import type { MaterialUsageRankingReport } from "../../api/client";
 import { formatRelativeTime, shortId } from "../../lib/format";
+import { EmptyState, ErrorState, LoadingState } from "../ui/State";
 
 export function UsageRankingPanel({
   report,
@@ -21,9 +22,9 @@ export function UsageRankingPanel({
         </div>
         <span className="badge bg-white/70 text-text-secondary">{items.length} 条</span>
       </div>
-      {isLoading ? <p className="text-sm text-text-secondary">排行加载中...</p> : null}
-      {error ? <p className="text-sm text-status-error">使用排行加载失败：{String(error)}</p> : null}
-      {!isLoading && !error && items.length === 0 ? <p className="text-sm text-text-secondary">暂无使用记录</p> : null}
+      {isLoading ? <LoadingState label="加载使用排行" /> : null}
+      {error ? <ErrorState error={error} /> : null}
+      {!isLoading && !error && items.length === 0 ? <EmptyState title="暂无使用记录" detail="素材被生产链路命中后会进入排行。" /> : null}
       {items.length > 0 ? (
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           {items.slice(0, 6).map((item, index) => (

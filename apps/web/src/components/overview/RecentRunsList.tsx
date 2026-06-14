@@ -4,6 +4,7 @@ import type { RunCard } from "../../api/client";
 import { StatusPill } from "../Status";
 import { TimeText } from "../TimeText";
 import { Skeleton } from "../ui/Skeleton";
+import { EmptyState } from "../ui/State";
 import { routes } from "../../routes";
 import { shortId } from "../../lib/format";
 
@@ -81,11 +82,7 @@ export function RecentRunsList({
             </Link>
           ))
         ) : (
-          <div className="rounded-[22px] border border-dashed border-border bg-white/45 px-6 py-10 text-center">
-            <PlayCircle className="mx-auto h-10 w-10 text-text-tertiary" />
-            <p className="mt-3 text-text-secondary">暂无运行记录</p>
-            <p className="mt-1 text-sm text-text-tertiary">创建视频任务后，这里会显示最新进度。</p>
-          </div>
+          <EmptyState icon={PlayCircle} title="暂无运行记录" detail="创建视频任务后，这里会显示最新进度。" />
         )}
       </div>
     </section>

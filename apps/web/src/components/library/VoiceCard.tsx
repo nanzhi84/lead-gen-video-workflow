@@ -46,9 +46,15 @@ export function VoiceCard({ voice, isPreviewing, isPlaying, onPreview, onEdit, o
       </dl>
 
       <div className="mt-4 grid grid-cols-4 gap-2">
-        <button className="icon-button col-span-2 w-full" type="button" onClick={onPreview} title="生成试听">
+        <button
+          className="icon-button col-span-2 w-full"
+          type="button"
+          onClick={onPreview}
+          disabled={isPreviewing}
+          title={isPreviewing ? "生成试听中…" : "生成试听"}
+        >
           {isPreviewing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-          <span className="text-xs">{isPlaying ? "已试听" : "试听"}</span>
+          <span className="text-xs">{isPreviewing ? "生成中" : isPlaying ? "已试听" : "试听"}</span>
         </button>
         <button className="icon-button w-full" type="button" onClick={onEdit} title="编辑音色">
           <Edit3 className="h-4 w-4" />

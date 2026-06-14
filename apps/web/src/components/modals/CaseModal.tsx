@@ -1,4 +1,4 @@
-import { Plus } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
 import { useState } from "react";
 import type { CreateCaseRequest, PatchCaseRequest } from "../../api/client";
 import { Modal } from "../Modal";
@@ -106,12 +106,12 @@ export function CaseModal({
 
         {error ? <ErrorState error={error} /> : null}
         <div className="formActions">
-          <button className="ghostButton" type="button" onClick={onClose}>
+          <button className="ghostButton" type="button" onClick={onClose} disabled={isSaving}>
             取消
           </button>
           <button className="primaryButton" type="submit" disabled={isSaving || !name.trim()}>
-            <Plus size={16} />
-            <span>{isSaving ? "创建中…" : "创建草稿"}</span>
+            {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus size={16} />}
+            <span>{isSaving ? "创建中" : "创建草稿"}</span>
           </button>
         </div>
       </form>

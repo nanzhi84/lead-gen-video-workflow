@@ -41,8 +41,8 @@ export function BgmAssetCard({ asset, usage, isPlaying, onPlay, onAnnotation }: 
         ))}
       </div>
       <div className="mt-4 grid grid-cols-4 gap-2">
-        <button className="icon-button col-span-2 w-full" type="button" onClick={onPlay} title="在线试听">
-          <Play className="h-4 w-4" />
+        <button className="icon-button col-span-2 w-full" type="button" onClick={onPlay} title={isPlaying ? "暂停试听" : "在线试听"}>
+          {isPlaying ? <PauseCircle className="h-4 w-4" /> : <Play className="h-4 w-4" />}
           <span className="text-xs">{isPlaying ? "播放中" : "试听"}</span>
         </button>
         <button className="icon-button w-full" type="button" onClick={onAnnotation} title="查看标注">

@@ -14,7 +14,7 @@ import { templateKindLabels, type TemplateKind, type UploadPlaceholder, toDispla
 import { SearchInput } from "../../components/ui/SearchInput";
 import { useToast } from "../../components/ui/Toast";
 import { InfiniteScrollSentinel } from "../../components/ui/InfiniteScrollSentinel";
-import { EmptyState, ErrorState, LoadingState } from "../../components/State";
+import { EmptyState, ErrorState, LoadingState } from "../../components/ui/State";
 import { usePageVisible } from "../../hooks/usePageVisible";
 import { useUpload } from "../../hooks/useUpload";
 import { shortId } from "../../lib/format";
@@ -358,11 +358,7 @@ export function TemplatesTab() {
         />
 
         {!activeQuery.isLoading && visiblePlaceholders.length === 0 && filteredItems.length === 0 ? (
-          <div className="rounded-[24px] border border-dashed border-border bg-white/55 p-8 text-center">
-            <Video className="mx-auto h-8 w-8 text-text-tertiary" />
-            <p className="mt-3 text-sm font-medium text-text-primary">暂无{templateKindLabels[kind]}</p>
-            <p className="mt-1 text-xs text-text-secondary">上传素材后会进入标注队列。</p>
-          </div>
+          <EmptyState icon={Video} title={`暂无${templateKindLabels[kind]}`} detail="上传素材后会进入标注队列。" />
         ) : null}
       </div>
 

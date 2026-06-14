@@ -10,7 +10,7 @@ import { UsageRankingPanel } from "../../components/library/UsageRankingPanel";
 import { collectUsefulTags, toDisplayUrl } from "../../components/library/libraryModel";
 import { SearchInput } from "../../components/ui/SearchInput";
 import { useToast } from "../../components/ui/Toast";
-import { ErrorState } from "../../components/State";
+import { EmptyState, ErrorState } from "../../components/ui/State";
 
 export function FontsTab() {
   const toast = useToast();
@@ -114,11 +114,7 @@ export function FontsTab() {
       </div>
 
       {!fontsQuery.isLoading && filteredItems.length === 0 ? (
-        <div className="rounded-[24px] border border-dashed border-border bg-white/55 p-8 text-center">
-          <Type className="mx-auto h-8 w-8 text-text-tertiary" />
-          <p className="mt-3 text-sm font-medium text-text-primary">暂无字体素材</p>
-          <p className="mt-1 text-xs text-text-secondary">上传 ttf、otf、woff 或 woff2 后可预览。</p>
-        </div>
+        <EmptyState icon={Type} title="暂无字体素材" detail="上传 ttf、otf、woff 或 woff2 后可预览。" />
       ) : null}
 
       <LibraryAssetUploadModal

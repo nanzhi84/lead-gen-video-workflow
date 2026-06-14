@@ -11,7 +11,7 @@ import { VoiceGridSkeleton } from "../../components/library/VoiceGridSkeleton";
 import { CloneVoiceModal, DesignVoiceModal, EditVoiceModal } from "../../components/library/VoiceModals";
 import { type VoiceSourceFilter } from "../../components/library/libraryModel";
 import { InfiniteScrollSentinel } from "../../components/ui/InfiniteScrollSentinel";
-import { ErrorState } from "../../components/State";
+import { EmptyState, ErrorState } from "../../components/ui/State";
 
 export function VoicesTab() {
   const queryClient = useQueryClient();
@@ -125,11 +125,7 @@ export function VoicesTab() {
           {voicesQuery.error ? <ErrorState error={voicesQuery.error} /> : null}
 
           {!voicesQuery.isLoading && filteredVoices.length === 0 ? (
-            <div className="rounded-[24px] border border-dashed border-border bg-white/55 p-8 text-center">
-              <Mic2 className="mx-auto h-8 w-8 text-text-tertiary" />
-              <p className="mt-3 text-sm font-medium text-text-primary">没有匹配的音色</p>
-              <p className="mt-1 text-xs text-text-secondary">调整搜索词或类型筛选后重试。</p>
-            </div>
+            <EmptyState icon={Mic2} title="没有匹配的音色" detail="调整搜索词或类型筛选后重试。" />
           ) : null}
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">

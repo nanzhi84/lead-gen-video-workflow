@@ -12,7 +12,7 @@ import {
 } from "../../utils/annotationV4";
 import { Modal } from "../ui/Modal";
 import { VideoPlayer, type VideoPlayerQualityEvent, type VideoPlayerSegment } from "../ui/VideoPlayer";
-import { annotationStatusLabels, annotationTone, templateKindLabels, toDisplayUrl, type TemplateKind } from "./libraryModel";
+import { annotationStatusLabels, annotationTone, templateKindLabels, type TemplateKind } from "./libraryModel";
 
 type VideoPreviewModalProps = {
   /** Card to preview; `null` keeps the modal closed (open state is derived from this). */

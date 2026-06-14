@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Calculator, ChevronLeft, ChevronRight, Link2, Loader2, Play } from "lucide-react";
+import { Calculator, ChevronLeft, ChevronRight, Info, Link2, Loader2, Play } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, type ApiError, type DigitalHumanVideoCostEstimateResponse } from "../../api/client";
@@ -70,6 +70,8 @@ export default function StudioCreatePage() {
   const selectedVoice = form.voiceId || voiceOptions[0]?.id || "voice_sandbox";
   const selectedVoiceLabel = voiceOptions.find((voice) => voice.id === selectedVoice)?.display_name ?? selectedVoice;
   const scriptCount = form.script.trim().length;
+  // Surface why "下一步" is blocked instead of leaving a silently-disabled button.
+  const stepBlockMessage = validateStep(step, form, selectedVoice);
 
   useEffect(() => {
     // title/script/scriptVersionId are content, not preferences — never persist them
@@ -284,7 +286,7 @@ export default function StudioCreatePage() {
   }
 
   if (caseDetail.isLoading) {
-    return <LoadingState />;
+    return <LoadingState block label="加载创作工作台" />;
   }
 
   return (
@@ -315,11 +317,19 @@ export default function StudioCreatePage() {
         }}
       >
         <section className="card flex flex-col gap-5">
-          <div className="flex items-center justify-between gap-3 border-b border-border/70 pb-3 text-sm">
-            <span className="font-semibold text-text-primary">{steps[step]}</span>
-            <span className="font-mono text-xs tabular-nums text-text-tertiary">
-              第 {step + 1} / {steps.length} 步
-            </span>
+          <div className="grid gap-2.5 border-b border-border/70 pb-3">
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span className="font-semibold text-text-primary">{steps[step]}</span>
+              <span className="font-mono text-xs tabular-nums text-text-tertiary">
+                第 {step + 1} / {steps.length} 步
+              </span>
+            </div>
+            <div className="h-1 overflow-hidden rounded-full bg-border/60" aria-hidden="true">
+              <div
+                className="h-full rounded-full bg-accent transition-all duration-300"
+                style={{ width: `${((step + 1) / steps.length) * 100}%` }}
+              />
+            </div>
           </div>
           <div className="h-[520px] overflow-y-auto pr-1">
             {step === 0 ? (
@@ -383,6 +393,13 @@ export default function StudioCreatePage() {
             {formError ? <ErrorState error={formError} /> : null}
           </div>
 
+          {step < 4 && stepBlockMessage ? (
+            <p className="flex items-center gap-1.5 text-xs text-status-warning">
+              <Info className="h-3.5 w-3.5 shrink-0" />
+              <span>{stepBlockMessage}</span>
+            </p>
+          ) : null}
+
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 pt-4">
             <button
               className="btn-secondary"
@@ -398,7 +415,7 @@ export default function StudioCreatePage() {
                 className="btn-primary"
                 type="button"
                 onClick={() => goToStep((step + 1) as StudioStep)}
-                disabled={Boolean(validateStep(step, form, selectedVoice))}
+                disabled={Boolean(stepBlockMessage)}
               >
                 <span>下一步</span>
                 <ChevronRight className="h-4 w-4" />

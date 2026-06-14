@@ -11,7 +11,7 @@ import { collectUsefulTags, toDisplayUrl } from "../../components/library/librar
 import { SearchInput } from "../../components/ui/SearchInput";
 import { useToast } from "../../components/ui/Toast";
 import { InfiniteScrollSentinel } from "../../components/ui/InfiniteScrollSentinel";
-import { ErrorState } from "../../components/State";
+import { EmptyState, ErrorState } from "../../components/ui/State";
 import { shortId } from "../../lib/format";
 
 export function BgmTab() {
@@ -121,11 +121,7 @@ export function BgmTab() {
       </div>
 
       {!bgmQuery.isLoading && filteredItems.length === 0 ? (
-        <div className="rounded-[24px] border border-dashed border-border bg-white/55 p-8 text-center">
-          <Headphones className="mx-auto h-8 w-8 text-text-tertiary" />
-          <p className="mt-3 text-sm font-medium text-text-primary">暂无 BGM 素材</p>
-          <p className="mt-1 text-xs text-text-secondary">上传音频后可在线试听并进入标注流程。</p>
-        </div>
+        <EmptyState icon={Headphones} title="暂无 BGM 素材" detail="上传音频后可在线试听并进入标注流程。" />
       ) : null}
 
       <InfiniteScrollSentinel

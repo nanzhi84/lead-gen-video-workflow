@@ -63,11 +63,39 @@ def media_asset_row_to_contract(
     )
 
 
-def annotation_row_to_editor(row: AnnotationRow, asset: MediaAssetRow) -> AnnotationEditorVm:
+def _sign_evidence_images(canonical, object_store: ObjectStore | None):
+    """Return a copy of ``canonical`` with ``evidence_frame_images[].image_url``
+    signed into fetchable URLs (stored as ``s3://`` / ``objectstore://`` uris).
+    No object store or no images => the canonical is returned unchanged."""
+    if not isinstance(canonical, dict) or object_store is None:
+        return canonical
+    images = canonical.get("evidence_frame_images")
+    if not isinstance(images, list) or not images:
+        return canonical
+    signed_images = []
+    changed = False
+    for image in images:
+        url = image.get("image_url") if isinstance(image, dict) else None
+        if isinstance(url, str) and url.startswith(("s3://", "objectstore://")):
+            try:
+                signed_images.append({**image, "image_url": object_store.signed_url(url).url})
+                changed = True
+                continue
+            except Exception:
+                pass
+        signed_images.append(image)
+    if not changed:
+        return canonical
+    return {**canonical, "evidence_frame_images": signed_images}
+
+
+def annotation_row_to_editor(
+    row: AnnotationRow, asset: MediaAssetRow, *, object_store: ObjectStore | None = None
+) -> AnnotationEditorVm:
     return AnnotationEditorVm(
         asset=media_asset_row_to_contract(asset),
         etag=row.etag,
-        canonical=row.canonical,
+        canonical=_sign_evidence_images(row.canonical, object_store),
         projection=row.projection,
         editable_paths=list(row.editable_paths or []),
     )
@@ -340,7 +368,7 @@ class SqlAlchemyMediaRepository:
                 session.commit()
                 session.refresh(row)
                 session.refresh(asset)
-            return annotation_row_to_editor(row, asset)
+            return annotation_row_to_editor(row, asset, object_store=self.object_store)
 
     def patch_annotation(self, asset_id: str, payload: PatchAnnotationRequest) -> AnnotationEditorVm | None:
         with self.session_factory() as session:
@@ -373,7 +401,7 @@ class SqlAlchemyMediaRepository:
             session.commit()
             session.refresh(row)
             session.refresh(asset)
-            return annotation_row_to_editor(row, asset)
+            return annotation_row_to_editor(row, asset, object_store=self.object_store)
 
     def rerun_annotation(self, asset_id: str, payload: RerunAnnotationRequest) -> AnnotationRunResponse | None:
         with self.session_factory() as session:

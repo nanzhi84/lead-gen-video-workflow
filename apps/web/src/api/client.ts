@@ -225,6 +225,12 @@ export const api = {
       }),
     detail: (caseId: string) =>
       fetchJson<JsonResponse<operations["case_detail_api_cases__case_id__get"]>>(`/api/cases/${enc(caseId)}`),
+    patch: (caseId: string, payload: JsonRequest<operations["patch_case_api_cases__case_id__patch"]>) =>
+      fetchJson<JsonResponse<operations["patch_case_api_cases__case_id__patch"]>>(`/api/cases/${enc(caseId)}`, {
+        method: "PATCH",
+        body: payload,
+        idempotencyKey: createIdempotencyKey("case_patch"),
+      }),
     delete: (caseId: string) =>
       fetchJson<JsonResponse<operations["delete_case_api_cases__case_id__delete"]>>(`/api/cases/${enc(caseId)}`, {
         method: "DELETE",
@@ -686,6 +692,9 @@ export type AuthUser = components["schemas"]["AuthUser"];
 export type LoginRequest = components["schemas"]["LoginRequest"];
 export type RegistrationCodePreview = components["schemas"]["RegistrationCodePreview"];
 export type CaseListItem = components["schemas"]["CaseListItem"];
+export type CaseDetail = components["schemas"]["CaseDetail"];
+export type CreateCaseRequest = components["schemas"]["CreateCaseRequest"];
+export type PatchCaseRequest = components["schemas"]["PatchCaseRequest"];
 export type PromptTemplateView = components["schemas"]["PromptTemplateView"];
 export type PromptVersionView = components["schemas"]["PromptVersionView"];
 export type PromptBindingView = components["schemas"]["PromptBindingView"];

@@ -5,6 +5,7 @@ import LoginPage from "./pages/auth/LoginPage";
 import RegisterPage from "./pages/auth/RegisterPage";
 import CaseListPage from "./pages/studio/CaseListPage";
 import CaseAgentPage from "./pages/studio/CaseAgentPage";
+import CaseProfilePage from "./pages/studio/CaseProfilePage";
 import StudioCreatePage from "./pages/studio/StudioCreatePage";
 import RunsPage from "./pages/studio/RunsPage";
 import SettingsPage from "./pages/settings/SettingsPage";
@@ -26,6 +27,7 @@ export default function App() {
           <Route index element={<OverviewPage />} />
           <Route path={routePatterns.studio} element={<CaseListPage />} />
           <Route path={routePatterns.caseStudio} element={<StudioCreatePage />} />
+          <Route path={routePatterns.caseProfile} element={<CaseProfilePage />} />
           <Route path={routePatterns.caseAgent} element={<CaseAgentPage />} />
           <Route path={routePatterns.caseOutputs} element={<RunsPage />} />
           <Route path={routePatterns.caseRuns} element={<NavigateToCaseOutputs />} />

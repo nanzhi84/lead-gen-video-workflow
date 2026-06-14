@@ -72,7 +72,9 @@ export default function StudioCreatePage() {
   const scriptCount = form.script.trim().length;
 
   useEffect(() => {
-    const { title, script, ...preferences } = form;
+    // title/script/scriptVersionId are content, not preferences — never persist them
+    // (a restored scriptVersionId would be orphaned since the script text is not stored).
+    const { title, script, scriptVersionId, ...preferences } = form;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences));
   }, [form]);
 
@@ -83,6 +85,7 @@ export default function StudioCreatePage() {
       ...current,
       title: adoptedAgentScript.title || current.title,
       script: adoptedAgentScript.script,
+      scriptVersionId: adoptedAgentScript.scriptVersionId,
     }));
     setStep(0);
     toast.info("已从案例智能体回填脚本", adoptedAgentScript.source);
@@ -96,13 +99,18 @@ export default function StudioCreatePage() {
     }
   }, [form.voiceId, toast, voiceOptions, voices.data]);
 
-  function buildJobPayload(script: string, title?: string | null): VideoJobPayload {
+  function buildJobPayload(
+    script: string,
+    title?: string | null,
+    scriptVersionId: string | null = null,
+  ): VideoJobPayload {
     return {
       schema_version: "digital_human_video_request.v1",
       case_id: caseId,
       title: title?.trim() || null,
       script: script.trim(),
       publish_content: "",
+      script_version_id: scriptVersionId,
       workflow_template_id: "digital_human_v2",
       voice: {
         voice_id: selectedVoice,
@@ -150,7 +158,7 @@ export default function StudioCreatePage() {
   }
 
   const createJob = useMutation({
-    mutationFn: () => api.jobs.createDigitalHumanVideo(buildJobPayload(form.script, form.title)),
+    mutationFn: () => api.jobs.createDigitalHumanVideo(buildJobPayload(form.script, form.title, form.scriptVersionId)),
     onSuccess: (data) => {
       const runId = data.initial_run?.id;
       toast.success("任务提交成功", runId ? `Run ${shortId(runId)}` : undefined);
@@ -161,7 +169,7 @@ export default function StudioCreatePage() {
     onError: (error: ApiError) => setFormError(error),
   });
   const estimateCost = useMutation({
-    mutationFn: () => api.jobs.estimateDigitalHumanVideoCost(buildJobPayload(form.script, form.title)),
+    mutationFn: () => api.jobs.estimateDigitalHumanVideoCost(buildJobPayload(form.script, form.title, form.scriptVersionId)),
     onSuccess: (data) => {
       setCostEstimate(data);
       setCostEstimateOpen(true);
@@ -175,6 +183,7 @@ export default function StudioCreatePage() {
         ...current,
         title: result.title || current.title,
         script: result.reference_script,
+        scriptVersionId: null,
       }));
       setReferenceSourceTitle(result.title || result.resolved_url);
       setStep(0);
@@ -184,20 +193,28 @@ export default function StudioCreatePage() {
   });
 
   function setField<Key extends keyof FormState>(key: Key, value: FormState[Key]) {
-    setForm((current) => ({ ...current, [key]: value }));
+    setForm((current) => {
+      const next = { ...current, [key]: value };
+      // Editing the script text by hand invalidates any adopted script_version_id —
+      // the submitted version id must match the submitted text.
+      if (key === "script") next.scriptVersionId = null;
+      return next;
+    });
   }
 
   function adoptScriptToolItem(item: ScriptToolItem) {
-    setField("title", item.title);
-    setField("script", item.script);
+    // Script-tool items (sandbox/candidate/history) carry no canonical script version.
+    setForm((current) => ({ ...current, title: item.title, script: item.script, scriptVersionId: null }));
     setStep(0);
     toast.info("已采用脚本", item.source === "sandbox" ? "沙箱生成" : "候选池");
   }
 
   function insertHistoryItem(item: ScriptToolItem) {
+    // Appending history text changes the script body, so drop any adopted version id.
     setForm((current) => ({
       ...current,
       script: current.script.trim() ? `${current.script.trim()}\n\n${item.script}` : item.script,
+      scriptVersionId: null,
     }));
     setStep(0);
     setHistoryOpen(false);

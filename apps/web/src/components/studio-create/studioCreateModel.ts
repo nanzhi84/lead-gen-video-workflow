@@ -5,6 +5,10 @@ export type LipSyncPreset = "balanced" | "large_motion" | "strict_face" | "audio
 export type FormState = {
   title: string;
   script: string;
+  // Adopted script version id (E-UI): set when a script is adopted from the case agent
+  // or a generated script version, so the digital-human job carries the canonical
+  // script_version_id instead of only the raw text. Cleared on manual script edits.
+  scriptVersionId: string | null;
   voiceId: string;
   speed: number;
   emotion: string;
@@ -30,6 +34,7 @@ export const STORAGE_KEY = "m6ar_studio_create_preferences_v1";
 const defaultForm: FormState = {
   title: "",
   script: "先指出内容生产低效。再展示 Case Memory 如何复用经验。最后推动发布复盘。",
+  scriptVersionId: null,
   voiceId: "voice_sandbox",
   speed: 1,
   emotion: "neutral",

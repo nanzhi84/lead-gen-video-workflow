@@ -78,3 +78,28 @@ export function bindingSummary(items: PromptBindingView[], templateId: string) {
   const first = matched[0].binding.node_id || "全局节点";
   return matched.length > 1 ? `用于 ${first} 等 ${matched.length} 处` : `用于 ${first}`;
 }
+
+export type TemplateUsage = {
+  inProduction: boolean;
+  label: string;
+  nodeName: string;
+  enabledCount: number;
+};
+
+/**
+ * 生产使用状态：只有“已启用 + 绑定到生产节点”的模板才会被生产管线使用。
+ * 绿色「生产使用中」= 至少有一条 enabled 的绑定；灰色「未接入生产」= 没有任何 enabled 绑定。
+ */
+export function templateUsage(items: PromptBindingView[], templateId: string): TemplateUsage {
+  const matched = items.filter((item) => item.binding.prompt_template_id === templateId);
+  const enabled = matched.filter((item) => item.binding.enabled);
+  if (enabled.length === 0) {
+    return { inProduction: false, label: "未接入生产", nodeName: "", enabledCount: 0 };
+  }
+  const node = enabled[0].binding.node_id || "全局节点";
+  const label = enabled.length > 1 ? `生产使用中 · ${node} 等 ${enabled.length} 处` : `生产使用中 · ${node}`;
+  return { inProduction: true, label, nodeName: node, enabledCount: enabled.length };
+}
+
+export const BINDING_EXPLAINER =
+  "绑定 = 把某个已发布版本接到生产节点；只有绑定后的提示词才会被生产管线使用。";

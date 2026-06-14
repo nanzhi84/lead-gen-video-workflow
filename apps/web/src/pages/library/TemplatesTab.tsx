@@ -8,11 +8,13 @@ import { TemplateAssetCard } from "../../components/library/TemplateAssetCard";
 import { TemplateGridSkeleton } from "../../components/library/TemplateGridSkeleton";
 import { TemplateUploadModal } from "../../components/library/TemplateUploadModal";
 import { UploadPlaceholderCard } from "../../components/library/UploadPlaceholderCard";
+import { VideoPreviewModal } from "../../components/library/VideoPreviewModal";
 import { UsageRankingPanel } from "../../components/library/UsageRankingPanel";
 import { templateKindLabels, type TemplateKind, type UploadPlaceholder, toDisplayUrl } from "../../components/library/libraryModel";
 import { SearchInput } from "../../components/ui/SearchInput";
 import { useToast } from "../../components/ui/Toast";
 import { InfiniteScrollSentinel } from "../../components/ui/InfiniteScrollSentinel";
+import { EmptyState, ErrorState, LoadingState } from "../../components/State";
 import { usePageVisible } from "../../hooks/usePageVisible";
 import { useUpload } from "../../hooks/useUpload";
 import { shortId } from "../../lib/format";
@@ -37,6 +39,8 @@ export function TemplatesTab() {
   const [replaceTargetAssetId, setReplaceTargetAssetId] = useState<string | null>(null);
   const [placeholders, setPlaceholders] = useState<UploadPlaceholder[]>([]);
   const [previewUrls, setPreviewUrls] = useState<Record<string, string>>({});
+  const [previewAssetId, setPreviewAssetId] = useState<string | null>(null);
+  const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(null);
 
   const casesQuery = useQuery({
     queryKey: ["library", "cases", caseSearch],
@@ -81,6 +85,11 @@ export function TemplatesTab() {
     () => new Map((usageQuery.data?.items ?? []).map((item) => [item.asset_id, item])),
     [usageQuery.data],
   );
+  const previewCard = useMemo(() => {
+    if (!previewAssetId) return null;
+    const pool = [...(portraitQuery.data?.items ?? []), ...(brollQuery.data?.items ?? [])];
+    return pool.find((card) => card.asset.id === previewAssetId) ?? null;
+  }, [previewAssetId, portraitQuery.data, brollQuery.data]);
   const scenes = useMemo(() => {
     const values = new Set<string>();
     activeItems.forEach((card) => card.asset.tags?.forEach((tag) => values.add(tag)));
@@ -193,6 +202,18 @@ export function TemplatesTab() {
     }
   }
 
+  // Open the enlarged preview modal: ensure a playable URL first (with per-card loading feedback),
+  // then surface the modal even if the URL is unavailable (the modal renders a placeholder state).
+  async function openPreview(assetId: string) {
+    setPreviewLoadingId(assetId);
+    try {
+      await ensurePreview(assetId);
+    } finally {
+      setPreviewLoadingId((current) => (current === assetId ? null : current));
+    }
+    setPreviewAssetId(assetId);
+  }
+
   function setPlaceholder(update: UploadPlaceholder) {
     setPlaceholders((current) => {
       const exists = current.some((item) => item.id === update.id);
@@ -215,7 +236,8 @@ export function TemplatesTab() {
         </div>
         <SearchInput value={caseSearch} onChange={setCaseSearch} placeholder="搜索案例" />
         <div className="grid max-h-[620px] gap-2 overflow-y-auto pr-1">
-          {casesQuery.isLoading ? <p className="text-sm text-text-secondary">案例加载中...</p> : null}
+          {casesQuery.isLoading ? <LoadingState label="加载案例" /> : null}
+          {casesQuery.error ? <ErrorState error={casesQuery.error} /> : null}
           {cases.map((item) => (
             <button
               key={item.id}
@@ -234,7 +256,9 @@ export function TemplatesTab() {
               </span>
             </button>
           ))}
-          {!casesQuery.isLoading && cases.length === 0 ? <p className="text-sm text-text-secondary">暂无案例。</p> : null}
+          {!casesQuery.isLoading && !casesQuery.error && cases.length === 0 ? (
+            <EmptyState title="暂无案例" detail="先在案例中心创建案例。" />
+          ) : null}
         </div>
       </aside>
 
@@ -298,11 +322,7 @@ export function TemplatesTab() {
         ) : null}
 
         {activeQuery.isLoading ? <TemplateGridSkeleton /> : null}
-        {activeQuery.error ? (
-          <p className="rounded-2xl border border-status-error/30 bg-status-error/10 p-4 text-sm text-status-error">
-            素材加载失败：{String(activeQuery.error)}
-          </p>
-        ) : null}
+        {activeQuery.error ? <ErrorState error={activeQuery.error} /> : null}
 
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {visiblePlaceholders.map((item) => (
@@ -317,13 +337,14 @@ export function TemplatesTab() {
               selected={selectedAssetIds.includes(card.asset.id)}
               isAnalyzing={rerunMutation.isPending && rerunMutation.variables === card.asset.id}
               isReplacing={replaceMutation.isPending && replaceMutation.variables?.assetId === card.asset.id}
+              isPreviewLoading={previewLoadingId === card.asset.id}
               usage={usageByAssetId.get(card.asset.id)}
               onToggleSelected={() =>
                 setSelectedAssetIds((current) =>
                   current.includes(card.asset.id) ? current.filter((id) => id !== card.asset.id) : [...current, card.asset.id],
                 )
               }
-              onPreview={() => void ensurePreview(card.asset.id)}
+              onPreview={() => void openPreview(card.asset.id)}
               onAnalyze={() => rerunMutation.mutate(card.asset.id)}
               onReplaceSource={() => openReplacePicker(card.asset.id)}
               onOpenAnnotation={() => setAnnotationAssetId(card.asset.id)}
@@ -365,6 +386,20 @@ export function TemplatesTab() {
         onChange={(event) => handleReplaceFile(event.currentTarget.files?.[0])}
       />
       <AnnotationEditorModal assetId={annotationAssetId} caseId={selectedCaseId} onClose={() => setAnnotationAssetId(null)} />
+      <VideoPreviewModal
+        card={previewCard}
+        previewUrl={previewCard ? toDisplayUrl(previewUrls[previewCard.asset.id] ?? previewCard.preview_url) : null}
+        onClose={() => setPreviewAssetId(null)}
+        onOpenAnnotation={
+          previewCard
+            ? () => {
+                const id = previewCard.asset.id;
+                setPreviewAssetId(null);
+                setAnnotationAssetId(id);
+              }
+            : undefined
+        }
+      />
     </section>
   );
 }

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, FolderOpen, Pencil, Plus, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, type ApiError, type CaseDetail, type CaseListItem, type CreateCaseRequest, type PatchCaseRequest } from "../../api/client";
+import { api, type ApiError, type CaseListItem, type CreateCaseRequest } from "../../api/client";
 import { CaseModal } from "../../components/modals/CaseModal";
 import { EmptyState, ErrorState, LoadingState } from "../../components/State";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
@@ -11,12 +11,10 @@ import { useToast } from "../../components/Toast";
 import { TimeText } from "../../components/TimeText";
 import { routes } from "../../routes";
 
-type ModalState = { mode: "create" } | { mode: "edit"; detail: CaseDetail } | null;
-
 export default function CaseListPage() {
   const [search, setSearch] = useState("");
   const [industry, setIndustry] = useState("");
-  const [modal, setModal] = useState<ModalState>(null);
+  const [isCreating, setIsCreating] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [formError, setFormError] = useState<unknown>(null);
   const queryClient = useQueryClient();
@@ -30,19 +28,9 @@ export default function CaseListPage() {
     mutationFn: (payload: CreateCaseRequest) => api.cases.create(payload),
     onSuccess: async (created) => {
       await queryClient.invalidateQueries({ queryKey: ["cases"] });
-      setModal(null);
-      toast.success("案例已创建", created.name);
-      navigate(routes.caseStudio(created.id));
-    },
-    onError: (error: ApiError) => setFormError(error),
-  });
-  const patchCase = useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: PatchCaseRequest }) => api.cases.patch(id, payload),
-    onSuccess: async (updated) => {
-      await queryClient.invalidateQueries({ queryKey: ["cases"] });
-      await queryClient.invalidateQueries({ queryKey: ["case", updated.id] });
-      setModal(null);
-      toast.success("案例已更新", updated.name);
+      setIsCreating(false);
+      toast.success("案例草稿已创建", created.name);
+      navigate(routes.caseProfile(created.id));
     },
     onError: (error: ApiError) => setFormError(error),
   });
@@ -55,14 +43,6 @@ export default function CaseListPage() {
       toast.success("案例已删除", deletedName);
     },
     onError: (error: ApiError) => toast.error("删除失败", error),
-  });
-  const openEdit = useMutation({
-    mutationFn: (caseId: string) => api.cases.detail(caseId),
-    onSuccess: (detail) => {
-      setFormError(null);
-      setModal({ mode: "edit", detail });
-    },
-    onError: (error: ApiError) => toast.error("无法加载案例详情", error),
   });
 
   const items = useMemo(() => cases.data?.items ?? [], [cases.data?.items]);
@@ -87,7 +67,7 @@ export default function CaseListPage() {
           type="button"
           onClick={() => {
             setFormError(null);
-            setModal({ mode: "create" });
+            setIsCreating(true);
           }}
         >
           <Plus size={16} />
@@ -100,7 +80,7 @@ export default function CaseListPage() {
         <label className="flex items-center gap-2 text-sm text-text-secondary">
           <span>行业</span>
           <select
-            className="rounded-md border border-border/70 bg-surface px-2 py-1 text-text-primary"
+            className="w-auto"
             value={industry}
             onChange={(event) => setIndustry(event.target.value)}
             aria-label="行业筛选"
@@ -150,15 +130,10 @@ export default function CaseListPage() {
                   <span>进入工作台</span>
                 </Link>
                 <div className="flex items-center gap-2">
-                  <button
-                    className="btn-secondary"
-                    type="button"
-                    onClick={() => openEdit.mutate(item.id)}
-                    disabled={openEdit.isPending && openEdit.variables === item.id}
-                  >
+                  <Link className="btn-secondary no-underline" to={routes.caseProfile(item.id)}>
                     <Pencil className="h-4 w-4" />
                     <span>编辑</span>
-                  </button>
+                  </Link>
                   <button
                     className="btn-danger"
                     type="button"
@@ -174,28 +149,14 @@ export default function CaseListPage() {
         </div>
       ) : null}
 
-      {modal?.mode === "create" ? (
+      {isCreating ? (
         <CaseModal
-          mode="create"
           isSaving={createCase.isPending}
           error={formError}
-          onClose={() => setModal(null)}
+          onClose={() => setIsCreating(false)}
           onCreate={(payload) => {
             setFormError(null);
             createCase.mutate(payload);
-          }}
-        />
-      ) : null}
-      {modal?.mode === "edit" ? (
-        <CaseModal
-          mode="edit"
-          initial={modal.detail}
-          isSaving={patchCase.isPending}
-          error={formError}
-          onClose={() => setModal(null)}
-          onPatch={(payload) => {
-            setFormError(null);
-            patchCase.mutate({ id: modal.detail.id, payload });
           }}
         />
       ) : null}

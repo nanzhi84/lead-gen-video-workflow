@@ -10,6 +10,7 @@ import { UsageRankingPanel } from "../../components/library/UsageRankingPanel";
 import { collectUsefulTags, toDisplayUrl } from "../../components/library/libraryModel";
 import { SearchInput } from "../../components/ui/SearchInput";
 import { useToast } from "../../components/ui/Toast";
+import { ErrorState } from "../../components/State";
 
 export function FontsTab() {
   const toast = useToast();
@@ -94,11 +95,7 @@ export function FontsTab() {
       <UsageRankingPanel report={usageQuery.data} isLoading={usageQuery.isLoading} error={usageQuery.error} />
 
       {fontsQuery.isLoading ? <TemplateGridSkeleton /> : null}
-      {fontsQuery.error ? (
-        <p className="rounded-2xl border border-status-error/30 bg-status-error/10 p-4 text-sm text-status-error">
-          字体加载失败：{String(fontsQuery.error)}
-        </p>
-      ) : null}
+      {fontsQuery.error ? <ErrorState error={fontsQuery.error} /> : null}
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {filteredItems.map((card) => (

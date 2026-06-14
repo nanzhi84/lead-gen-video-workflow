@@ -1,4 +1,4 @@
-import { Download, Eye, Loader2, Play, RefreshCw, Upload } from "lucide-react";
+import { Download, Eye, Loader2, Maximize2, Play, RefreshCw, Upload } from "lucide-react";
 import type { MaterialUsageRankingItem, MediaAssetCard } from "../../api/client";
 import { formatRelativeTime, shortId } from "../../lib/format";
 import { annotationStatusLabels, annotationTone } from "./libraryModel";
@@ -10,6 +10,7 @@ type TemplateAssetCardProps = {
   selected: boolean;
   isAnalyzing: boolean;
   isReplacing: boolean;
+  isPreviewLoading: boolean;
   usage?: MaterialUsageRankingItem;
   onToggleSelected: () => void;
   onPreview: () => void;
@@ -25,6 +26,7 @@ export function TemplateAssetCard({
   selected,
   isAnalyzing,
   isReplacing,
+  isPreviewLoading,
   usage,
   onToggleSelected,
   onPreview,
@@ -57,11 +59,20 @@ export function TemplateAssetCard({
             onMouseLeave={(event) => event.currentTarget.pause()}
           />
         ) : (
-          <button type="button" onClick={onPreview} className="flex aspect-video w-full items-center justify-center text-white/75">
+          <button type="button" onClick={onPreview} className="flex aspect-video w-full items-center justify-center text-white/75" aria-label="放大预览">
             <Play className="h-9 w-9" />
           </button>
         )}
-        <span className="absolute bottom-2 right-2 rounded-full bg-black/70 px-2 py-1 text-xs text-white">预览</span>
+        <button
+          type="button"
+          onClick={onPreview}
+          disabled={isPreviewLoading}
+          className="absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-full bg-black/70 px-2 py-1 text-xs text-white transition-colors hover:bg-black/85 disabled:opacity-70"
+          title="放大预览"
+        >
+          {isPreviewLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Maximize2 className="h-3 w-3" />}
+          <span>{isPreviewLoading ? "加载中" : "预览"}</span>
+        </button>
       </div>
       <div className="mt-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -87,16 +98,30 @@ export function TemplateAssetCard({
         ))}
       </div>
       <div className="mt-4 grid grid-cols-4 gap-2">
-        <button className="icon-button w-full" type="button" onClick={onAnalyze} disabled={isAnalyzing} title="重新分析">
+        <button
+          className="icon-button w-full"
+          type="button"
+          onClick={onAnalyze}
+          disabled={isAnalyzing}
+          title={isAnalyzing ? "分析中…" : "重新分析"}
+          aria-label={isAnalyzing ? "分析中" : "重新分析"}
+        >
           {isAnalyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
         </button>
-        <button className="icon-button w-full" type="button" onClick={onOpenAnnotation} title="查看标注">
+        <button className="icon-button w-full" type="button" onClick={onOpenAnnotation} title="查看标注" aria-label="查看标注">
           <Eye className="h-4 w-4" />
         </button>
-        <a className={`icon-button w-full ${previewUrl ? "" : "pointer-events-none opacity-50"}`} href={previewUrl ?? undefined} download title="下载">
+        <a className={`icon-button w-full ${previewUrl ? "" : "pointer-events-none opacity-50"}`} href={previewUrl ?? undefined} download title="下载" aria-label="下载">
           <Download className="h-4 w-4" />
         </a>
-        <button className="icon-button w-full" type="button" onClick={onReplaceSource} disabled={isReplacing} title="替换原视频">
+        <button
+          className="icon-button w-full"
+          type="button"
+          onClick={onReplaceSource}
+          disabled={isReplacing}
+          title={isReplacing ? "替换中…" : "替换原视频"}
+          aria-label={isReplacing ? "替换中" : "替换原视频"}
+        >
           {isReplacing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
         </button>
       </div>

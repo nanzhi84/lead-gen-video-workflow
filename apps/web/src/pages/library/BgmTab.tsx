@@ -11,6 +11,7 @@ import { collectUsefulTags, toDisplayUrl } from "../../components/library/librar
 import { SearchInput } from "../../components/ui/SearchInput";
 import { useToast } from "../../components/ui/Toast";
 import { InfiniteScrollSentinel } from "../../components/ui/InfiniteScrollSentinel";
+import { ErrorState } from "../../components/State";
 import { shortId } from "../../lib/format";
 
 export function BgmTab() {
@@ -104,11 +105,7 @@ export function BgmTab() {
       <UsageRankingPanel report={usageQuery.data} isLoading={usageQuery.isLoading} error={usageQuery.error} />
 
       {bgmQuery.isLoading ? <TemplateGridSkeleton /> : null}
-      {bgmQuery.error ? (
-        <p className="rounded-2xl border border-status-error/30 bg-status-error/10 p-4 text-sm text-status-error">
-          BGM 加载失败：{String(bgmQuery.error)}
-        </p>
-      ) : null}
+      {bgmQuery.error ? <ErrorState error={bgmQuery.error} /> : null}
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {filteredItems.map((card) => (

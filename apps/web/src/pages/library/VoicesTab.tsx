@@ -11,6 +11,7 @@ import { VoiceGridSkeleton } from "../../components/library/VoiceGridSkeleton";
 import { CloneVoiceModal, DesignVoiceModal, EditVoiceModal } from "../../components/library/VoiceModals";
 import { type VoiceSourceFilter } from "../../components/library/libraryModel";
 import { InfiniteScrollSentinel } from "../../components/ui/InfiniteScrollSentinel";
+import { ErrorState } from "../../components/State";
 
 export function VoicesTab() {
   const queryClient = useQueryClient();
@@ -121,11 +122,7 @@ export function VoicesTab() {
           </div>
 
           {voicesQuery.isLoading ? <VoiceGridSkeleton /> : null}
-          {voicesQuery.error ? (
-            <p className="rounded-2xl border border-status-error/30 bg-status-error/10 p-4 text-sm text-status-error">
-              音色加载失败：{String(voicesQuery.error)}
-            </p>
-          ) : null}
+          {voicesQuery.error ? <ErrorState error={voicesQuery.error} /> : null}
 
           {!voicesQuery.isLoading && filteredVoices.length === 0 ? (
             <div className="rounded-[24px] border border-dashed border-border bg-white/55 p-8 text-center">

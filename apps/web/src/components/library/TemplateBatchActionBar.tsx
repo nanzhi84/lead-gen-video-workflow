@@ -19,7 +19,7 @@ export function TemplateBatchActionBar({
       <div className="flex flex-wrap gap-2">
         <button className="btn-secondary min-h-9 px-3" type="button" disabled={selectedCount === 0 || isStabilizing} onClick={onStabilize}>
           {isStabilizing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-          <span>批量增稳</span>
+          <span>{isStabilizing ? "增稳中" : "批量增稳"}</span>
         </button>
         <button className="btn-secondary min-h-9 px-3" type="button" disabled title="待接入（依赖 M6d）">
           <Tag className="h-4 w-4" />

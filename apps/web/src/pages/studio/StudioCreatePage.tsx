@@ -315,6 +315,12 @@ export default function StudioCreatePage() {
         }}
       >
         <section className="card flex flex-col gap-5">
+          <div className="flex items-center justify-between gap-3 border-b border-border/70 pb-3 text-sm">
+            <span className="font-semibold text-text-primary">{steps[step]}</span>
+            <span className="font-mono text-xs tabular-nums text-text-tertiary">
+              第 {step + 1} / {steps.length} 步
+            </span>
+          </div>
           <div className="h-[520px] overflow-y-auto pr-1">
             {step === 0 ? (
               <ScriptStep
@@ -333,7 +339,7 @@ export default function StudioCreatePage() {
                       onOpenCandidates={() => setCandidatePoolOpen(true)}
                       onOpenHistory={() => setHistoryOpen(true)}
                     />
-                    <div className="grid gap-2 rounded-md border border-border/70 p-3">
+                    <div className="grid gap-2 rounded-2xl border border-border/70 bg-white/55 p-3">
                       <div className="flex flex-wrap items-end gap-2">
                         <label className="min-w-[220px] flex-1">
                           <span>对标视频提取</span>

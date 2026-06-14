@@ -292,7 +292,7 @@ export function AnnotationEditorModal({ assetId, caseId, onClose }: AnnotationEd
     onSuccess: async (response) => {
       await queryClient.invalidateQueries({ queryKey: ["library", "annotation", assetId] });
       await queryClient.invalidateQueries({ queryKey: ["library", "media", caseId] });
-      toast.success("重新分析已提交", response.run_id ? `运行 ID：${shortId(response.run_id)}` : "沙箱环境已返回完成状态");
+      toast.success("重新分析已提交", response.run_id ? `运行 ID：${shortId(response.run_id)}` : "已返回完成状态");
       setRerunPreview(false);
     },
     onError: (error) => toast.error("重新分析失败", error),

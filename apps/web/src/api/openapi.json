@@ -11124,6 +11124,35 @@
             ],
             "title": "Operation",
             "default": "generate"
+          },
+          "strategy_tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Strategy Tags"
+          },
+          "reference_script": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Script"
+          },
+          "duration": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration"
           }
         },
         "additionalProperties": false,

@@ -423,7 +423,7 @@
   }
 
   .runsLayout {
-    grid-template-columns: minmax(0, 1.35fr) minmax(340px, 0.65fr);
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);
   }
 
   .settingsGrid {

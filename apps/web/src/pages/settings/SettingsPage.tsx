@@ -40,24 +40,24 @@ type PriceForm = {
 
 const emptyProfile: ProfileForm = {
   display_name: "",
-  provider_id: "sandbox",
-  model_id: "local-model",
+  provider_id: "",
+  model_id: "",
   capability: "text.generate",
-  environment: "local",
+  environment: "prod",
   secret_ref: "",
   default_options: "{}",
 };
 
 const emptySecret: SecretForm = {
-  provider_id: "sandbox",
-  environment: "local",
+  provider_id: "",
+  environment: "prod",
   name: "API key",
   plaintext_secret: "",
 };
 
 const emptyPrice: PriceForm = {
-  provider_id: "sandbox",
-  model_id: "local-model",
+  provider_id: "",
+  model_id: "",
   capability_id: "text.generate",
   unit: "call",
   amount: "0.5",

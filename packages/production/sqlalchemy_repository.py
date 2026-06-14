@@ -55,6 +55,7 @@ from packages.core.contracts import (
 )
 from packages.core.storage import ObjectStore, Repository, get_object_store
 from packages.core.storage.database import (
+    AnnotationRow,
     ArtifactRow,
     CaseRow,
     FinishedVideoRow,
@@ -86,7 +87,11 @@ from packages.creative.cases.sqlalchemy_learning_mappers import script_version_r
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
 from packages.media.assets import local_object_path
-from packages.media.sqlalchemy_repository import media_asset_row_to_contract, voice_row_to_contract
+from packages.media.sqlalchemy_repository import (
+    annotation_row_to_editor,
+    media_asset_row_to_contract,
+    voice_row_to_contract,
+)
 from packages.media.video.ffmpeg import probe_media
 from packages.production.editor_handoff import EditorHandoffAsset, EditorHandoffBuilder, EditorHandoffInput
 from packages.production.jianying_draft import JianyingDraftBuilder, JianyingDraftInput
@@ -385,6 +390,25 @@ class SqlAlchemyProductionRepository:
                 for row in session.scalars(select(MediaAssetRow).where(MediaAssetRow.case_id == run.case_id)):
                     asset = media_asset_row_to_contract(row)
                     repository.media_assets[asset.id] = asset
+                    # Hydrate the latest annotation so material planning (b-roll
+                    # matching reads repo.annotation_v4_for_asset -> self.annotations)
+                    # sees the real AnnotationV4 in the WORKER process. Only API
+                    # services populate the in-memory annotations dict otherwise, so
+                    # without this the worker matches against zero annotations and
+                    # b-roll always soft-degrades. object_store=None skips evidence-
+                    # image signing (matching never needs the signed URLs).
+                    ann_rows = list(
+                        session.scalars(
+                            select(AnnotationRow)
+                            .where(AnnotationRow.asset_id == row.id)
+                            .order_by(AnnotationRow.updated_at.desc())
+                        )
+                    )
+                    ann_row = ann_rows[0] if ann_rows else None
+                    if ann_row is not None:
+                        repository.annotations[asset.id] = annotation_row_to_editor(
+                            ann_row, row, object_store=None
+                        )
                     if asset.source_artifact_id and asset.source_artifact_id not in repository.artifacts:
                         artifact_row = session.get(ArtifactRow, asset.source_artifact_id)
                         if artifact_row is not None:

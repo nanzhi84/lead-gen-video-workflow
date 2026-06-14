@@ -27,7 +27,7 @@ export function ScriptHistoryModal({ isOpen, history, onClose, onInsert }: Props
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <div className="flex min-w-0 items-center gap-2">
                 <strong className="truncate text-text-primary">{item.title}</strong>
-                <span className="badge-warning">沙箱生成</span>
+                <span className="badge-info">AI 生成</span>
               </div>
               <span className="text-xs text-text-tertiary"><TimeText value={item.createdAt} /></span>
             </div>

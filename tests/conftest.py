@@ -26,6 +26,11 @@ from tests.fixtures.media import MediaFixtureFactory
 
 os.environ.setdefault("CUTAGENT_STORAGE_BACKEND", "memory")
 os.environ.setdefault("CUTAGENT_DISABLE_BACKGROUND_DISPATCHER", "1")
+# The golden / fallback fixtures deliberately run without armed real provider
+# secrets and rely on the seeded sandbox providers. Production defaults to no
+# sandbox fallback (fail loudly when no real provider is armed); the suite opts
+# in so those fixtures keep exercising the sandbox path.
+os.environ.setdefault("CUTAGENT_ALLOW_SANDBOX_FALLBACK", "1")
 
 
 class _ASGISyncTestClient:

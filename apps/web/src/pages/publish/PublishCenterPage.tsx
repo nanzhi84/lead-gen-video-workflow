@@ -212,7 +212,7 @@ export default function PublishCenterPage() {
       return api.publishing.submitBatch(batch.id, { dry_run: mode === "manual", simulate_publish_failure: false });
     },
     onSuccess: async (_, mode) => {
-      toast.success(mode === "manual" ? "半自动准备已完成" : "全自动沙箱发布已完成", "结果已写入 PublishAttempt。");
+      toast.success(mode === "manual" ? "半自动准备已完成" : "全自动发布已完成", "结果已写入 PublishAttempt。");
       setActiveStep(2);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["publish-center", "batch", activeBatchId] }),
@@ -248,7 +248,7 @@ export default function PublishCenterPage() {
       <header className="pageHeader">
         <div>
           <h1>发布</h1>
-          <p className="mt-2 text-sm text-text-secondary">选来源、编辑文案与封面，再通过 sandbox.publish 生成发布结果。</p>
+          <p className="mt-2 text-sm text-text-secondary">选来源、编辑文案与封面，生成内部发布结果。</p>
         </div>
       </header>
       <StudioTabs caseId={caseId} />
@@ -333,9 +333,9 @@ export default function PublishCenterPage() {
               onDraftChange={updateDraft}
               onSubmit={(mode) =>
                 setConfirm({
-                  title: mode === "manual" ? "半自动发布" : "全自动沙箱发布",
-                  message: mode === "manual" ? "确认生成待人工发布结果吗？" : "确认执行全自动沙箱发布吗？",
-                  consequences: ["会先保存当前草稿标题、正文和选中状态。", "当前只调用 sandbox.publish，不会触达真实外部平台。", "发布结果会写入 PublishAttempt 和发布记录。"],
+                  title: mode === "manual" ? "半自动发布" : "全自动发布",
+                  message: mode === "manual" ? "确认生成待人工发布结果吗？" : "确认执行全自动发布吗？",
+                  consequences: ["会先保存当前草稿标题、正文和选中状态。", "发布仅生成内部发布记录，不会触达真实外部平台。", "发布结果会写入 PublishAttempt 和发布记录。"],
                   confirmText: mode === "manual" ? "半自动发布" : "全自动发布",
                   type: "warning",
                   onConfirm: () => submitBatch.mutate(mode),

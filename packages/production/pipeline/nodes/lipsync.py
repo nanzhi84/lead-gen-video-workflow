@@ -10,6 +10,7 @@ byte-identical to today's sandbox behavior.
 from __future__ import annotations
 
 from packages.ai.gateway import ProviderCall
+from packages.core.config.settings import sandbox_fallback_allowed
 from packages.core.contracts import ArtifactKind, ErrorCode, NodeStatus
 from packages.core.contracts.artifacts import LipSyncReportArtifact
 from packages.core.workflow import NodeExecutionError, NodeOutput
@@ -80,6 +81,14 @@ def run(ctx: NodeContext) -> NodeOutput:
         return NodeOutput(artifacts=[artifact, report], provider_invocation_ids=[invocation.id])
 
     if not is_real:
+        # No real lipsync provider/secret armed. By default fail loudly instead of
+        # silently shipping the un-lipsynced portrait as the result; only pass
+        # through when the sandbox path is explicitly enabled (tests / opt-in).
+        if not sandbox_fallback_allowed():
+            raise NodeExecutionError(
+                ErrorCode.provider_unsupported_option,
+                "未配置可用的真实唇形同步（LipSync）供应商。请在「设置」中配置并启用真实 LipSync 供应商及密钥。",
+            )
         return _sandbox_passthrough(ctx, state, portrait, audio, invoke)
 
     invocation, result = invoke(profile.id)

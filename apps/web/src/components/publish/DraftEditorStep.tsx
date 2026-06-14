@@ -222,7 +222,7 @@ export function DraftEditorStep({
               </div>
               <div className="rounded-2xl border border-border/80 bg-white/55 p-4 text-sm leading-6 text-text-secondary">
                 <p className="font-semibold text-text-primary">发布后果</p>
-                <p className="mt-2">保存只更新当前草稿。全自动发布会调用 sandbox.publish，不会真正触达外部平台。</p>
+                <p className="mt-2">保存只更新当前草稿。全自动发布仅生成内部发布记录，不会真正触达外部平台。</p>
                 <p className="mt-2">删除会从当前批次移除此平台条目；不会删除成片或上传文件。</p>
               </div>
             </div>

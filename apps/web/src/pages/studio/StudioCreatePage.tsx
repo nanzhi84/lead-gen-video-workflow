@@ -67,7 +67,7 @@ export default function StudioCreatePage() {
   });
 
   const voiceOptions = useMemo(() => voices.data?.items.filter((voice) => voice.enabled) ?? [], [voices.data?.items]);
-  const selectedVoice = form.voiceId || voiceOptions[0]?.id || "voice_sandbox";
+  const selectedVoice = form.voiceId || voiceOptions[0]?.id || "";
   const selectedVoiceLabel = voiceOptions.find((voice) => voice.id === selectedVoice)?.display_name ?? selectedVoice;
   const scriptCount = form.script.trim().length;
   // Surface why "下一步" is blocked instead of leaving a silently-disabled button.
@@ -145,7 +145,7 @@ export default function StudioCreatePage() {
       },
       lipsync: {
         enabled: form.lipsyncEnabled,
-        provider_profile_id: "runninghub.heygem.default",
+        provider_profile_id: "runninghub.heygem.prod",
         video_extension: form.lipsyncVideoExtension,
         timeout_minutes: form.lipsyncTimeoutMinutes,
       },
@@ -205,10 +205,10 @@ export default function StudioCreatePage() {
   }
 
   function adoptScriptToolItem(item: ScriptToolItem) {
-    // Script-tool items (sandbox/candidate/history) carry no canonical script version.
+    // Script-tool items (ai/candidate/history) carry no canonical script version.
     setForm((current) => ({ ...current, title: item.title, script: item.script, scriptVersionId: null }));
     setStep(0);
-    toast.info("已采用脚本", item.source === "sandbox" ? "沙箱生成" : "候选池");
+    toast.info("已采用脚本", item.source === "ai" ? "AI 生成" : "候选池");
   }
 
   function insertHistoryItem(item: ScriptToolItem) {

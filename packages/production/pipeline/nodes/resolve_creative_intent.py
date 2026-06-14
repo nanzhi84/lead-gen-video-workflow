@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from packages.ai.gateway import ProviderCall
+from packages.core.config.settings import sandbox_fallback_allowed
 from packages.core.contracts import ArtifactKind, ErrorCode, NodeStatus, utcnow
 from packages.core.contracts.artifacts import CreativeIntentArtifact
 from packages.core.workflow import NodeExecutionError, NodeOutput
@@ -20,6 +21,14 @@ def run(ctx: NodeContext) -> NodeOutput:
         return NodeOutput(artifacts=[existing], status=NodeStatus.skipped)
     profile = ctx.first_available_provider_profile("llm.chat", include_sandbox=False)
     if profile is None:
+        # No real llm.chat provider is armed. Fail loudly by default so the running
+        # app never silently degrades to the sandbox LLM; only fall back when the
+        # sandbox path is explicitly enabled (tests / opt-in deployments).
+        if not sandbox_fallback_allowed():
+            raise NodeExecutionError(
+                ErrorCode.provider_unsupported_option,
+                "未配置可用的真实 LLM 供应商（llm.chat）。请在「设置」中配置并启用真实 LLM 供应商及密钥。",
+            )
         profile = ctx.repository.provider_profiles["sandbox.llm.default"]
     prompt_invocation, rendered = ctx.prompt_registry.render(
         node_id="ResolveCreativeIntent",

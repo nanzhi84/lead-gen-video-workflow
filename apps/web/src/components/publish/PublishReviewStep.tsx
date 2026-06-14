@@ -44,13 +44,13 @@ export function PublishReviewStep({
           <div>
             <h2 className="text-lg font-semibold text-text-primary">确认发布</h2>
             <p className="mt-1 text-sm text-text-secondary">
-              已选中 {selectedItems.length} 条，可提交 {publishableCount} 条。当前 adapter 为 sandbox.publish。
+              已选中 {selectedItems.length} 条，可提交 {publishableCount} 条。发布仅生成内部发布记录。
             </p>
           </div>
           <StatusPill status={batch.status} />
         </div>
         <div className="rounded-2xl border border-status-info/25 bg-status-info/10 p-4 text-sm leading-6 text-status-info">
-          沙箱发布：半自动会生成待人工处理结果；全自动只写入本地发布记录，不会真正触达小V猫或其他平台。
+          半自动会生成待人工处理结果；全自动只写入本地发布记录，不会真正触达小V猫或其他平台。
         </div>
         <div className="flex flex-wrap justify-between gap-3 border-t border-border/70 pt-4">
           <button className="btn-secondary" type="button" onClick={onBack}>
@@ -112,7 +112,7 @@ export function PublishReviewStep({
               <div className="min-w-0">
                 <p className="font-mono text-xs text-text-tertiary">{attempt.id}</p>
                 <p className="mt-1 text-sm text-text-secondary">
-                  {attempt.platforms.map(platformLabel).join(" / ")} · {attempt.manual_review ? "半自动" : "全自动"} · 沙箱发布
+                  {attempt.platforms.map(platformLabel).join(" / ")} · {attempt.manual_review ? "半自动" : "全自动"} · 内部发布
                 </p>
               </div>
               <StatusPill status={attempt.status} />

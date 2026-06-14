@@ -116,7 +116,11 @@ export function ProductionStep({
       <label>
         <span className={!selectedVoice ? "text-status-error" : undefined}>声音</span>
         <select value={selectedVoice} onChange={(event) => setField("voiceId", event.target.value)}>
-          {voiceOptions.length === 0 ? <option value="voice_sandbox">沙盒声音</option> : null}
+          {voiceOptions.length === 0 ? (
+            <option value="" disabled>
+              暂无可用音色，请先在音色库创建
+            </option>
+          ) : null}
           {voiceOptions.map((voice) => (
             <option value={voice.id} key={voice.id}>
               {voice.display_name}

@@ -10,6 +10,7 @@ provider via :func:`packages.ai.providers.dashscope.poll_dashscope_task`.
 
 from __future__ import annotations
 
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -43,8 +44,11 @@ class DashScopeVideoReTalkProvider:
         api_key = require_secret(context)
         options = context.profile.default_options
         base_url = str(options.get("base_url") or "https://dashscope.aliyuncs.com/api/v1").rstrip("/")
-        video_url = str(call.input.get("video_url") or call.input.get("portrait_uri") or "")
-        audio_url = str(call.input.get("audio_url") or call.input.get("audio_uri") or "")
+        # DashScope's cloud must DOWNLOAD the inputs, so any internal object-store
+        # URI (s3://, local://) is presigned to a public HTTPS URL first. Inputs that
+        # are already http(s) (e.g. tests) pass through unchanged.
+        video_url = self._public_url(context, str(call.input.get("video_url") or call.input.get("portrait_uri") or ""))
+        audio_url = self._public_url(context, str(call.input.get("audio_url") or call.input.get("audio_uri") or ""))
         if not video_url or not audio_url:
             raise ProviderRuntimeError(
                 ErrorCode.provider_unsupported_option,
@@ -91,6 +95,16 @@ class DashScopeVideoReTalkProvider:
             video_seconds=float(call.input.get("duration_sec") or 0),
             raw_usage={"poll_attempts": attempts, "provider_response": task_payload},
         )
+
+    @staticmethod
+    def _public_url(context: ProviderInvocationContext, uri: str) -> str:
+        """Presign an internal object-store URI to a vendor-reachable HTTPS URL.
+
+        Mirrors ``narration_alignment`` handing DashScope ASR a signed URL. The
+        2h expiry comfortably outlasts the VideoReTalk poll window."""
+        if uri.startswith(("s3://", "local://")):
+            return context.object_store.signed_url(uri, expires_in=timedelta(hours=2)).url
+        return uri
 
     def _submit(
         self,

@@ -63,7 +63,7 @@ export function CandidatePoolModal({
                 <div className="min-w-0 flex-1">
                   <div className="mb-2 flex flex-wrap items-center gap-2">
                     <strong className="truncate text-text-primary">{item.title}</strong>
-                    <span className="badge-warning">沙箱生成</span>
+                    <span className="badge-info">AI 生成</span>
                   </div>
                   <p className="line-clamp-4 whitespace-pre-wrap text-sm leading-relaxed text-text-secondary">{item.script}</p>
                 </div>

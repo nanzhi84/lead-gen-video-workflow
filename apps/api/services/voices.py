@@ -10,6 +10,7 @@ from apps.api.common import (
     request_id,
 )
 from packages.core import contracts as c
+from packages.core.config.settings import sandbox_fallback_allowed
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
 from packages.ai.gateway import ProviderCall
@@ -19,6 +20,22 @@ from packages.media.voice_provider_bridge import (
     persist_provider_preview,
     persist_provider_voice,
 )
+
+
+def _voice_tts_profile_id(provider_profile_id: str | None) -> str:
+    """Resolve the TTS provider profile for a new voice, or fail loudly.
+
+    Without an explicit real profile the running app refuses to mint a voice
+    bound to the seeded sandbox TTS; only the opt-in sandbox path keeps the old
+    fallback (tests / local sandbox)."""
+    if provider_profile_id:
+        return provider_profile_id
+    if sandbox_fallback_allowed():
+        return "sandbox.tts.default"
+    raise NodeExecutionError(
+        c.ErrorCode.provider_unsupported_option,
+        "未指定真实 TTS 供应商配置。请先在「设置」中配置并启用真实 TTS 供应商，再克隆 / 设计音色。",
+    )
 
 def list_voices(
     request: Request,
@@ -53,7 +70,11 @@ def clone_voice(payload: c.CloneVoiceRequest, request: Request) -> c.VoiceProfil
         )
         if provider_voice is not None:
             return persist_provider_voice(media_repo, provider_voice)
-        return media_repo.clone_voice(payload)
+        # No real provider voice was built (no provider_profile_id). Enforce the
+        # same loud-fail gate as the in-memory path before the repo silently binds
+        # the new voice to sandbox.tts.default.
+        resolved = _voice_tts_profile_id(payload.provider_profile_id)
+        return media_repo.clone_voice(payload.model_copy(update={"provider_profile_id": resolved}))
     provider_voice = _provider_voice_build(
         payload.provider_profile_id,
         request,
@@ -68,7 +89,7 @@ def clone_voice(payload: c.CloneVoiceRequest, request: Request) -> c.VoiceProfil
         id=new_id("voice"),
         display_name=payload.display_name,
         source="cloned",
-        provider_profile_id=payload.provider_profile_id or "sandbox.tts.default",
+        provider_profile_id=_voice_tts_profile_id(payload.provider_profile_id),
     )
     repository(request).voices[voice.id] = voice
     return voice
@@ -87,7 +108,8 @@ def design_voice(payload: c.DesignVoiceRequest, request: Request) -> c.VoiceProf
         )
         if provider_voice is not None:
             return persist_provider_voice(media_repo, provider_voice)
-        return media_repo.design_voice(payload)
+        resolved = _voice_tts_profile_id(payload.provider_profile_id)
+        return media_repo.design_voice(payload.model_copy(update={"provider_profile_id": resolved}))
     provider_voice = _provider_voice_build(
         payload.provider_profile_id,
         request,
@@ -102,7 +124,7 @@ def design_voice(payload: c.DesignVoiceRequest, request: Request) -> c.VoiceProf
         id=new_id("voice"),
         display_name=payload.display_name,
         source="designed",
-        provider_profile_id=payload.provider_profile_id or "sandbox.tts.default",
+        provider_profile_id=_voice_tts_profile_id(payload.provider_profile_id),
     )
     repository(request).voices[voice.id] = voice
     return voice
@@ -165,6 +187,13 @@ def voice_preview(voice_id: str, payload: c.VoicePreviewRequest, request: Reques
                     artifact_ref = persist_provider_preview(media_repo, voice_id, artifact)
                     return response.model_copy(update={"audio_artifact": artifact_ref})
                 return response
+            # Voice exists but no real TTS produced a preview: fail loudly instead of
+            # fabricating a sandbox:// preview artifact with a synthetic duration.
+            if not sandbox_fallback_allowed():
+                raise NodeExecutionError(
+                    c.ErrorCode.provider_unsupported_option,
+                    "未配置真实 TTS 供应商，无法生成音色试听。请先在「设置」中配置并启用真实 TTS 供应商及密钥。",
+                )
         response = media_repo.preview_voice(voice_id, payload)
         if response is None:
             raise NodeExecutionError(c.ErrorCode.validation_missing_voice, "Voice not found.")
@@ -176,6 +205,11 @@ def voice_preview(voice_id: str, payload: c.VoicePreviewRequest, request: Reques
     response = _provider_voice_preview(voice, payload, request)
     if response is not None:
         return response
+    if not sandbox_fallback_allowed():
+        raise NodeExecutionError(
+            c.ErrorCode.provider_unsupported_option,
+            "未配置真实 TTS 供应商，无法生成音色试听。请先在「设置」中配置并启用真实 TTS 供应商及密钥。",
+        )
     artifact = repository(request).create_artifact(
         kind=c.ArtifactKind.audio_tts,
         payload_schema="VoicePreviewArtifact.v1",

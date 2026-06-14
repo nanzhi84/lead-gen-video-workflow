@@ -256,6 +256,20 @@ class BalanceSettings(BaseModel):
     request_timeout_seconds: int = 10
 
 
+class ProviderSettings(BaseModel):
+    """Provider-routing policy (``settings.providers.*``)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    # CUTAGENT_ALLOW_SANDBOX_FALLBACK: "1" permits silently routing to the seeded
+    # sandbox providers (sandbox.tts.default / sandbox.llm.default) when no real
+    # provider is armed. OFF by default — the running app uses real providers only
+    # and fails loudly when none is configured, never silently degrading to sandbox
+    # output. The test suite opts in (conftest) so its golden/fallback fixtures keep
+    # exercising the sandbox path.
+    allow_sandbox_fallback: bool = False
+
+
 class Settings(BaseModel):
     """Typed, immutable snapshot of all infrastructure configuration.
 
@@ -273,6 +287,7 @@ class Settings(BaseModel):
     media: MediaSettings = Field(default_factory=MediaSettings)
     api: ApiSettings = Field(default_factory=ApiSettings)
     balance: BalanceSettings = Field(default_factory=BalanceSettings)
+    providers: ProviderSettings = Field(default_factory=ProviderSettings)
 
 
 # ----------------------------------------------------------------------------
@@ -393,6 +408,9 @@ def build_settings() -> Settings:
                 "CUTAGENT_BALANCE_REQUEST_TIMEOUT_SECONDS", 10
             ),
         ),
+        providers=ProviderSettings(
+            allow_sandbox_fallback=os.getenv("CUTAGENT_ALLOW_SANDBOX_FALLBACK") == "1",
+        ),
     )
 
 
@@ -403,3 +421,14 @@ def get_settings() -> Settings:
     ``app.state.settings`` inside request handlers; reach for ``get_settings()``
     only in standalone/CLI contexts that lack an ``app.state``."""
     return build_settings()
+
+
+def sandbox_fallback_allowed() -> bool:
+    """Whether silent fallback to the seeded sandbox providers is permitted.
+
+    Reads ``CUTAGENT_ALLOW_SANDBOX_FALLBACK`` at call time (same semantics as the
+    other infra knobs). OFF by default: the running app must route to real
+    providers and raise when none is armed, never silently producing sandbox
+    output. Mirrors ``build_settings().providers.allow_sandbox_fallback`` without
+    building the full snapshot, so the provider-resolution hot paths stay cheap."""
+    return os.getenv("CUTAGENT_ALLOW_SANDBOX_FALLBACK") == "1"

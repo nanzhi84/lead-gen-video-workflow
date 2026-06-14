@@ -55,6 +55,7 @@ from packages.core.observability import (
     workflow_stage,
 )
 from packages.core.contracts.state_machines import assert_transition
+from packages.core.config.settings import sandbox_fallback_allowed
 from packages.production.pipeline import nodes
 from packages.production.pipeline._ffmpeg import generate_seed_audio, generate_seed_video
 from packages.production.pipeline._node_context import NodeContext
@@ -809,11 +810,23 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
 
     def _tts_provider_profile_id(self, request: DigitalHumanVideoRequest) -> str:
         explicit_profile_id = request.voice.provider_profile_id
-        voice = self.repository.voices.get(request.voice.voice_id or "voice_sandbox")
+        voice = self.repository.voices.get(request.voice.voice_id or "")
         voice_profile_id = voice.provider_profile_id if voice is not None else None
         profile_id = explicit_profile_id or voice_profile_id
+
+        def _fallback_or_raise(reason: str) -> str:
+            # No real TTS provider is usable. By default fail loudly so the running
+            # app never silently produces sandbox audio; only fall back when the
+            # sandbox path is explicitly enabled (tests / opt-in deployments).
+            if sandbox_fallback_allowed():
+                return "sandbox.tts.default"
+            raise NodeExecutionError(
+                ErrorCode.provider_unsupported_option,
+                f"未配置可用的真实 TTS 供应商（{reason}）。请在「设置」中配置并启用真实 TTS 供应商及密钥。",
+            )
+
         if not profile_id:
-            return "sandbox.tts.default"
+            return _fallback_or_raise("声音未绑定供应商配置")
         profile = self._provider_profile_by_id(profile_id)
         if profile is None or profile.capability != "tts.speech":
             if explicit_profile_id:
@@ -821,13 +834,13 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
                     ErrorCode.provider_unsupported_option,
                     "TTS provider profile is missing or incompatible.",
                 )
-            return "sandbox.tts.default"
+            return _fallback_or_raise("声音的供应商配置缺失或能力不匹配")
         if not profile.enabled:
-            return "sandbox.tts.default"
+            return _fallback_or_raise(f"供应商配置 {profile.id} 未启用")
         if profile.provider_id not in self.provider_gateway.plugins:
-            return "sandbox.tts.default"
+            return _fallback_or_raise(f"供应商 {profile.provider_id} 未注册")
         if profile.secret_ref and not self.provider_gateway._secret_is_active(profile.secret_ref):
-            return "sandbox.tts.default"
+            return _fallback_or_raise(f"供应商配置 {profile.id} 的密钥未激活")
         return profile.id
 
     def _image_cover_profile_id(self, request: DigitalHumanVideoRequest) -> str | None:

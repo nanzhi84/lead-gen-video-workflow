@@ -79,7 +79,10 @@ def run(ctx: NodeContext) -> NodeOutput:
                 ctx.object_store(),
                 concat_path,
                 purpose="generated-video",
-                tier="ephemeral",
+                # Durable (cloud OSS) so the cloud lipsync provider (DashScope
+                # VideoReTalk) can download a presigned HTTPS URL of this portrait
+                # track. Ephemeral = local MinIO (127.0.0.1), unreachable by the vendor.
+                tier="durable",
             )
     except FfmpegCommandError as exc:
         raise NodeExecutionError(exc.error_code, "Portrait track build failed.") from exc

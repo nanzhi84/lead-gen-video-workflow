@@ -24,7 +24,7 @@ export function AgentMemoryPanel({ proposals, isLoading, busyProposalId, onAppro
       </div>
       {isLoading ? <LoadingState label="加载记忆提案" /> : null}
       {!isLoading && proposals.length === 0 ? <EmptyState title="暂无记忆提案" detail="运行“提出记忆提案”后再处理。" /> : null}
-      <div className="divide-y divide-border/60">
+      <div className="max-h-[28rem] divide-y divide-border/60 overflow-y-auto pr-1">
         {proposals.map((proposal) => {
           const busy = busyProposalId === proposal.id;
           const actionable = proposal.status === "proposed";

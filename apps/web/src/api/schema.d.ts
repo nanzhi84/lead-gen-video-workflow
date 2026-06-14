@@ -3897,6 +3897,12 @@ export interface components {
              * @enum {string}
              */
             operation: "polish" | "fresh" | "remix" | "clone" | "generate" | "semantic";
+            /** Strategy Tags */
+            strategy_tags?: string[];
+            /** Reference Script */
+            reference_script?: string | null;
+            /** Duration */
+            duration?: string | null;
         };
         /** GovernedActionRequest */
         GovernedActionRequest: {

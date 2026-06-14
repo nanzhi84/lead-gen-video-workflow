@@ -1,4 +1,12 @@
 import type { components, operations } from "./schema";
+import {
+  isRealAssetCard,
+  isRealCase,
+  isRealPriceCatalog,
+  isRealPriceItem,
+  isRealProviderProfile,
+  isRealVoice,
+} from "./realData";
 
 type JsonRequest<Operation> = Operation extends {
   requestBody: { content: { "application/json": infer Body } };
@@ -216,7 +224,10 @@ export const api = {
   },
   cases: {
     list: (query: QueryParams<operations["list_cases_api_cases_get"]> = {}) =>
-      fetchJson<JsonResponse<operations["list_cases_api_cases_get"]>>("/api/cases", { query }),
+      fetchJson<JsonResponse<operations["list_cases_api_cases_get"]>>("/api/cases", { query }).then((res) => ({
+        ...res,
+        items: res.items.filter(isRealCase),
+      })),
     create: (payload: JsonRequest<operations["create_case_api_cases_post"]>) =>
       fetchJson<JsonResponse<operations["create_case_api_cases_post"]>>("/api/cases", {
         method: "POST",
@@ -320,7 +331,10 @@ export const api = {
   },
   voices: {
     list: (query: QueryParams<operations["list_voices_api_voices_get"]> = {}) =>
-      fetchJson<JsonResponse<operations["list_voices_api_voices_get"]>>("/api/voices", { query }),
+      fetchJson<JsonResponse<operations["list_voices_api_voices_get"]>>("/api/voices", { query }).then((res) => ({
+        ...res,
+        items: res.items.filter(isRealVoice),
+      })),
     clone: (payload: JsonRequest<operations["clone_voice_api_voices_clone_post"]>) =>
       fetchJson<JsonResponse<operations["clone_voice_api_voices_clone_post"]>>("/api/voices/clone", {
         method: "POST",
@@ -383,7 +397,9 @@ export const api = {
   },
   mediaAssets: {
     list: (query: QueryParams<operations["list_media_assets_api_media_assets_get"]> = {}) =>
-      fetchJson<JsonResponse<operations["list_media_assets_api_media_assets_get"]>>("/api/media/assets", { query }),
+      fetchJson<JsonResponse<operations["list_media_assets_api_media_assets_get"]>>("/api/media/assets", { query }).then(
+        (res) => ({ ...res, items: res.items.filter(isRealAssetCard) }),
+      ),
     usageRanking: (
       kind: "portrait" | "broll" | "bgm" | "font",
       query: QueryParams<operations["material_usage_ranking_api_library_assets__kind__usage_ranking_get"]> = {},
@@ -590,7 +606,7 @@ export const api = {
     profiles: (query: QueryParams<operations["provider_profiles_api_providers_profiles_get"]> = {}) =>
       fetchJson<JsonResponse<operations["provider_profiles_api_providers_profiles_get"]>>("/api/providers/profiles", {
         query,
-      }),
+      }).then((res) => ({ ...res, items: res.items.filter(isRealProviderProfile) })),
     createProfile: (payload: JsonRequest<operations["create_provider_profile_api_providers_profiles_post"]>) =>
       fetchJson<JsonResponse<operations["create_provider_profile_api_providers_profiles_post"]>>(
         "/api/providers/profiles",
@@ -624,7 +640,7 @@ export const api = {
       fetchJson<JsonResponse<operations["price_catalogs_api_providers_price_catalogs_get"]>>(
         "/api/providers/price-catalogs",
         { query },
-      ),
+      ).then((res) => ({ ...res, items: res.items.filter(isRealPriceCatalog) })),
     priceCatalogItems: (
       catalogId: string,
       query: QueryParams<operations["price_catalog_items_api_providers_price_catalogs__catalog_id__items_get"]> = {},
@@ -632,7 +648,7 @@ export const api = {
       fetchJson<JsonResponse<operations["price_catalog_items_api_providers_price_catalogs__catalog_id__items_get"]>>(
         `/api/providers/price-catalogs/${enc(catalogId)}/items`,
         { query },
-      ),
+      ).then((res) => ({ ...res, items: res.items.filter(isRealPriceItem) })),
     upsertPriceCatalog: (payload: JsonRequest<operations["upsert_price_catalog_api_providers_price_catalogs_post"]>) =>
       fetchJson<JsonResponse<operations["upsert_price_catalog_api_providers_price_catalogs_post"]>>(
         "/api/providers/price-catalogs",

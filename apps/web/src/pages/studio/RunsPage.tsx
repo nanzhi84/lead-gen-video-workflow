@@ -169,16 +169,16 @@ export default function RunsPage() {
 
       {items.length > 0 ? (
         <div className="runsLayout">
-          <div className="grid gap-4 xl:grid-cols-2">
+          <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(340px,1fr))]">
             {items.map((run) => (
               <article
-                className={`group flex min-h-[198px] cursor-pointer gap-4 rounded-[24px] border bg-[linear-gradient(180deg,rgba(255,255,252,0.9),rgba(249,250,244,0.96))] p-3 shadow-glow transition-all duration-200 hover:-translate-y-0.5 hover:border-accent/25 ${
+                className={`group flex cursor-pointer gap-4 rounded-[24px] border bg-[linear-gradient(180deg,rgba(255,255,252,0.9),rgba(249,250,244,0.96))] p-3 shadow-glow transition-all duration-200 hover:-translate-y-0.5 hover:border-accent/25 ${
                   run.runId === selectedCard?.runId ? "border-accent/25" : "border-border/80"
                 } ${run.runId === highlightedRunId ? "ring-2 ring-accent/20" : ""}`}
                 onClick={() => openRunDetail(run)}
                 key={run.runId}
               >
-                <div className="w-[96px] flex-none sm:w-[112px]">
+                <div className="w-[84px] flex-none sm:w-[96px]">
                   <RunThumbnail run={run} />
                 </div>
 
@@ -277,7 +277,7 @@ export default function RunsPage() {
                 </div>
               </article>
             ))}
-            <div className="xl:col-span-2">
+            <div className="col-span-full">
               <InfiniteScrollSentinel
                 enabled={hasMoreRuns && !runs.isFetching}
                 onVisible={() => setRunLimit((current) => current + 50)}
@@ -286,7 +286,7 @@ export default function RunsPage() {
             </div>
           </div>
 
-          <aside className="surface timelinePanel">
+          <aside className="surface timelinePanel self-start xl:sticky xl:top-6">
             <div className="sectionHeader">
               <div>
                 <h2>节点时间线</h2>
@@ -351,7 +351,7 @@ function isProcessingStatus(status: RunCard["status"]) {
 function RunThumbnail({ run }: { run: RunCard }) {
   const previewUrl = toDisplayUrl(run.previewUrl);
   return (
-    <div className="group relative aspect-[9/16] w-full overflow-hidden rounded-[18px] border border-border/70 bg-[#20231f] shadow-sm">
+    <div className="group relative aspect-[3/4] w-full overflow-hidden rounded-[18px] border border-border/70 bg-[#20231f] shadow-sm">
       {previewUrl ? (
         <img
           src={previewUrl}
@@ -361,8 +361,9 @@ function RunThumbnail({ run }: { run: RunCard }) {
           decoding="async"
         />
       ) : (
-        <div className="flex h-full w-full items-center justify-center bg-surface-hover">
-          <ImageIcon className="h-7 w-7 text-text-tertiary" />
+        <div className="flex h-full w-full flex-col items-center justify-center gap-1 bg-surface-hover text-text-tertiary">
+          <ImageIcon className="h-6 w-6" />
+          <span className="text-[10px]">{run.status === "running" || run.status === "admitted" ? "生成中" : "待出片"}</span>
         </div>
       )}
       <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/60 to-transparent" />

@@ -17,6 +17,7 @@ from apps.api.services.case_agent_llm import generate_script_with_llm
 from packages.core import contracts as c
 from packages.core.contracts.state_machines import assert_transition
 from packages.core.storage.repository import new_id
+from packages.core.config.settings import sandbox_fallback_allowed
 from packages.core.workflow import NodeExecutionError
 from packages.creative.cases import BriefFields
 from packages.creative.reference_extract import ReferenceExtractError, extract_reference
@@ -202,6 +203,14 @@ def start_case_agent_run(
     case_id: str, payload: c.StartCaseAgentRunRequest, request: Request
 ) -> c.CaseAgentRun:
     get_case(request, case_id)
+    # The agent run currently fabricates fixed canned drafts/insights with no real
+    # model. Fail loudly in production rather than presenting placeholder text as a
+    # succeeded agent result; the sandbox/test path keeps the canned behavior.
+    if not sandbox_fallback_allowed():
+        raise NodeExecutionError(
+            c.ErrorCode.provider_unsupported_option,
+            "案例智能体（自动跑稿 / 记忆提案）尚未接入真实模型，暂不可用。",
+        )
     if case_learning_repository(request) is not None:
         return case_learning_repository(request).start_agent_run(case_id=case_id, payload=payload)
     run = c.CaseAgentRun(
@@ -404,6 +413,13 @@ def import_metrics(case_id: str, payload: c.MetricsImportRequest, request: Reque
 
 
 def start_reflection(case_id: str, payload: c.StartReflectionRunRequest, request: Request) -> c.ReflectionRun:
+    # Reflection currently writes a fixed canned memory proposal with no analysis.
+    # Fail loudly in production rather than presenting it as a real reflection result.
+    if not sandbox_fallback_allowed():
+        raise NodeExecutionError(
+            c.ErrorCode.provider_unsupported_option,
+            "案例反思尚未接入真实模型，暂不可用。",
+        )
     if case_learning_repository(request) is not None:
         get_case(request, case_id)
         return case_learning_repository(request).start_reflection(case_id=case_id, payload=payload)
@@ -490,6 +506,9 @@ def generate_script_with_memory(
             request,
             persona_mode=payload.persona_mode,
             operation=payload.operation,
+            strategy_tags=payload.strategy_tags,
+            reference_script=payload.reference_script,
+            duration=payload.duration,
         )
         return case_learning_repository(request).generate_script_with_memory(
             case_id=case_id,

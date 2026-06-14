@@ -11,6 +11,13 @@ type Props = {
   onAdopt: (draft: AgentDraft) => void;
 };
 
+const DRAFT_PLACEHOLDER_TITLE = "Memory-guided draft";
+
+function draftDisplayTitle(title: string): string {
+  // 后端默认标题是英文占位 "Memory-guided draft"，在中文界面里换成友好标题。
+  return !title || title === DRAFT_PLACEHOLDER_TITLE ? "AI 生成脚本" : title;
+}
+
 export function AgentDraftsPanel({ drafts, isLoading, adoptingDraftId, onAdopt }: Props) {
   return (
     <section className="card grid gap-4">
@@ -19,16 +26,16 @@ export function AgentDraftsPanel({ drafts, isLoading, adoptingDraftId, onAdopt }
           <h2>草稿列表</h2>
           <p>采用后会写入脚本版本，并带来源回填到创作页。</p>
         </div>
-        <span className="badge-warning">沙箱生成</span>
+        <span className="badge-info">AI 生成</span>
       </div>
       {isLoading ? <LoadingState label="加载草稿" /> : null}
       {!isLoading && drafts.length === 0 ? <EmptyState title="暂无草稿" detail="运行“生成脚本草稿”后会出现候选。" /> : null}
-      <div className="divide-y divide-border/60">
+      <div className="max-h-[28rem] divide-y divide-border/60 overflow-y-auto pr-1">
         {drafts.map((draft) => (
           <article className="py-4 first:pt-0 last:pb-0" key={draft.id}>
             <div className="mb-2 flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <h3 className="truncate text-base font-semibold text-text-primary">{draft.title}</h3>
+                <h3 className="truncate text-base font-semibold text-text-primary">{draftDisplayTitle(draft.title)}</h3>
                 <p className="mt-1 text-xs text-text-tertiary"><TimeText value={draft.updated_at} /></p>
               </div>
               <StatusPill status={draft.status} />

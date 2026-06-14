@@ -116,7 +116,7 @@ function RunResult({ detail, isLoading }: { detail?: AgentRunDetail; isLoading: 
           <div className="border-t border-border/40 py-2 first:border-t-0" key={draft.id}>
             <div className="mb-2 flex items-center justify-between gap-2">
               <strong className="text-sm text-text-primary">{draft.title}</strong>
-              <span className="badge-warning">沙箱生成</span>
+              <span className="badge-info">AI 生成</span>
             </div>
             <p className="line-clamp-4 whitespace-pre-wrap text-sm leading-relaxed">{draft.script}</p>
           </div>

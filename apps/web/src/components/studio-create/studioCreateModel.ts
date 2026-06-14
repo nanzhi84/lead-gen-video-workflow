@@ -35,7 +35,7 @@ const defaultForm: FormState = {
   title: "",
   script: "先指出内容生产低效。再展示 Case Memory 如何复用经验。最后推动发布复盘。",
   scriptVersionId: null,
-  voiceId: "voice_sandbox",
+  voiceId: "",
   speed: 1,
   emotion: "neutral",
   portraitMode: "agent",

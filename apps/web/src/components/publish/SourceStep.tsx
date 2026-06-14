@@ -201,7 +201,7 @@ export function SourceStep({
             <span>{isCreating ? "创建中" : "创建批次"}</span>
           </button>
           <p className="rounded-2xl border border-status-info/25 bg-status-info/10 p-3 text-xs leading-5 text-status-info">
-            发布动作会走 sandbox.publish，结果区会明确标注“沙箱发布”。
+            发布动作仅生成内部发布记录，不会触达真实外部平台。
           </p>
         </div>
       </aside>

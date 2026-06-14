@@ -125,7 +125,7 @@ export function TemplatesTab() {
     mutationFn: (assetId: string) => api.annotations.rerun(assetId, { force: false }),
     onSuccess: async (response) => {
       await queryClient.invalidateQueries({ queryKey: ["library", "media", selectedCaseId] });
-      toast.success("分析任务已提交", response.run_id ? `运行 ID：${shortId(response.run_id)}` : "沙箱环境已完成标注状态更新");
+      toast.success("分析任务已提交", response.run_id ? `运行 ID：${shortId(response.run_id)}` : "已更新标注状态");
     },
     onError: (error) => toast.error("分析失败", error),
   });

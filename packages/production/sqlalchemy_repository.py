@@ -82,6 +82,7 @@ from packages.core.storage.database import (
     YieldFunnelEventRow,
 )
 from packages.ai.gateway.sqlalchemy_repository import provider_profile_row_to_contract
+from packages.creative.cases.sqlalchemy_learning_mappers import script_version_row_to_contract
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
 from packages.media.assets import local_object_path
@@ -398,6 +399,25 @@ class SqlAlchemyProductionRepository:
             for artifact in session.scalars(select(ArtifactRow).where(ArtifactRow.run_id.in_(run_ids))):
                 contract = artifact_row_to_contract(artifact)
                 repository.artifacts[contract.id] = contract
+
+    def hydrate_adopted_script(
+        self, repository: Repository, script_version_id: str
+    ) -> ScriptVersion | None:
+        """Load a previously adopted ScriptVersion into the in-memory runtime repo.
+
+        Called when a DigitalHumanVideo job/run is created with an explicit
+        ``script_version_id`` so the adopted ScriptVersion (with its
+        ``adopted_from_draft_id`` provenance) is preserved through the run snapshot
+        instead of being overwritten by a freshly fabricated row. Returns the
+        contract if found, otherwise ``None``.
+        """
+        with self.session_factory() as session:
+            row = session.get(ScriptVersionRow, script_version_id)
+            if row is None:
+                return None
+            script = script_version_row_to_contract(row)
+            repository.scripts[script.id] = script
+            return script
 
     def job_detail(self, job_id: str, request_id: str) -> JobDetailResponse | None:
         with self.session_factory() as session:

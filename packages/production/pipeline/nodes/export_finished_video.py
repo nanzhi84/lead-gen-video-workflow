@@ -43,15 +43,7 @@ def run(ctx: NodeContext) -> NodeOutput:
     final = state.require(ArtifactKind.video_final)
     timeline = state.require(ArtifactKind.plan_timeline)
     style = state.require(ArtifactKind.plan_style)
-    script = ScriptVersion(
-        id=state.request.script_version_id or new_id("script"),
-        case_id=state.request.case_id,
-        title=state.request.title or "Untitled script",
-        script=state.request.script,
-        creative_intent_artifact_id=state.artifacts.get(ArtifactKind.creative_intent).id
-        if ArtifactKind.creative_intent in state.artifacts
-        else None,
-    )
+    script = _resolve_script_version(state, repository)
     repository.scripts[script.id] = script
     video_artifact = ctx.artifact(
         ArtifactKind.video_finished,
@@ -121,6 +113,34 @@ def run(ctx: NodeContext) -> NodeOutput:
         artifacts=[video_artifact, cover_artifact, package_artifact],
         degradations=cover_degradations,
         provider_invocation_ids=cover_invocation_ids,
+    )
+
+
+def _resolve_script_version(state, repository) -> ScriptVersion:
+    """Link the adopted ScriptVersion for this run.
+
+    When the request references an existing adopted ScriptVersion (e.g. one created
+    by adopting a Case Agent draft) we REUSE that row so its provenance
+    (``adopted_from_draft_id``, original creative-intent link) survives and it is no
+    longer orphaned. Only when no matching ScriptVersion is loaded do we fabricate a
+    fresh one under the requested (or a new) id.
+    """
+    requested_id = state.request.script_version_id
+    if requested_id:
+        existing = repository.scripts.get(requested_id)
+        if existing is not None and existing.case_id == state.request.case_id:
+            return existing
+    creative_intent_artifact_id = (
+        state.artifacts.get(ArtifactKind.creative_intent).id
+        if ArtifactKind.creative_intent in state.artifacts
+        else None
+    )
+    return ScriptVersion(
+        id=requested_id or new_id("script"),
+        case_id=state.request.case_id,
+        title=state.request.title or "Untitled script",
+        script=state.request.script,
+        creative_intent_artifact_id=creative_intent_artifact_id,
     )
 
 

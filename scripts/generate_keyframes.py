@@ -239,6 +239,7 @@ def run(
             assets_with_frames += 1
             frames_planned += len(frames)
             images: list[dict[str, Any]] = []
+            extract_failed: str | None = None
             for idx, time_sec in enumerate(frames):
                 key = _keyframe_key(upload_prefix, asset.id, idx)
                 image_uri = f"s3://{bucket}/{key}"
@@ -249,13 +250,20 @@ def run(
                 if _object_exists(oss_client, key):
                     frames_reused += 1
                     continue
-                with tempfile.TemporaryDirectory() as tmpdir:
-                    frame_path = Path(tmpdir) / f"{idx}.jpg"
-                    _extract_frame(video_url=video_url, time_sec=time_sec, out_path=frame_path)
-                    _upload_jpg(oss_client, frame_path, key)
-                frames_rendered += 1
+                try:
+                    with tempfile.TemporaryDirectory() as tmpdir:
+                        frame_path = Path(tmpdir) / f"{idx}.jpg"
+                        _extract_frame(video_url=video_url, time_sec=time_sec, out_path=frame_path)
+                        _upload_jpg(oss_client, frame_path, key)
+                    frames_rendered += 1
+                except Exception as exc:  # one bad frame (e.g. b-roll bytes not in OSS) must not abort the whole run
+                    extract_failed = f"frame[{idx}]@{time_sec:.1f}s: {str(exc).splitlines()[0][:100]}"
+                    break
 
             if apply:
+                if extract_failed is not None:
+                    skipped.append(f"{asset.id}: {extract_failed}")
+                    continue
                 canonical = dict(ann_row.canonical or {})
                 canonical["evidence_frame_images"] = images
                 # Validate the round-trip before persisting (out-of-bounds frames
@@ -265,6 +273,7 @@ def run(
                     continue
                 ann_row.canonical = canonical
                 images_written += 1
+                session.commit()  # per-asset commit so a later failure can't lose prior progress
         if apply:
             session.commit()
 

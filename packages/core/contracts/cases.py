@@ -255,10 +255,6 @@ class GenerateScriptWithMemoryRequest(ContractModel):
     memory_ids: list[str] = Field(default_factory=list)
     persona_mode: Literal["hard_ad", "ip_persona"] = "hard_ad"
     operation: Literal["polish", "fresh", "remix", "clone", "generate", "semantic"] = "generate"
-    # Structured creative inputs that the persona×operation prompt expects as
-    # variables (strategy tags, the reference/idea box, and IP-persona duration).
-    # Sent as first-class fields so the case-tailored prompt renders with full
-    # context instead of degrading to the generic merged prompt.
     strategy_tags: list[str] = Field(default_factory=list)
     reference_script: str | None = None
     duration: str | None = None

@@ -85,8 +85,6 @@ def test_tts_node_falls_back_to_sandbox_when_voice_profile_secret_is_missing():
 
 
 def test_video_job_fails_loudly_when_sandbox_fallback_disabled(monkeypatch):
-    # Production default: no silent sandbox fallback. With the gate off and no real
-    # provider armed, the run must NOT quietly succeed via sandbox output.
     monkeypatch.setenv("CUTAGENT_ALLOW_SANDBOX_FALLBACK", "0")
     with TestClient(create_app()) as client:
         _login_admin(client)
@@ -118,8 +116,6 @@ def test_video_job_fails_loudly_when_sandbox_fallback_disabled(monkeypatch):
             },
         )
 
-        # The TTS provider must never be invoked, and the run must not silently
-        # succeed through the sandbox path.
         assert provider.calls == []
         if response.status_code == 201:
             assert response.json()["initial_run"]["status"] != "succeeded"

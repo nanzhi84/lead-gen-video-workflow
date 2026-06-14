@@ -203,9 +203,6 @@ def start_case_agent_run(
     case_id: str, payload: c.StartCaseAgentRunRequest, request: Request
 ) -> c.CaseAgentRun:
     get_case(request, case_id)
-    # The agent run currently fabricates fixed canned drafts/insights with no real
-    # model. Fail loudly in production rather than presenting placeholder text as a
-    # succeeded agent result; the sandbox/test path keeps the canned behavior.
     if not sandbox_fallback_allowed():
         raise NodeExecutionError(
             c.ErrorCode.provider_unsupported_option,
@@ -413,8 +410,6 @@ def import_metrics(case_id: str, payload: c.MetricsImportRequest, request: Reque
 
 
 def start_reflection(case_id: str, payload: c.StartReflectionRunRequest, request: Request) -> c.ReflectionRun:
-    # Reflection currently writes a fixed canned memory proposal with no analysis.
-    # Fail loudly in production rather than presenting it as a real reflection result.
     if not sandbox_fallback_allowed():
         raise NodeExecutionError(
             c.ErrorCode.provider_unsupported_option,

@@ -35,23 +35,12 @@ import { VideoPlayer, type VideoPlayerQualityEvent, type VideoPlayerSegment } fr
 import { useToast } from "../ui/Toast";
 import { ErrorState, LoadingState } from "../State";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// AnnotationEditorModal — structured editor, no raw JSON.
-//
-// Left: VideoPlayer with segment bars + quality-event markers (click → seek/highlight).
-// Right: quality metrics (valid/invalid/total) + per-segment structured cards (talking-head
-//   vs b-roll fields split) + a quality-event list.
-// Manual edit replaces the old JSON textarea with a per-segment / per-event structured form.
-// Save rebuilds canonical.clips + projection via JSON-Patch (etag, 409 conflict handling).
-// ─────────────────────────────────────────────────────────────────────────────
-
 type AnnotationEditorModalProps = {
   assetId: string | null;
   caseId: string | null;
   onClose: () => void;
 };
 
-/** Editable form state — flat segments + quality events + usability projection fields. */
 type AnnotationForm = {
   qualityStatus: string;
   usable: boolean;
@@ -65,7 +54,6 @@ const QUALITY_STATUS_LABELS: Record<string, string> = {
   invalid: "不可用",
 };
 
-// Human-readable Chinese labels for enum-ish semantic fields (ported from the old repo).
 const SPEECH_ALIGNMENT_LABELS: Record<string, string> = { aligned: "动作一致", uncertain: "待确认", mismatch: "不一致" };
 const SHOT_SCALE_LABELS: Record<string, string> = {
   extreme_close_up: "大特写",
@@ -126,7 +114,6 @@ function formatWindow(start: number, end: number): string {
   return `${start.toFixed(1)}s – ${end.toFixed(1)}s`;
 }
 
-/** Talking-head (portrait) kinds use main-track field set; everything else uses b-roll. */
 function isPortraitKind(kind?: MediaAssetRecord["kind"]): boolean {
   return kind === "portrait" || kind === "voice_reference" || kind === "voice";
 }
@@ -139,7 +126,6 @@ export function AnnotationEditorModal({ assetId, caseId, onClose }: AnnotationEd
   const [activeSegmentId, setActiveSegmentId] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
-  // Playability from the preview-url response (`playable`); `false` => degrade even with a URL.
   const [previewPlayable, setPreviewPlayable] = useState<boolean | undefined>(undefined);
   const [form, setForm] = useState<AnnotationForm>({ qualityStatus: "usable", usable: true, segments: [], qualityEvents: [] });
 
@@ -152,7 +138,6 @@ export function AnnotationEditorModal({ assetId, caseId, onClose }: AnnotationEd
   const editor = editorQuery.data ?? null;
   const isPortrait = isPortraitKind(editor?.asset.kind);
 
-  // Resolve a browser-playable preview URL when the modal opens (best-effort; placeholder otherwise).
   useEffect(() => {
     if (!assetId) {
       setPreviewUrl(null);
@@ -181,7 +166,6 @@ export function AnnotationEditorModal({ assetId, caseId, onClose }: AnnotationEd
     };
   }, [assetId]);
 
-  // Canonical (AnnotationV4) → flat read-model views.
   const canonical = editor?.canonical;
   const projection = editor?.projection ?? {};
   const readSegments = useMemo<AnnotationTimelineSegment[]>(
@@ -194,7 +178,6 @@ export function AnnotationEditorModal({ assetId, caseId, onClose }: AnnotationEd
   );
   const totalDuration = useMemo(() => (canonical ? readDuration(canonical) : 0), [canonical]);
 
-  // Seed the editable form whenever a fresh annotation loads.
   useEffect(() => {
     if (!editor) return;
     const proj = editor.projection ?? {};
@@ -210,7 +193,6 @@ export function AnnotationEditorModal({ assetId, caseId, onClose }: AnnotationEd
     setActiveSegmentId(null);
   }, [editor]);
 
-  // The displayed segments/events follow edit mode (live form) vs read mode (canonical).
   const displaySegments = editing ? form.segments : readSegments;
   const displayEvents = editing ? form.qualityEvents : readEvents;
 
@@ -322,7 +304,6 @@ export function AnnotationEditorModal({ assetId, caseId, onClose }: AnnotationEd
 
       {editor ? (
         <div className="grid gap-5">
-          {/* Header + actions */}
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="flex flex-wrap items-center gap-2">
@@ -368,9 +349,7 @@ export function AnnotationEditorModal({ assetId, caseId, onClose }: AnnotationEd
             </div>
           ) : null}
 
-          {/* Two-column: left = video + metrics + hint (no trailing gap); right = structure (scrolls internally). */}
           <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
-            {/* Left — video player + quality metrics + overlay hint */}
             <div className="grid content-start gap-4">
               <div className="relative">
                 {canPlay && previewUrl ? (
@@ -416,7 +395,6 @@ export function AnnotationEditorModal({ assetId, caseId, onClose }: AnnotationEd
               </p>
             </div>
 
-            {/* Right — structured cards / edit form (internal scroll, aligned to the left column height). */}
             <div className="max-h-[72vh] overflow-y-auto pr-1">
               {editing ? (
                 <StructuredAnnotationForm
@@ -444,10 +422,6 @@ export function AnnotationEditorModal({ assetId, caseId, onClose }: AnnotationEd
     </Modal>
   );
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Read-only structure panel — segment cards + quality-event list.
-// ─────────────────────────────────────────────────────────────────────────────
 
 function ReadonlyStructurePanel({
   segments,
@@ -715,7 +689,6 @@ function StructuredAnnotationForm({
         </label>
       </div>
 
-      {/* Segments */}
       <div className="grid gap-3">
         <div className="flex items-center justify-between gap-3">
           <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary">
@@ -798,7 +771,6 @@ function StructuredAnnotationForm({
         </div>
       </div>
 
-      {/* Quality events */}
       <div className="grid gap-3">
         <div className="flex items-center justify-between gap-3">
           <h4 className="flex items-center gap-2 text-sm font-semibold text-text-primary">
@@ -844,10 +816,6 @@ function StructuredAnnotationForm({
     </form>
   );
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Small presentational + field primitives.
-// ─────────────────────────────────────────────────────────────────────────────
 
 function AnnotationMetric({ label, value, tone }: { label: string; value: string; tone?: "ok" | "warn" }) {
   const valueClass = tone === "ok" ? "text-status-success" : tone === "warn" ? "text-status-warning" : "text-text-primary";
@@ -937,10 +905,6 @@ function SelectField({
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Pure mappers + helpers.
-// ─────────────────────────────────────────────────────────────────────────────
-
 function toPlayerSegment(segment: AnnotationTimelineSegment, index: number): VideoPlayerSegment {
   return {
     id: segment.segment_id || `seg-${index}`,
@@ -961,7 +925,6 @@ function toPlayerEvent(event: AnnotationQualityEvent, index: number): VideoPlaye
   };
 }
 
-/** "annotation_v4" -> "标注 v4"; any other non-empty token -> "标注 <token>"; empty -> null. */
 function formatAnnotationVersion(version?: string): string | null {
   const token = String(version ?? "").trim();
   if (!token) return null;

@@ -1,7 +1,3 @@
-// Web 前端只展示真实数据：从列表响应中统一剔除 sandbox / demo 种子条目。
-// 这些种子（case_demo、voice_sandbox、sandbox.* / runninghub.heygem.default、*_demo 素材）
-// 仅供后端自动化测试使用，按产品要求绝不在 Web 界面出现，也不作为任何兜底项。
-
 const DEMO_CASE_IDS = new Set<string>(["case_demo"]);
 const SANDBOX_PROFILE_IDS = new Set<string>([
   "sandbox.tts.default",

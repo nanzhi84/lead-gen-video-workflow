@@ -23,11 +23,6 @@ from packages.media.voice_provider_bridge import (
 
 
 def _voice_tts_profile_id(provider_profile_id: str | None) -> str:
-    """Resolve the TTS provider profile for a new voice, or fail loudly.
-
-    Without an explicit real profile the running app refuses to mint a voice
-    bound to the seeded sandbox TTS; only the opt-in sandbox path keeps the old
-    fallback (tests / local sandbox)."""
     if provider_profile_id:
         return provider_profile_id
     if sandbox_fallback_allowed():
@@ -70,9 +65,6 @@ def clone_voice(payload: c.CloneVoiceRequest, request: Request) -> c.VoiceProfil
         )
         if provider_voice is not None:
             return persist_provider_voice(media_repo, provider_voice)
-        # No real provider voice was built (no provider_profile_id). Enforce the
-        # same loud-fail gate as the in-memory path before the repo silently binds
-        # the new voice to sandbox.tts.default.
         resolved = _voice_tts_profile_id(payload.provider_profile_id)
         return media_repo.clone_voice(payload.model_copy(update={"provider_profile_id": resolved}))
     provider_voice = _provider_voice_build(
@@ -187,8 +179,6 @@ def voice_preview(voice_id: str, payload: c.VoicePreviewRequest, request: Reques
                     artifact_ref = persist_provider_preview(media_repo, voice_id, artifact)
                     return response.model_copy(update={"audio_artifact": artifact_ref})
                 return response
-            # Voice exists but no real TTS produced a preview: fail loudly instead of
-            # fabricating a sandbox:// preview artifact with a synthetic duration.
             if not sandbox_fallback_allowed():
                 raise NodeExecutionError(
                     c.ErrorCode.provider_unsupported_option,

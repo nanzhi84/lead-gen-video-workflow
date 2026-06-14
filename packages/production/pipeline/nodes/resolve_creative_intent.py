@@ -1,5 +1,3 @@
-"""ResolveCreativeIntent node: derive creative intent via an LLM provider."""
-
 from __future__ import annotations
 
 from packages.ai.gateway import ProviderCall
@@ -21,9 +19,6 @@ def run(ctx: NodeContext) -> NodeOutput:
         return NodeOutput(artifacts=[existing], status=NodeStatus.skipped)
     profile = ctx.first_available_provider_profile("llm.chat", include_sandbox=False)
     if profile is None:
-        # No real llm.chat provider is armed. Fail loudly by default so the running
-        # app never silently degrades to the sandbox LLM; only fall back when the
-        # sandbox path is explicitly enabled (tests / opt-in deployments).
         if not sandbox_fallback_allowed():
             raise NodeExecutionError(
                 ErrorCode.provider_unsupported_option,

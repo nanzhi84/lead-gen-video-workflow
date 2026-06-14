@@ -815,9 +815,6 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
         profile_id = explicit_profile_id or voice_profile_id
 
         def _fallback_or_raise(reason: str) -> str:
-            # No real TTS provider is usable. By default fail loudly so the running
-            # app never silently produces sandbox audio; only fall back when the
-            # sandbox path is explicitly enabled (tests / opt-in deployments).
             if sandbox_fallback_allowed():
                 return "sandbox.tts.default"
             raise NodeExecutionError(

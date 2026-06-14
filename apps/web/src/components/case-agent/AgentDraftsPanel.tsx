@@ -14,7 +14,6 @@ type Props = {
 const DRAFT_PLACEHOLDER_TITLE = "Memory-guided draft";
 
 function draftDisplayTitle(title: string): string {
-  // 后端默认标题是英文占位 "Memory-guided draft"，在中文界面里换成友好标题。
   return !title || title === DRAFT_PLACEHOLDER_TITLE ? "AI 生成脚本" : title;
 }
 

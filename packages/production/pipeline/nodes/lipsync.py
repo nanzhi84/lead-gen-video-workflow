@@ -1,12 +1,3 @@
-"""LipSync node: drive the lipsync provider (or pass the portrait through).
-
-Gating mirrors M6i: the real lipsync provider (RunningHub HeyGem, with a
-DashScope VideoReTalk fallback) is used ONLY when the resolved lipsync profile is
-a real enabled profile whose secret is active. Without a secret the resolved
-profile routes the sandbox provider and the node passes the portrait through —
-byte-identical to today's sandbox behavior.
-"""
-
 from __future__ import annotations
 
 from packages.ai.gateway import ProviderCall
@@ -81,9 +72,6 @@ def run(ctx: NodeContext) -> NodeOutput:
         return NodeOutput(artifacts=[artifact, report], provider_invocation_ids=[invocation.id])
 
     if not is_real:
-        # No real lipsync provider/secret armed. By default fail loudly instead of
-        # silently shipping the un-lipsynced portrait as the result; only pass
-        # through when the sandbox path is explicitly enabled (tests / opt-in).
         if not sandbox_fallback_allowed():
             raise NodeExecutionError(
                 ErrorCode.provider_unsupported_option,

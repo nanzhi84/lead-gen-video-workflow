@@ -39,7 +39,6 @@ import {
   type TemplateForm,
 } from "./promptManagementUtils";
 
-/** 生产使用状态徽标：绿色「生产使用中」/ 灰色「未启用」。 */
 function UsageBadge({ usage, compact = false }: { usage: ReturnType<typeof templateUsage>; compact?: boolean }) {
   const label = compact ? (usage.inProduction ? "生产使用中" : "未启用") : usage.label;
   if (usage.inProduction) {
@@ -58,7 +57,6 @@ function UsageBadge({ usage, compact = false }: { usage: ReturnType<typeof templ
   );
 }
 
-/** 版本状态步进器：草稿 → 审批中 → 已审批 → 已发布（仅高级区展示）。 */
 function StatusStepper({ status }: { status?: string }) {
   const activeIndex = flow.indexOf((status ?? "") as (typeof flow)[number]);
   return (
@@ -194,8 +192,6 @@ export default function PromptManagementPage() {
     onError: (error: ApiError) => toast.error("保存失败", error),
   });
 
-  // 一键「保存并发布到生产」：新建版本 → 审批 → 发布 → 把当前提示词已有的生产绑定重新指向新版本。
-  // 这样用户编辑后立即在生产环节生效，无需理解 草稿/审批/发布/绑定 的内部流程。
   const saveAndPublish = useMutation({
     mutationFn: async () => {
       const created = await api.prompts.createVersion(currentTemplateId, {
@@ -334,7 +330,6 @@ export default function PromptManagementPage() {
       {!templates.isLoading && templateItems.length === 0 ? <EmptyState title="暂无提示词" detail="创建后即可编辑并发布。" /> : null}
 
       <div className="grid gap-5 xl:grid-cols-[320px_minmax(0,1fr)]">
-        {/* 左列：提示词列表 */}
         <aside className="grid content-start gap-3">
           <div className="card flex items-center justify-between gap-3 p-4">
             <div className="min-w-0">
@@ -378,11 +373,9 @@ export default function PromptManagementPage() {
           </div>
         </aside>
 
-        {/* 右列：编辑面板 */}
         {selectedTemplate && selectedDesc ? (
           <div className="grid gap-5">
             <div className="card grid gap-5 p-5">
-              {/* 头部：业务标题 + 用途 + 状态 */}
               <div className="grid gap-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-xl font-semibold text-text-primary">{selectedDesc.title}</h2>
@@ -398,7 +391,6 @@ export default function PromptManagementPage() {
                 </p>
               </div>
 
-              {/* 编辑器 */}
               <label className="grid gap-2">
                 <span>提示词内容</span>
                 <textarea
@@ -410,7 +402,6 @@ export default function PromptManagementPage() {
                 />
               </label>
 
-              {/* 可插入字段 */}
               {insertableFields.length > 0 ? (
                 <div className="grid gap-2">
                   <span className="text-xs font-semibold text-text-secondary">点击插入动态字段</span>
@@ -431,7 +422,6 @@ export default function PromptManagementPage() {
                 </div>
               ) : null}
 
-              {/* 字段说明：解释正文里出现的占位符 */}
               {fieldsInContent.length > 0 ? (
                 <div className="grid gap-2 rounded-2xl border border-border/70 bg-surface-hover/40 p-4">
                   <p className="flex items-center gap-1.5 text-xs font-semibold text-text-secondary">
@@ -449,7 +439,6 @@ export default function PromptManagementPage() {
                 </div>
               ) : null}
 
-              {/* 版本说明 + 操作 */}
               <div className="grid gap-3 border-t border-border/60 pt-4">
                 <label className="grid gap-1.5">
                   <span>修改说明（可选）</span>
@@ -478,7 +467,6 @@ export default function PromptManagementPage() {
               </div>
             </div>
 
-            {/* 高级设置（开发者）：版本、对比、绑定等技术细节，默认折叠 */}
             <div className="card overflow-hidden p-0">
               <button
                 type="button"
@@ -511,7 +499,6 @@ export default function PromptManagementPage() {
                   </div>
 
                   <div className="grid gap-5 xl:grid-cols-2">
-                    {/* 版本对比 */}
                     <div className="grid content-start gap-4">
                       <div className="flex items-center gap-2">
                         <GitCompare className="h-4 w-4 text-accent" />
@@ -573,7 +560,6 @@ export default function PromptManagementPage() {
                       </div>
                     </div>
 
-                    {/* 绑定管理 */}
                     <div className="grid content-start gap-4">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
@@ -685,7 +671,6 @@ export default function PromptManagementPage() {
         ) : null}
       </div>
 
-      {/* 新建提示词 Modal */}
       {createOpen ? (
         <Modal title="新建提示词" onClose={() => setCreateOpen(false)} size="md">
           <form

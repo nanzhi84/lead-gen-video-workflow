@@ -9,11 +9,8 @@ export type ScriptToolItem = {
 
 export type ScriptToolMode = "generate" | "polish";
 
-// 场景（业务语言）= 后端 persona_mode：硬广投流 / IP 人设号。
 export type SceneType = "hard_ad" | "ip_persona";
-// 创作模式（业务语言）= 后端 operation 的子集：全新创作 / 参考爆款 / 爆款复刻。
 export type CreationMode = "fresh" | "remix" | "clone";
-// 后端 operation 取值（含润色等内部操作）。
 export type ScriptOperation = "polish" | "fresh" | "remix" | "clone" | "generate" | "semantic";
 
 export const SCENE_META: Record<SceneType, { label: string; description: string }> = {
@@ -52,7 +49,6 @@ export const CREATION_MODE_META: Record<
 
 export const CREATION_MODE_OPTIONS: CreationMode[] = ["fresh", "remix", "clone"];
 
-// 策略标签（可多选），按场景区分；name 即发送给后端的标签文本。
 export const STRATEGY_TAGS: Record<SceneType, { id: string; name: string; description: string }[]> = {
   hard_ad: [
     { id: "hard-ad-hook", name: "开场钩子", description: "视频前 3 秒的吸引注意内容" },
@@ -80,7 +76,6 @@ export const STRATEGY_TAGS: Record<SceneType, { id: string; name: string; descri
   ],
 };
 
-// 预估时长（仅 IP 人设号场景展示）。
 export const DURATION_OPTIONS: { value: string; label: string }[] = [
   { value: "15-30s", label: "短平快（约 15-30 秒）" },
   { value: "30-60s", label: "常规（约 30-60 秒）" },
@@ -92,7 +87,6 @@ export const GENERATION_COUNTS = [1, 2, 3, 5] as const;
 export const DEFAULT_SCENE: SceneType = "hard_ad";
 export const DEFAULT_CREATION_MODE: CreationMode = "fresh";
 
-/** 创作模式 → 后端 operation；润色场景固定为 polish。 */
 export function operationFor(mode: ScriptToolMode, creationMode: CreationMode): ScriptOperation {
   return mode === "polish" ? "polish" : creationMode;
 }
@@ -108,10 +102,6 @@ export function trimScriptToolList(items: ScriptToolItem[], limit = 30) {
     .slice(0, limit);
 }
 
-/**
- * 把卡片式 UI 选项组装成一段结构化中文 brief，连同 persona_mode/operation 一起发给后端。
- * 策略标签、参考文案、预估时长等都折叠进 brief 文本，模型据此改写口播脚本。
- */
 export function buildGenerationBrief({
   mode,
   scene,

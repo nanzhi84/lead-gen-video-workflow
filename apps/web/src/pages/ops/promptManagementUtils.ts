@@ -86,10 +86,6 @@ export type TemplateUsage = {
   enabledCount: number;
 };
 
-/**
- * 生产使用状态：只有“已启用 + 绑定到生产节点”的模板才会被生产管线使用。
- * 绿色「生产使用中」= 至少有一条 enabled 的绑定；灰色「未接入生产」= 没有任何 enabled 绑定。
- */
 export function templateUsage(items: PromptBindingView[], templateId: string): TemplateUsage {
   const matched = items.filter((item) => item.binding.prompt_template_id === templateId);
   const enabled = matched.filter((item) => item.binding.enabled);
@@ -103,9 +99,6 @@ export function templateUsage(items: PromptBindingView[], templateId: string): T
 
 export const BINDING_EXPLAINER =
   "绑定 = 把某个已发布版本接到生产节点；只有绑定后的提示词才会被生产管线使用。";
-
-// ───────────────────────── 用户友好层 ─────────────────────────
-// 把后端的 purpose / node_id / 变量占位符翻译成业务语言，让非技术用户看得懂。
 
 const PERSONA_LABELS: Record<string, string> = {
   hard_ad: "硬广投流",
@@ -138,21 +131,17 @@ const COVER_LABELS: Record<string, string> = {
   reference_style: "参考风格解析",
 };
 
-/** 把提示词的 purpose 翻译成「业务标题 + 用途说明」。 */
 export function describePrompt(purpose: string, fallbackName: string): { title: string; usage: string } {
   const segments = purpose.split(".");
-  // prompt.script.{persona}.{operation}
   if (purpose.startsWith("prompt.script.") && segments.length >= 4) {
     const persona = PERSONA_LABELS[segments[2]] ?? segments[2];
     const operation = OPERATION_LABELS[segments[3]] ?? segments[3];
     return { title: `${persona} · ${operation}`, usage: `用于「${persona}」场景下的「${operation}」口播脚本生成。` };
   }
-  // prompt.vlm.broll_xxx
   if (purpose.startsWith("prompt.vlm.")) {
     const flavor = VLM_FLAVOR_LABELS[segments[2]] ?? segments[2];
     return { title: `B-roll 视频理解 · ${flavor}`, usage: `分析 B-roll 素材，产出「${flavor}」维度的视频理解标注。` };
   }
-  // prompt.cover.xxx
   if (purpose.startsWith("prompt.cover.")) {
     const type = COVER_LABELS[segments[2]] ?? segments[2];
     return { title: `发布封面 · ${type}`, usage: `发布环节生成封面时使用，对应「${type}」。` };
@@ -169,7 +158,6 @@ export function describePrompt(purpose: string, fallbackName: string): { title: 
   return { title: fallbackName || purpose, usage: "AI 生产环节使用的提示词。" };
 }
 
-/** 变量占位符 → 中文说明，用于「字段说明」图例。 */
 export const VARIABLE_LABELS: Record<string, string> = {
   case_name: "案例 / 商家名称",
   product_name: "产品或服务名称",
@@ -208,7 +196,6 @@ export function variableLabel(name: string): string {
   return VARIABLE_LABELS[name] ?? name;
 }
 
-/** 从提示词内容里提取实际出现的占位符（兼容 {x} 与 {{x}}），用于字段说明图例。 */
 export function usedVariables(content: string): string[] {
   const names = new Set<string>();
   const re = /\{\{?\s*([a-zA-Z0-9_]+)\s*\}?\}/g;

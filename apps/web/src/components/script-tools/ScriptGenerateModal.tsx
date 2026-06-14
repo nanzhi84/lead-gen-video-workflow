@@ -92,7 +92,6 @@ export function ScriptGenerateModal({
 
   function toggleScene(next: SceneType) {
     setScene(next);
-    // 切换场景时，仅保留新场景下仍存在的标签。
     const validNames = new Set(STRATEGY_TAGS[next].map((tag) => tag.name));
     setSelectedTags((prev) => prev.filter((name) => validNames.has(name)));
   }
@@ -147,10 +146,8 @@ export function ScriptGenerateModal({
               index,
             }),
             memory_ids: [],
-            // 场景 → persona_mode，创作模式 → operation，后端据此选用对应人设/操作的提示词。
             persona_mode: scene,
             operation,
-            // 结构化创作输入，后端注入真实提示词的 {{strategy_tags}}/{{user_input}}/{{duration}} 等变量。
             strategy_tags: selectedTags,
             reference_script: referenceScript.trim() || null,
             duration: scene === "ip_persona" ? duration : null,
@@ -161,7 +158,6 @@ export function ScriptGenerateModal({
       const items = drafts.map((draft) => ({
         id: draft.id || newScriptToolId("draft"),
         caseId,
-        // 后端默认标题是英文占位 "Memory-guided draft"，在中文界面里换成友好标题。
         title: !draft.title || draft.title === "Memory-guided draft" ? friendlyTitle : draft.title,
         script: draft.script,
         source: "ai" as const,
@@ -184,7 +180,6 @@ export function ScriptGenerateModal({
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={isPolish ? "AI 润色脚本" : "AI 生成脚本"} size="2xl">
       <div className="grid gap-5">
-        {/* 场景选择 */}
         <Field label="场景选择">
           <div className="grid grid-cols-2 gap-3">
             {SCENE_OPTIONS.map((value) => {
@@ -218,7 +213,6 @@ export function ScriptGenerateModal({
           </div>
         </Field>
 
-        {/* 创作模式（润色模式下隐藏） */}
         {!isPolish ? (
           <Field label="创作模式">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -245,7 +239,6 @@ export function ScriptGenerateModal({
           </Field>
         ) : null}
 
-        {/* 策略标签 */}
         <Field label="策略标签（可多选）">
           <div className="flex flex-wrap gap-2">
             {sceneTags.map((tag) => {
@@ -268,7 +261,6 @@ export function ScriptGenerateModal({
           </div>
         </Field>
 
-        {/* 对标视频链接 + 提取（仅参考爆款/爆款复刻） */}
         {needsReference ? (
           <div className="grid gap-2 rounded-2xl border border-border/70 bg-surface-hover/40 p-3">
             <span className="text-sm font-semibold text-text-secondary">对标视频链接</span>
@@ -299,7 +291,6 @@ export function ScriptGenerateModal({
           </div>
         ) : null}
 
-        {/* 参考文案 / 创作补充 / 润色方向 */}
         <Field
           label={
             <span>
@@ -317,7 +308,6 @@ export function ScriptGenerateModal({
           />
         </Field>
 
-        {/* 预估时长（仅 IP 人设号）+ 生成数量 */}
         <div className="flex flex-wrap items-end gap-6">
           {!isPolish && scene === "ip_persona" ? (
             <Field label="预估时长" className="max-w-[220px]">
@@ -348,7 +338,6 @@ export function ScriptGenerateModal({
           </Field>
         </div>
 
-        {/* 高级生成参数 */}
         <div className="overflow-hidden rounded-2xl border border-border/70">
           <button
             type="button"
@@ -375,7 +364,6 @@ export function ScriptGenerateModal({
           ) : null}
         </div>
 
-        {/* 开始生成 */}
         <div className="grid gap-2">
           <button
             className="btn-primary w-full justify-center disabled:opacity-50"
@@ -393,7 +381,6 @@ export function ScriptGenerateModal({
           {error ? <p className="text-sm text-status-error">{error}</p> : null}
         </div>
 
-        {/* 生成结果 */}
         {results.length > 0 ? (
           <div className="grid gap-3 border-t border-border/60 pt-4">
             <p className="text-sm font-semibold text-text-secondary">生成结果（{results.length} 个版本）</p>

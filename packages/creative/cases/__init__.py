@@ -1,4 +1,4 @@
-from .sqlalchemy_learning import SqlAlchemyCaseLearningRepository
+from .sqlalchemy_learning import BriefFields, SqlAlchemyCaseLearningRepository
 from .sqlalchemy_repository import SqlAlchemyCaseRepository
 
-__all__ = ["SqlAlchemyCaseLearningRepository", "SqlAlchemyCaseRepository"]
+__all__ = ["BriefFields", "SqlAlchemyCaseLearningRepository", "SqlAlchemyCaseRepository"]

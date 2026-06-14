@@ -1,12 +1,51 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 from packages.core.contracts import ErrorCode, PromptBinding, PromptInvocation, PromptTemplate, PromptVersion
 from packages.core.storage import Repository
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
+
+
+def case_prompt_variables(case: Any) -> dict[str, str]:
+    """Bridge a Case contract object to the prompt-template variable vocabulary.
+
+    The Case contract keeps its own field names (name, product, strategy_tags, ...),
+    while the prompt templates in prompt_group_defaults.json reference a different
+    vocabulary ({case_name}{product_name}{industry}{target_audience}{ip_persona}
+    {brand_voice}{key_selling_points}{description}{tags}). This helper maps between
+    them so #B wiring fills the templates with real Case values instead of leaving
+    them permanently empty.
+
+    List fields are serialized as ", ".join(...) so registry.render's str()-based
+    token replacement does not emit a Python list repr. brand_keywords and
+    competitor_names are intentionally NOT mapped: no template var references them
+    today (they are stored/returned but not yet wired into render).
+    """
+
+    def _text(value: Any) -> str:
+        return "" if value is None else str(value)
+
+    def _joined(value: Any) -> str:
+        if not value:
+            return ""
+        if isinstance(value, (list, tuple)):
+            return ", ".join(str(item) for item in value)
+        return str(value)
+
+    return {
+        "case_name": _text(getattr(case, "name", None)),
+        "product_name": _text(getattr(case, "product", None)),
+        "industry": _text(getattr(case, "industry", None)),
+        "target_audience": _text(getattr(case, "target_audience", None)),
+        "ip_persona": _text(getattr(case, "ip_persona", None)),
+        "brand_voice": _text(getattr(case, "brand_voice", None)),
+        "key_selling_points": _joined(getattr(case, "key_selling_points", None)),
+        "description": _text(getattr(case, "description", None)),
+        "tags": _joined(getattr(case, "strategy_tags", None)),
+    }
 
 
 class PromptRuntimeReader(Protocol):

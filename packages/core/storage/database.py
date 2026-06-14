@@ -153,6 +153,12 @@ class CaseRow(TimestampMixin, Base):
     industry: Mapped[str | None] = mapped_column(String)
     product: Mapped[str | None] = mapped_column(String)
     target_audience: Mapped[str | None] = mapped_column(Text)
+    key_selling_points: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    ip_persona: Mapped[str | None] = mapped_column(Text)
+    brand_voice: Mapped[str | None] = mapped_column(Text)
+    strategy_tags: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    brand_keywords: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    competitor_names: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
 
 
 class ArtifactRow(TimestampMixin, Base):
@@ -536,6 +542,11 @@ class CreativeBriefRow(TimestampMixin, Base):
     case_id: Mapped[str] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"), nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     source_binding_ids: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    topic: Mapped[str | None] = mapped_column(Text)
+    audience: Mapped[str | None] = mapped_column(Text)
+    key_insights: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    source_refs: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    generated_by_run_id: Mapped[str | None] = mapped_column(String)
 
 
 class ScriptDraftRow(TimestampMixin, Base):

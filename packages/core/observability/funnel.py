@@ -212,3 +212,64 @@ def compute_true_yield_rate(events) -> float | None:
         return None
     true_yield_runs = published_runs - disqualified_runs
     return len(true_yield_runs) / len(runs)
+
+
+def persist_funnel_event_rows(session_factory, events: list[dict]) -> None:
+    """Best-effort, dedupe-safe persistence of §9.5 funnel rows for the SQL backend.
+
+    The publish / quality-check / approval mutations on the SQL-backed repositories
+    happen OUTSIDE the run/workflow snapshot sync that carries the production-pipeline
+    stages (submitted/started/node_*/finished_video_created). Those repos therefore
+    call this to land the ``published`` / ``qc_*`` / ``manual_*`` stages directly in
+    ``yield_funnel_events`` — without them ``true_yield_rate`` would be structurally
+    0.0 on the production backend even for fully published runs.
+
+    Each ``event`` is a dict carrying ``event_type`` and ``dedupe_key`` plus any of
+    ``job_id`` / ``run_id`` / ``finished_video_id`` / ``publish_package_id`` /
+    ``publish_attempt_id`` / ``case_id`` / ``event_time``.
+
+    Opens its OWN short transaction (never the caller's) so a funnel write can never
+    abort or roll back the publish/QC/approval mutation, and skips any ``dedupe_key``
+    that already exists so re-submits/re-decisions stay idempotent. Never raises —
+    emission is strictly best-effort (spec §9.5)."""
+
+    if not events:
+        return
+    try:
+        from sqlalchemy import select
+
+        from packages.core.contracts import utcnow
+        from packages.core.storage.database import YieldFunnelEventRow
+        from packages.core.storage.repository import new_id
+
+        with session_factory() as session:
+            for event in events:
+                dedupe_key = event["dedupe_key"]
+                existing = session.scalar(
+                    select(YieldFunnelEventRow.id).where(
+                        YieldFunnelEventRow.dedupe_key == dedupe_key
+                    )
+                )
+                if existing is not None:
+                    continue
+                session.add(
+                    YieldFunnelEventRow(
+                        id=new_id("yield"),
+                        case_id=event.get("case_id"),
+                        job_id=event.get("job_id"),
+                        run_id=event.get("run_id"),
+                        finished_video_id=event.get("finished_video_id"),
+                        publish_package_id=event.get("publish_package_id"),
+                        publish_attempt_id=event.get("publish_attempt_id"),
+                        event_type=event["event_type"],
+                        event_time=event.get("event_time") or utcnow(),
+                        dedupe_key=dedupe_key,
+                    )
+                )
+            session.commit()
+    except Exception:  # pragma: no cover - defensive: emission must never break a flow
+        logger.warning(
+            "Failed to persist %d yield funnel event(s) to the DB.",
+            len(events),
+            exc_info=True,
+        )

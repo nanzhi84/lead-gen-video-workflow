@@ -6,7 +6,7 @@ from datetime import timedelta
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
-from sqlalchemy import func, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from packages.core.auth.password_policy import validate_password
@@ -190,7 +190,13 @@ class SqlAlchemyAuthService:
         Only relevant when ``row`` is itself currently an active admin and the
         patch would either change its role away from admin OR disable it. Counts
         OTHER active admins; if there are none, the change is rejected with
-        ``ErrorCode.validation_conflict`` (409)."""
+        ``ErrorCode.validation_conflict`` (409).
+
+        The active-admin rows are SELECTed ``FOR UPDATE`` (including ``row`` itself)
+        so two concurrent demote/disable patches against DIFFERENT admins contend on
+        the same locked row set and serialize: the second transaction re-reads after
+        the first commits and sees only itself left, closing the TOCTOU window that
+        would otherwise leave zero active admins."""
         if row.role != UserRole.admin.value or row.status != "active":
             return
         new_role = updates.get("role")
@@ -200,13 +206,13 @@ class SqlAlchemyAuthService:
         disabling = updates.get("status") == "disabled"
         if not (demoting or disabling):
             return
-        other_active_admins = session.scalar(
-            select(func.count())
-            .select_from(UserRow)
+        active_admin_ids = session.scalars(
+            select(UserRow.id)
             .where(UserRow.role == UserRole.admin.value)
             .where(UserRow.status == "active")
-            .where(UserRow.id != row.id)
-        )
+            .with_for_update()
+        ).all()
+        other_active_admins = [admin_id for admin_id in active_admin_ids if admin_id != row.id]
         if not other_active_admins:
             raise NodeExecutionError(
                 ErrorCode.validation_conflict,

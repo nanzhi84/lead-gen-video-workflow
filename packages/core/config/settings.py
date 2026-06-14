@@ -194,6 +194,12 @@ class AuthSettings(BaseModel):
     login_window_minutes: int = 15
     max_registration_attempts: int = 5
     registration_window_minutes: int = 60
+    # CUTAGENT_AUTH_TRUST_FORWARDED_FOR: trust the X-Forwarded-For header for
+    # rate-limit client bucketing. OFF by default — the header is client-supplied,
+    # so trusting it lets an attacker rotate it to mint a fresh limiter bucket per
+    # request and bypass the brute-force throttle. Enable ONLY when the API sits
+    # behind a trusted proxy/LB that overwrites the header.
+    trust_forwarded_for: bool = False
 
 
 class SecretStoreSettings(BaseModel):
@@ -360,6 +366,10 @@ def build_settings() -> Settings:
             registration_window_minutes=_env_int(
                 "CUTAGENT_AUTH_REGISTRATION_WINDOW_MINUTES", 60
             ),
+            trust_forwarded_for=_env_str(
+                "CUTAGENT_AUTH_TRUST_FORWARDED_FOR", "false"
+            ).strip().lower()
+            in {"1", "true", "yes", "on"},
         ),
         secret_store=SecretStoreSettings(
             dir=_env_str("CUTAGENT_SECRET_STORE_DIR", ".data/secrets"),

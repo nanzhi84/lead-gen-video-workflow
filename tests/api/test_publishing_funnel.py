@@ -103,3 +103,15 @@ def test_record_attempt_funnel_dry_run_only_publish_started():
     _record_publish_attempt_funnel(repo, batch, item, attempt)
     types = {e.event_type for e in repo.yield_events.values()}
     assert types == {"publish_started"}
+
+
+def test_qc_run_ids_returns_none_for_missing_run():
+    # A quality-check posted against a run that is not in the repo must NOT
+    # fabricate a run_id: doing so adds a phantom run to the true-yield denominator
+    # (deflating the rate). The "run absent" branch must resolve to (None, None).
+    from apps.api.services.ops import _qc_run_ids
+
+    repo = Repository()
+    run_id, job_id = _qc_run_ids(repo, target_type="run", target_id="run_missing")
+    assert run_id is None
+    assert job_id is None

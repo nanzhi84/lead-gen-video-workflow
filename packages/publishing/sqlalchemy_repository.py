@@ -20,6 +20,7 @@ from packages.core.contracts import (
     utcnow,
 )
 from packages.core.contracts.state_machines import assert_transition
+from packages.core.observability import persist_funnel_event_rows
 from packages.core.storage.database import (
     ArtifactRow,
     FinishedVideoRow,
@@ -29,6 +30,7 @@ from packages.core.storage.database import (
     PublishPackageRow,
     PublishRecordRow,
     VideoVersionRow,
+    WorkflowRunRow,
 )
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
@@ -243,6 +245,7 @@ class SqlAlchemyPublishingRepository:
                 assert_transition("publish_batch", "publishing", "completed")
             batch.status = batch_status
             batch.updated_at = utcnow()
+            funnel_events: list[dict] = []
             for item in selected_items:
                 target_item_status = "review_ready" if payload.dry_run else "published"
                 current_item_status = item.status
@@ -289,9 +292,11 @@ class SqlAlchemyPublishingRepository:
                     )
                 attempt_status = "published" if not payload.dry_run else "manual_review_ready"
                 assert_transition("publish_attempt", "created", attempt_status)
+                attempt_id = new_id("pub_attempt")
+                attempt_time = utcnow()
                 session.add(
                     PublishAttemptRow(
-                        id=new_id("pub_attempt"),
+                        id=attempt_id,
                         batch_id=batch.id,
                         item_id=item.id,
                         platforms=[item.platform],
@@ -300,12 +305,46 @@ class SqlAlchemyPublishingRepository:
                         adapter_id="sandbox.publish",
                         external_task_id=None,
                         results=[],
-                        finished_at=utcnow() if attempt_status == "published" else None,
+                        finished_at=attempt_time if attempt_status == "published" else None,
                     )
                 )
+                # §9.5: stage the run-linked publish funnel events. They are
+                # persisted best-effort AFTER this transaction commits (see below)
+                # so the SQL backend reaches ``published`` — otherwise true_yield_rate
+                # is structurally 0.0 in production. run/job/case are resolved through
+                # the package's source finished video.
+                run_id = job_id = case_id = None
+                finished_video_id = package.source_finished_video_id if package else None
+                if finished_video_id:
+                    finished = session.get(FinishedVideoRow, finished_video_id)
+                    if finished is not None:
+                        case_id = finished.case_id
+                        run_id = finished.run_id
+                        if run_id:
+                            run = session.get(WorkflowRunRow, run_id)
+                            job_id = getattr(run, "job_id", None) if run else None
+                if case_id is None and package is not None:
+                    case_id = package.case_id
+                base_event = {
+                    "job_id": job_id,
+                    "run_id": run_id,
+                    "case_id": case_id,
+                    "publish_package_id": package.id if package else None,
+                    "publish_attempt_id": attempt_id,
+                    "event_time": attempt_time,
+                }
+                funnel_events.append(
+                    {**base_event, "event_type": "publish_started", "dedupe_key": f"{attempt_id}:publish_started"}
+                )
+                if attempt_status == "published":
+                    funnel_events.append(
+                        {**base_event, "event_type": "published", "dedupe_key": f"{attempt_id}:published"}
+                    )
             session.commit()
             session.refresh(batch)
-            return publish_batch_row_to_contract(session, batch)
+            result = publish_batch_row_to_contract(session, batch)
+        persist_funnel_event_rows(self.session_factory, funnel_events)
+        return result
 
     def patch_item(self, item_id: str, payload: PatchPublishItemRequest) -> PublishBatchItemVm | None:
         with self.session_factory() as session:

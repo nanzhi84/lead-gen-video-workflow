@@ -95,7 +95,8 @@ class SqlAlchemyCaseRepository:
         - material_count: media assets whose kind is a reusable library kind.
         - voice_count: media assets whose kind == 'voice' (VoiceProfileRow has no case_id).
         - script_count: ScriptVersionRow rows for the case.
-        - quality_count: QC'd finished videos (FinishedVideoRow.qc_status != '').
+        - quality_count: QC'd finished videos — a terminal FinishedVideoRow.qc_status
+          (passed/failed/warning); ``pending`` videos are not yet QC'd and excluded.
         """
         counts: dict[str, dict[str, int]] = {
             case_id: {"material_count": 0, "script_count": 0, "voice_count": 0, "quality_count": 0}
@@ -136,7 +137,10 @@ class SqlAlchemyCaseRepository:
 
         quality_rows = session.execute(
             select(FinishedVideoRow.case_id, func.count())
-            .where(FinishedVideoRow.case_id.in_(case_ids), FinishedVideoRow.qc_status != "")
+            .where(
+                FinishedVideoRow.case_id.in_(case_ids),
+                FinishedVideoRow.qc_status.notin_(("", "pending")),
+            )
             .group_by(FinishedVideoRow.case_id)
         )
         for case_id, count in quality_rows:

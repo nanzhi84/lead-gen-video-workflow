@@ -253,3 +253,115 @@ def test_sqlalchemy_auth_me_update_and_change_password_are_persisted():
         user_row = session.get(UserRow, user_id)
         assert user_row is not None
         assert user_row.display_name == "Renamed Self"
+
+
+def test_sqlalchemy_change_password_revokes_other_sessions_but_keeps_current():
+    # R5: changing the password must revoke every OTHER active session of the user
+    # (so a leaked cookie dies) while keeping the caller's own session alive.
+    session_factory = sqlalchemy_session_factory()
+    suffix = uuid4().hex[:10]
+    email = f"multi-session-{suffix}@example.test"
+    old_password = "old password 123"
+    new_password = "new password 456"
+
+    with TestClient(app) as admin_client:
+        admin_login = admin_client.post(
+            "/api/auth/login",
+            json={"email": "admin@local.cutagent", "password": "local-admin"},
+        )
+        assert admin_login.status_code == 200, admin_login.text
+        created = admin_client.post(
+            "/api/auth/users",
+            json={
+                "email": email,
+                "password": old_password,
+                "display_name": "Multi Session User",
+                "role": "operator",
+            },
+        )
+        assert created.status_code == 201, created.text
+        user_id = created.json()["id"]
+
+        # Two independent sessions (distinct cookie jars) for the same user.
+        client_a = TestClient(app)
+        client_b = TestClient(app)
+        assert client_a.post("/api/auth/login", json={"email": email, "password": old_password}).status_code == 200
+        assert client_b.post("/api/auth/login", json={"email": email, "password": old_password}).status_code == 200
+        token_b = client_b.cookies.get("cutagent_session")
+        assert client_a.get("/api/auth/me").status_code == 200
+        assert client_b.get("/api/auth/me").status_code == 200
+
+        # Session A changes the password keeping its OWN cookie.
+        changed = client_a.post(
+            "/api/auth/me/change-password",
+            json={"old_password": old_password, "new_password": new_password},
+        )
+        assert changed.status_code == 200, changed.text
+
+        # Current session (A) survives; the other session (B) is revoked.
+        assert client_a.get("/api/auth/me").status_code == 200
+        assert client_b.get("/api/auth/me").status_code == 401
+
+    with session_factory() as session:
+        revoked_row = session.get(SessionRow, hash_session_token(token_b))
+        assert revoked_row is not None
+        assert revoked_row.revoked_at is not None
+        # All of this user's sessions except the kept one are revoked.
+        active = session.scalars(
+            select(SessionRow)
+            .where(SessionRow.user_id == user_id)
+            .where(SessionRow.revoked_at.is_(None))
+        ).all()
+        assert len(active) == 1
+
+
+def test_sqlalchemy_last_active_admin_is_guarded_on_db_backend():
+    # R4 (SQL backend): the last active admin cannot be demoted or disabled, while
+    # demotion IS allowed once another active admin exists. Written to be
+    # non-polluting: usr_admin is never actually demoted/disabled (those patches are
+    # rejected), so later tests can still authenticate as the seeded admin.
+    session_factory = sqlalchemy_session_factory()
+    with TestClient(app) as client:
+        assert client.post(
+            "/api/auth/login",
+            json={"email": "admin@local.cutagent", "password": "local-admin"},
+        ).status_code == 200
+
+        # Defensive: ensure usr_admin is the only active admin (demote any other
+        # active admins left behind by earlier tests; the seed only has usr_admin).
+        users = client.get("/api/auth/users", params={"limit": 500}).json()["items"]
+        for user in users:
+            if user["id"] != "usr_admin" and user["role"] == "admin" and user["status"] == "active":
+                client.patch(f"/api/auth/users/{user['id']}", json={"role": "viewer"})
+
+        # Last active admin: demote and disable are both rejected (no state change).
+        demote = client.patch("/api/auth/users/usr_admin", json={"role": "viewer"})
+        assert demote.status_code == 409
+        assert demote.json()["error"]["code"] == "validation.conflict"
+        disable = client.patch("/api/auth/users/usr_admin", json={"status": "disabled"})
+        assert disable.status_code == 409
+        assert disable.json()["error"]["code"] == "validation.conflict"
+
+        # Allowed path: with a second active admin, demoting THAT one succeeds and
+        # leaves usr_admin as the active admin.
+        suffix = uuid4().hex[:10]
+        second = client.post(
+            "/api/auth/users",
+            json={
+                "email": f"second-admin-{suffix}@example.test",
+                "password": "correct horse battery staple",
+                "display_name": f"Second Admin {suffix}",
+                "role": "admin",
+            },
+        )
+        assert second.status_code == 201, second.text
+        second_id = second.json()["id"]
+        demote_second = client.patch(f"/api/auth/users/{second_id}", json={"role": "viewer"})
+        assert demote_second.status_code == 200, demote_second.text
+        assert demote_second.json()["role"] == "viewer"
+
+    with session_factory() as session:
+        admin_row = session.get(UserRow, "usr_admin")
+        assert admin_row is not None
+        assert admin_row.role == "admin"
+        assert admin_row.status == "active"

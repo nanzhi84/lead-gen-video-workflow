@@ -14,6 +14,7 @@ from packages.core import contracts as c
 from packages.core.auth import SqlAlchemyAuthService
 from packages.core.auth import rate_limit
 from packages.core.auth.password_policy import validate_password
+from packages.core.config import build_settings
 from packages.core.registration_codes import hash_registration_code
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
@@ -22,12 +23,16 @@ from packages.core.workflow import NodeExecutionError
 def _client_identity(request: Request) -> str:
     """Best-effort client identity for rate-limit bucketing.
 
-    Prefers the first ``X-Forwarded-For`` hop (proxy/LB), falling back to the
-    direct peer address, then a constant so the limiter still buckets when the
-    peer is unknown (e.g. the TestClient)."""
-    forwarded_for = request.headers.get("x-forwarded-for", "")
-    if forwarded_for:
-        return forwarded_for.split(",", 1)[0].strip()
+    Uses the direct peer address by default. ``X-Forwarded-For`` is client-supplied
+    and is honored ONLY when ``auth.trust_forwarded_for`` is enabled (deployment
+    behind a trusted proxy/LB that overwrites the header); otherwise trusting it
+    would let an attacker rotate the header to mint a fresh limiter bucket per
+    request and bypass the brute-force throttle. Falls back to a constant so the
+    limiter still buckets when the peer is unknown (e.g. the TestClient)."""
+    if build_settings().auth.trust_forwarded_for:
+        forwarded_for = request.headers.get("x-forwarded-for", "")
+        if forwarded_for:
+            return forwarded_for.split(",", 1)[0].strip()
     return request.client.host if request.client else "unknown"
 
 

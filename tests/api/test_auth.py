@@ -202,6 +202,63 @@ def test_repeated_failed_logins_are_rate_limited(monkeypatch):
     assert blocked_correct.status_code == 401
 
 
+def test_rotating_forwarded_for_cannot_bypass_login_throttle(monkeypatch):
+    # R2 hardening: X-Forwarded-For is client-controllable, so by default it must
+    # NOT be trusted for rate-limit bucketing. An attacker rotating the header per
+    # request must still be throttled (the bucket keys on the real peer).
+    monkeypatch.setenv("CUTAGENT_AUTH_MAX_LOGIN_ATTEMPTS", "3")
+    monkeypatch.delenv("CUTAGENT_AUTH_TRUST_FORWARDED_FOR", raising=False)
+    rate_limit.reset()
+    client = TestClient(app)
+    for attempt in range(3):
+        bad = client.post(
+            "/api/auth/login",
+            json={"email": "admin@local.cutagent", "password": "wrong-password"},
+            headers={"X-Forwarded-For": f"10.0.0.{attempt}"},
+        )
+        assert bad.status_code == 401
+
+    throttled = client.post(
+        "/api/auth/login",
+        json={"email": "admin@local.cutagent", "password": "wrong-password"},
+        headers={"X-Forwarded-For": "10.0.0.99"},
+    )
+    assert throttled.status_code == 401
+    # The correct password is also rejected while throttled, proving the limiter
+    # engaged despite the rotating forwarded-for header.
+    blocked_correct = client.post(
+        "/api/auth/login",
+        json={"email": "admin@local.cutagent", "password": "local-admin"},
+        headers={"X-Forwarded-For": "10.0.0.123"},
+    )
+    assert blocked_correct.status_code == 401
+
+
+def test_forwarded_for_is_honored_when_trust_enabled(monkeypatch):
+    # When the deployment sits behind a trusted proxy, operators opt in via
+    # CUTAGENT_AUTH_TRUST_FORWARDED_FOR=1, and distinct forwarded-for hops then
+    # bucket independently (so a shared NAT does not lock everyone out).
+    monkeypatch.setenv("CUTAGENT_AUTH_MAX_LOGIN_ATTEMPTS", "3")
+    monkeypatch.setenv("CUTAGENT_AUTH_TRUST_FORWARDED_FOR", "1")
+    rate_limit.reset()
+    client = TestClient(app)
+    for attempt in range(3):
+        bad = client.post(
+            "/api/auth/login",
+            json={"email": "admin@local.cutagent", "password": "wrong-password"},
+            headers={"X-Forwarded-For": "10.0.0.1"},
+        )
+        assert bad.status_code == 401
+    # A different forwarded-for hop is a different bucket: the wrong password is
+    # still 401 (bad creds), but NOT throttled — a correct login succeeds.
+    other_ip_ok = client.post(
+        "/api/auth/login",
+        json={"email": "admin@local.cutagent", "password": "local-admin"},
+        headers={"X-Forwarded-For": "10.0.0.2"},
+    )
+    assert other_ip_ok.status_code == 200, other_ip_ok.text
+
+
 def test_successful_login_clears_failure_counter(monkeypatch):
     # R2: a success resets the bucket so legitimate users are not locked out by
     # earlier typos.

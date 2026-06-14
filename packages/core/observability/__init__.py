@@ -18,6 +18,7 @@ from .funnel import (
     TRUE_YIELD_SUCCESS,
     compute_true_yield_rate,
     node_stage,
+    persist_funnel_event_rows,
     record_funnel_event,
     workflow_stage,
 )
@@ -49,6 +50,7 @@ __all__ = [
     "TRUE_YIELD_SUCCESS",
     "compute_true_yield_rate",
     "node_stage",
+    "persist_funnel_event_rows",
     "record_funnel_event",
     "workflow_stage",
     "metric_snapshot",

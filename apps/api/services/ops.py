@@ -189,7 +189,7 @@ def _qc_run_ids(repo, *, target_type: str, target_id: str) -> tuple[str | None, 
 
     if target_type == "run":
         run = repo.runs.get(target_id)
-        return (target_id if run is not None else target_id), getattr(run, "job_id", None)
+        return (target_id if run is not None else None), getattr(run, "job_id", None)
     finished = repo.finished_videos.get(target_id) if target_id else None
     run_id = getattr(finished, "run_id", None) if finished else None
     run = repo.runs.get(run_id) if run_id else None

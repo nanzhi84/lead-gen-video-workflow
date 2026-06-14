@@ -9,11 +9,36 @@ test_sqlalchemy_case_learning.py.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from fastapi.testclient import TestClient
 
 from apps.api.app import create_app
+from apps.api.services.cases import _with_counts
 from packages.ai.prompts.registry import case_prompt_variables
 from packages.core import contracts as c
+
+
+def test_quality_count_only_counts_qcd_videos_not_pending():
+    # R6: the "质检" (quality_count) column counts finished videos that have
+    # actually been quality-checked — i.e. a terminal qc_status — NOT every
+    # finished video. ``qc_status`` is never empty (defaults to "pending"), so a
+    # "has any status" filter would silently count everything.
+    case = c.CaseDetail(id="case_q", name="Quality Case")
+    repo = SimpleNamespace(
+        media_assets={},
+        scripts={},
+        finished_videos={
+            "fv_pending": SimpleNamespace(case_id="case_q", qc_status="pending"),
+            "fv_passed": SimpleNamespace(case_id="case_q", qc_status="passed"),
+            "fv_failed": SimpleNamespace(case_id="case_q", qc_status="failed"),
+            "fv_warning": SimpleNamespace(case_id="case_q", qc_status="warning"),
+            "fv_other_case": SimpleNamespace(case_id="case_other", qc_status="passed"),
+        },
+    )
+    item = _with_counts(repo, case)
+    # passed + failed + warning for this case = 3; pending and the other case excluded.
+    assert item.quality_count == 3
 
 
 def _login_admin(client: TestClient) -> None:

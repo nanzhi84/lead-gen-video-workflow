@@ -55,7 +55,8 @@ def _with_counts(repo, case: c.CaseDetail) -> c.CaseListItem:
     """Project an in-memory CaseDetail to a CaseListItem with per-case counts.
 
     Mirrors the SQLAlchemy R6 count semantics: material/voice from media assets,
-    scripts from script versions, quality from QC'd finished videos.
+    scripts from script versions, quality from QC'd finished videos (a terminal
+    ``qc_status`` of passed/failed/warning — ``pending`` videos are not yet QC'd).
     """
     case_id = case.id
     material_count = sum(
@@ -70,7 +71,7 @@ def _with_counts(repo, case: c.CaseDetail) -> c.CaseListItem:
     quality_count = sum(
         1
         for video in repo.finished_videos.values()
-        if video.case_id == case_id and video.qc_status
+        if video.case_id == case_id and video.qc_status not in ("", "pending")
     )
     return c.CaseListItem(
         id=case.id,

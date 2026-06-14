@@ -918,6 +918,22 @@
               ],
               "title": "Owner User Id"
             }
+          },
+          {
+            "name": "industry",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Industry"
+            }
           }
         ],
         "responses": {
@@ -8288,17 +8304,6 @@
             "title": "Status",
             "default": "active"
           },
-          "description": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Description"
-          },
           "industry": {
             "anyOf": [
               {
@@ -8309,6 +8314,37 @@
               }
             ],
             "title": "Industry"
+          },
+          "material_count": {
+            "type": "integer",
+            "title": "Material Count",
+            "default": 0
+          },
+          "script_count": {
+            "type": "integer",
+            "title": "Script Count",
+            "default": 0
+          },
+          "voice_count": {
+            "type": "integer",
+            "title": "Voice Count",
+            "default": 0
+          },
+          "quality_count": {
+            "type": "integer",
+            "title": "Quality Count",
+            "default": 0
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
           },
           "product": {
             "anyOf": [
@@ -8331,6 +8367,56 @@
               }
             ],
             "title": "Target Audience"
+          },
+          "key_selling_points": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Key Selling Points"
+          },
+          "ip_persona": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip Persona"
+          },
+          "brand_voice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brand Voice"
+          },
+          "strategy_tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Strategy Tags"
+          },
+          "brand_keywords": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Brand Keywords"
+          },
+          "competitor_names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Competitor Names"
           }
         },
         "additionalProperties": false,
@@ -8514,6 +8600,37 @@
             ],
             "title": "Status",
             "default": "active"
+          },
+          "industry": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Industry"
+          },
+          "material_count": {
+            "type": "integer",
+            "title": "Material Count",
+            "default": 0
+          },
+          "script_count": {
+            "type": "integer",
+            "title": "Script Count",
+            "default": 0
+          },
+          "voice_count": {
+            "type": "integer",
+            "title": "Voice Count",
+            "default": 0
+          },
+          "quality_count": {
+            "type": "integer",
+            "title": "Quality Count",
+            "default": 0
           }
         },
         "additionalProperties": false,
@@ -9011,6 +9128,56 @@
               }
             ],
             "title": "Target Audience"
+          },
+          "key_selling_points": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Key Selling Points"
+          },
+          "ip_persona": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip Persona"
+          },
+          "brand_voice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brand Voice"
+          },
+          "strategy_tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Strategy Tags"
+          },
+          "brand_keywords": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Brand Keywords"
+          },
+          "competitor_names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Competitor Names"
           }
         },
         "additionalProperties": false,
@@ -9858,6 +10025,53 @@
             },
             "type": "array",
             "title": "Source Binding Ids"
+          },
+          "topic": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic"
+          },
+          "audience": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audience"
+          },
+          "key_insights": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Key Insights"
+          },
+          "source_refs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Source Refs"
+          },
+          "generated_by_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated By Run Id"
           }
         },
         "additionalProperties": false,
@@ -13403,6 +13617,95 @@
               }
             ],
             "title": "Status"
+          },
+          "industry": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Industry"
+          },
+          "key_selling_points": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key Selling Points"
+          },
+          "ip_persona": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip Persona"
+          },
+          "brand_voice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brand Voice"
+          },
+          "strategy_tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategy Tags"
+          },
+          "brand_keywords": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brand Keywords"
+          },
+          "competitor_names": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Competitor Names"
           }
         },
         "additionalProperties": false,

@@ -47,9 +47,14 @@ from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError, NodeOutput, WorkflowRuntimeAdapter, manifest_hash
 from packages.media.assets import local_object_path, store_file
 from packages.media.video.ffmpeg import FfmpegCommandError, probe_media
-from packages.core.observability import record_node_run, record_workflow_run
+from packages.core.observability import (
+    node_stage,
+    record_funnel_event,
+    record_node_run,
+    record_workflow_run,
+    workflow_stage,
+)
 from packages.core.contracts.state_machines import assert_transition
-from packages.ops.funnel import record_funnel_event, workflow_stage
 from packages.production.pipeline import nodes
 from packages.production.pipeline._ffmpeg import generate_seed_audio, generate_seed_video
 from packages.production.pipeline._node_context import NodeContext
@@ -483,6 +488,15 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
                     status=NodeStatus.running.value,
                     message=f"Node {node_id} is running.",
                 )
+                record_funnel_event(
+                    self.repository,
+                    event_type="node_started",
+                    job_id=job.id,
+                    run_id=run.id,
+                    node_run_id=node_run.id,
+                    dedupe_key=f"{node_run.id}:node_started",
+                    event_time=node_run.updated_at,
+                )
             output = self._run_node(node_id, run, node_run, state)
             for artifact in output.artifacts:
                 state.artifacts[artifact.kind] = artifact
@@ -521,6 +535,17 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
                 status=status.value if hasattr(status, "value") else str(status),
                 message=f"Node {node_id} finished with {status.value if hasattr(status, 'value') else status}.",
             )
+            funnel_stage = node_stage(status)
+            if funnel_stage is not None:
+                record_funnel_event(
+                    self.repository,
+                    event_type=funnel_stage,
+                    job_id=job.id,
+                    run_id=run.id,
+                    node_run_id=patched.id,
+                    dedupe_key=f"{patched.id}:{funnel_stage}",
+                    event_time=patched.finished_at,
+                )
             return True
         except NodeExecutionError as exc:
             if node_run.status == NodeStatus.pending:
@@ -564,11 +589,12 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
             )
             record_funnel_event(
                 self.repository,
-                event_type=workflow_stage(RunStatus.failed),
+                event_type="node_failed",
                 job_id=job.id,
                 run_id=run.id,
-                dedupe_aggregate_id=run.id,
-                event_time=self.repository.runs[run.id].finished_at,
+                node_run_id=failed_node.id,
+                dedupe_key=f"{failed_node.id}:node_failed",
+                event_time=failed_node.finished_at,
             )
             return False
 
@@ -594,14 +620,9 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
             status=final_status.value,
             message="Run completed.",
         )
-        record_funnel_event(
-            self.repository,
-            event_type=workflow_stage(final_status),
-            job_id=job.id,
-            run_id=run.id,
-            dedupe_aggregate_id=run.id,
-            event_time=self.repository.runs[run.id].updated_at,
-        )
+        # NOTE: run-level "succeeded" is intentionally NOT a §9.5 funnel stage.
+        # Technical success is observed via node_succeeded / finished_video_created,
+        # and true yield via the publish stages — "成品率不得只看 workflow succeeded".
 
     def _mark_cancelled(self, run_id: str) -> None:
         run = self.repository.runs[run_id]
@@ -611,14 +632,6 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
             assert_transition("run", run.status, RunStatus.cancelling)
             run = run.model_copy(update={"status": RunStatus.cancelling, "updated_at": utcnow()})
             self.repository.runs[run.id] = run
-            record_funnel_event(
-                self.repository,
-                event_type=workflow_stage(RunStatus.cancelling),
-                job_id=run.job_id,
-                run_id=run.id,
-                dedupe_aggregate_id=run.id,
-                event_time=run.updated_at,
-            )
         assert_transition("run", self.repository.runs[run.id].status, RunStatus.cancelled)
         self.repository.runs[run.id] = self.repository.runs[run.id].model_copy(
             update={"status": RunStatus.cancelled, "finished_at": utcnow(), "updated_at": utcnow()}
@@ -633,14 +646,8 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
             status=RunStatus.cancelled.value,
             message="Run cancelled.",
         )
-        record_funnel_event(
-            self.repository,
-            event_type=workflow_stage(RunStatus.cancelled),
-            job_id=run.job_id,
-            run_id=run.id,
-            dedupe_aggregate_id=run.id,
-            event_time=self.repository.runs[run.id].finished_at,
-        )
+        # Run-level cancellation is not a §9.5 funnel stage (no submitted-side
+        # event maps to it); the run simply stops contributing further stages.
         job = self.repository.jobs[run.job_id]
         if job.status != JobStatus.cancelled:
             assert_transition("job", job.status, JobStatus.cancelled)

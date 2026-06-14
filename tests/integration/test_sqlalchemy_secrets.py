@@ -1,18 +1,153 @@
 import os
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, select
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.orm import sessionmaker
 
-if os.getenv("CUTAGENT_RUN_DB_TESTS") != "1":
-    pytest.skip("Set CUTAGENT_RUN_DB_TESTS=1 to run database integration tests.", allow_module_level=True)
-
-from apps.api.main import app
-from packages.core.storage.bootstrap import get_sqlalchemy_session_factory_if_enabled
+from packages.core.contracts import (
+    CreateSecretRequest,
+    DisableSecretRequest,
+    RotateSecretRequest,
+)
 from packages.core.storage.database import AuditEventRow, SecretRow
+from packages.core.storage.secret_store import LocalSecretStore
+from packages.core.storage.sqlalchemy_secrets import SqlAlchemySecretRepository
+
+
+# SQLite can't render Postgres JSONB/ARRAY; map them to JSON for these table-scoped
+# unit tests so the same ORM rows run without a live Postgres (spec §32.9 atomicity).
+@compiles(JSONB, "sqlite")
+def _compile_jsonb_sqlite(_type, _compiler, **_kw):  # pragma: no cover - registration side effect.
+    return "JSON"
+
+
+@compiles(ARRAY, "sqlite")
+def _compile_array_sqlite(_type, _compiler, **_kw):  # pragma: no cover - registration side effect.
+    return "JSON"
+
+
+def _sqlite_secret_repo(tmp_path: Path) -> SqlAlchemySecretRepository:
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    SecretRow.__table__.create(engine)
+    AuditEventRow.__table__.create(engine)
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    store = LocalSecretStore(root=tmp_path / "secrets")
+    return SqlAlchemySecretRepository(session_factory, store)
+
+
+def _audit_rows(repo: SqlAlchemySecretRepository) -> list[AuditEventRow]:
+    with repo.session_factory() as session:
+        return list(session.scalars(select(AuditEventRow).where(AuditEventRow.resource_type == "secret")))
+
+
+def test_db_create_rotate_disable_write_audit_atomically_in_session(tmp_path):
+    # Spec §32.9: the audit row must be written in the SAME transaction as the
+    # mutation. We assert: (a) every governance op has a matching audit row, and
+    # (b) NO secret op exists without its audit (no separate-session double-write).
+    repo = _sqlite_secret_repo(tmp_path)
+    plaintext = "create-plain-aaa"
+    rotated_plaintext = "rotate-plain-bbb"
+
+    created = repo.create_secret(
+        CreateSecretRequest(
+            provider_id="acme", environment="prod", name="key", plaintext_secret=plaintext
+        ),
+        actor="usr_admin",
+    )
+    rotated = repo.rotate_secret(
+        created.id,
+        RotateSecretRequest(plaintext_secret=rotated_plaintext, reason="rotate"),
+        actor="usr_admin",
+    )
+    repo.disable_secret(
+        rotated.id, DisableSecretRequest(reason="disable"), actor="usr_admin"
+    )
+
+    rows = _audit_rows(repo)
+    by_action: dict[str, list[AuditEventRow]] = {}
+    for row in rows:
+        by_action.setdefault(row.action, []).append(row)
+
+    # Exactly the three governance actions, each attributed to the real actor.
+    assert {r.id for r in by_action.get("secret.create", []) if r.resource_id == created.id}
+    assert {r.id for r in by_action.get("secret.rotate", []) if r.resource_id == rotated.id}
+    assert {r.id for r in by_action.get("secret.disable", []) if r.resource_id == rotated.id}
+    for action in ("secret.create", "secret.rotate", "secret.disable"):
+        assert by_action[action][0].actor == "usr_admin"
+        assert by_action[action][0].details["provider_id"] == "acme"
+        assert by_action[action][0].details["environment"] == "prod"
+
+    # No audit detail may ever carry the plaintext value.
+    serialized = repr([(r.action, r.details) for r in rows])
+    assert plaintext not in serialized
+    assert rotated_plaintext not in serialized
+
+
+def test_db_audit_failure_rolls_back_the_mutation(tmp_path, monkeypatch):
+    # Spec §32.9 fail-closed: if the audit write fails, the mutation must NOT
+    # persist (same transaction). Force the audit add to raise and assert no
+    # SecretRow was committed.
+    repo = _sqlite_secret_repo(tmp_path)
+
+    import packages.core.storage.sqlalchemy_secrets as mod
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("audit table down")
+
+    monkeypatch.setattr(mod, "_add_secret_audit", _boom)
+
+    with pytest.raises(RuntimeError, match="audit table down"):
+        repo.create_secret(
+            CreateSecretRequest(
+                provider_id="acme", environment="prod", name="key", plaintext_secret="x"
+            ),
+            actor="usr_admin",
+        )
+
+    with repo.session_factory() as session:
+        assert session.scalars(select(SecretRow)).first() is None
+        assert session.scalars(select(AuditEventRow)).first() is None
+
+
+def test_db_read_secret_reveals_and_audits_atomically_without_plaintext(tmp_path):
+    repo = _sqlite_secret_repo(tmp_path)
+    plaintext = "read-plain-ccc"
+    created = repo.create_secret(
+        CreateSecretRequest(
+            provider_id="acme", environment="prod", name="key", plaintext_secret=plaintext
+        ),
+        actor="usr_admin",
+    )
+
+    value = repo.read_secret(created.id, actor="reader")
+    assert value == plaintext
+
+    read_rows = [r for r in _audit_rows(repo) if r.action == "secret.read"]
+    assert len(read_rows) == 1
+    assert read_rows[0].resource_id == created.id
+    assert read_rows[0].actor == "reader"
+    assert plaintext not in repr([(r.action, r.details) for r in _audit_rows(repo)])
+
+
+def test_db_read_secret_missing_returns_none_and_skips_audit(tmp_path):
+    repo = _sqlite_secret_repo(tmp_path)
+    assert repo.read_secret("sec_missing", actor="reader") is None
+    assert [r for r in _audit_rows(repo) if r.action == "secret.read"] == []
+
+
+# --- The Postgres-backed end-to-end flow below requires a live DB. The SQLite
+# table-scoped tests above always run; only this end-to-end flow is gated. ---
 
 
 def sqlalchemy_session_factory():
+    if os.getenv("CUTAGENT_RUN_DB_TESTS") != "1":
+        pytest.skip("Set CUTAGENT_RUN_DB_TESTS=1 to run database integration tests.")
+    from packages.core.storage.bootstrap import get_sqlalchemy_session_factory_if_enabled
+
     session_factory = get_sqlalchemy_session_factory_if_enabled()
     if session_factory is None:
         pytest.skip("Set CUTAGENT_STORAGE_BACKEND=sqlalchemy to run database integration tests.")
@@ -22,6 +157,10 @@ def sqlalchemy_session_factory():
 def test_sqlalchemy_secret_create_rotate_disable_flow_is_persisted_without_plaintext():
     session_factory = sqlalchemy_session_factory()
     suffix = uuid4().hex[:8]
+
+    from fastapi.testclient import TestClient
+
+    from apps.api.main import app
 
     with TestClient(app) as client:
         admin_login = client.post(

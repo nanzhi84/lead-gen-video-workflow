@@ -371,6 +371,16 @@ class SqlAlchemyProductionRepository:
             run = workflow_run_row_to_contract(run_row)
             repository.jobs[job.id] = job
             repository.runs[run.id] = run
+            # Hydrate the adopted ScriptVersion into the run-scoped runtime repo so the
+            # adopted-script provenance survives under the Temporal runtime too. Each
+            # run_node activity builds a FRESH Repository, so unless we load it here the
+            # export node mints a fresh ScriptVersion and overwrites adopted_from_draft_id.
+            adopted_script_version_id = getattr(job.request, "script_version_id", None)
+            if adopted_script_version_id and adopted_script_version_id not in repository.scripts:
+                script_row = session.get(ScriptVersionRow, adopted_script_version_id)
+                if script_row is not None:
+                    adopted_script = script_version_row_to_contract(script_row)
+                    repository.scripts[adopted_script.id] = adopted_script
             if run.case_id:
                 for row in session.scalars(select(MediaAssetRow).where(MediaAssetRow.case_id == run.case_id)):
                     asset = media_asset_row_to_contract(row)

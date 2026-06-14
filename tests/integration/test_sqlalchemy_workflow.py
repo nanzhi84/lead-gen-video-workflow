@@ -189,3 +189,63 @@ def test_sqlalchemy_job_links_adopted_script_version_not_orphaned():
             )
         )
         assert version_rows, "expected a VideoVersion linked to the adopted ScriptVersion"
+
+
+def test_hydrate_workflow_runtime_snapshot_loads_adopted_script():
+    """Temporal-path regression guard for the adopted-script provenance fix.
+
+    Under the Temporal runtime every run_node activity builds a FRESH Repository
+    and populates it ONLY through ``hydrate_workflow_runtime_snapshot`` (see
+    packages/core/workflow/temporal_adapter.py). If that snapshot does not load
+    the adopted ScriptVersion, the export node mints a fresh row and overwrites
+    ``adopted_from_draft_id`` — the exact orphaning this fix prevents. This test
+    drives the snapshot hydration directly (no in-process API-state reuse) and
+    asserts the adopted ScriptVersion lands in the worker's runtime repo intact.
+    """
+    from packages.core.storage import Repository
+    from packages.production import SqlAlchemyProductionRepository
+
+    session_factory = sqlalchemy_session_factory()
+
+    script_id = "script_hydrate_test"
+    with session_factory() as session:
+        session.merge(
+            ScriptVersionRow(
+                id=script_id,
+                case_id="case_demo",
+                title="Hydrate adopted title",
+                script="Hydrate adopted body.",
+                adopted_from_draft_id="draft_hydrate_test",
+            )
+        )
+        session.commit()
+
+    with TestClient(app) as client:
+        admin_login = client.post(
+            "/api/auth/login",
+            json={"email": "admin@local.cutagent", "password": "local-admin"},
+        )
+        assert admin_login.status_code == 200, admin_login.text
+        created = client.post(
+            "/api/jobs/digital-human-video",
+            json={
+                "case_id": "case_demo",
+                "title": "Snapshot-hydrate workflow video",
+                "script": "携带 script_version_id 的请求脚本（快照水合）。",
+                "script_version_id": script_id,
+                "voice": {"voice_id": "voice_sandbox"},
+                "portrait": {"template_mode": "agent"},
+                "strictness": {"strict_timestamps": False},
+            },
+        )
+        assert created.status_code == 201, created.text
+        run_id = created.json()["initial_run"]["id"]
+
+    # Simulate the Temporal worker activity: a brand-new runtime Repository
+    # populated solely by the snapshot hydrate must already carry the adopted
+    # ScriptVersion (with provenance), so _resolve_script_version reuses it.
+    fresh = Repository()
+    SqlAlchemyProductionRepository(session_factory).hydrate_workflow_runtime_snapshot(fresh, run_id)
+    assert script_id in fresh.scripts, "snapshot hydrate did not load the adopted ScriptVersion"
+    assert fresh.scripts[script_id].adopted_from_draft_id == "draft_hydrate_test"
+    assert fresh.scripts[script_id].title == "Hydrate adopted title"

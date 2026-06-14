@@ -70,32 +70,36 @@ def _attempt(status: PublishAttemptStatus, package_id: str) -> tuple[PublishBatc
     return batch, item, attempt
 
 
-def test_record_attempt_funnel_emits_submitted_and_succeeded():
+def test_record_attempt_funnel_emits_publish_started_and_published():
     repo = Repository()
     _, package_id = _seed_finished_video_and_package(repo)
     batch, item, attempt = _attempt(PublishAttemptStatus.published, package_id)
     _record_publish_attempt_funnel(repo, batch, item, attempt)
     types = {e.event_type for e in repo.yield_events.values()}
-    assert "publish_attempt_submitted" in types
-    assert "publish_attempt_succeeded" in types
-    assert "publish_attempt_failed" not in types
+    # §9.5 spec strings: publish_started -> published (true-yield success).
+    assert "publish_started" in types
+    assert "published" in types
+    assert "publish_failed" not in types
+    # ``published`` must carry run linkage so it is run-scoped for true yield.
+    published = next(e for e in repo.yield_events.values() if e.event_type == "published")
+    assert published.run_id == "run_1"
 
 
-def test_record_attempt_funnel_emits_failed():
+def test_record_attempt_funnel_emits_publish_failed():
     repo = Repository()
     _, package_id = _seed_finished_video_and_package(repo)
     batch, item, attempt = _attempt(PublishAttemptStatus.failed, package_id)
     _record_publish_attempt_funnel(repo, batch, item, attempt)
     types = {e.event_type for e in repo.yield_events.values()}
-    assert "publish_attempt_submitted" in types
-    assert "publish_attempt_failed" in types
-    assert "publish_attempt_succeeded" not in types
+    assert "publish_started" in types
+    assert "publish_failed" in types
+    assert "published" not in types
 
 
-def test_record_attempt_funnel_dry_run_only_submitted():
+def test_record_attempt_funnel_dry_run_only_publish_started():
     repo = Repository()
     _, package_id = _seed_finished_video_and_package(repo)
     batch, item, attempt = _attempt(PublishAttemptStatus.manual_review_ready, package_id)
     _record_publish_attempt_funnel(repo, batch, item, attempt)
     types = {e.event_type for e in repo.yield_events.values()}
-    assert types == {"publish_attempt_submitted"}
+    assert types == {"publish_started"}

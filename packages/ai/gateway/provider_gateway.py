@@ -135,10 +135,41 @@ class ProviderGateway:
         if self.object_store is None:
             self.object_store = get_object_store()
         self.plugins: dict[str, ProviderPlugin] = {"sandbox": SandboxProvider()}
+        # Durable audit sink for live secret reveals (spec §11.3 / §32.9). When the
+        # provider_reader is DB-backed it exposes a session_factory, so reveals from
+        # worker processes persist to the audit table; otherwise reveals fall back to
+        # the in-memory repository audit log (handled inside the context).
+        self._secret_read_audit_sink = self._build_secret_read_audit_sink()
         if self.auto_register_real_plugins:
             from packages.ai.providers import register_real_provider_plugins
 
             register_real_provider_plugins(self)
+
+    def _build_secret_read_audit_sink(self):
+        session_factory = getattr(self.provider_reader, "session_factory", None)
+        if session_factory is None:
+            return None
+
+        def _sink(*, actor, action, resource_type, resource_id, details):
+            # Persist the read audit in its own short transaction. NEVER records the
+            # secret value — only access metadata.
+            from packages.core.storage.database import AuditEventRow
+            from packages.core.storage.repository import new_id
+
+            with session_factory() as session:
+                session.add(
+                    AuditEventRow(
+                        id=new_id("audit"),
+                        actor=actor,
+                        action=action,
+                        resource_type=resource_type,
+                        resource_id=resource_id,
+                        details=details,
+                    )
+                )
+                session.commit()
+
+        return _sink
 
     def register(self, plugin: ProviderPlugin) -> None:
         self.plugins[plugin.provider_id] = plugin
@@ -189,6 +220,7 @@ class ProviderGateway:
                 invocation_id=invocation.id,
                 secret_store=self.secret_store,
                 object_store=self.object_store,
+                audit_sink=self._secret_read_audit_sink,
             )
             contextual_invoke = getattr(plugin, "invoke_with_context", None)
             # Bound concurrent in-flight provider calls per ProviderProfile

@@ -36,6 +36,7 @@ from packages.core.storage.database import (
     ProductionQualityCheckRow,
     YieldFunnelEventRow,
 )
+from packages.core.observability import compute_true_yield_rate
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
 from packages.ops.sqlalchemy_mappers import (
@@ -151,8 +152,11 @@ class SqlAlchemyOpsRepository:
             if window_end:
                 statement = statement.where(YieldFunnelEventRow.created_at <= window_end)
             events = [yield_event_row_to_contract(row) for row in session.scalars(statement)]
-        success = len([event for event in events if event.event_type == "workflow_succeeded"])
-        rate = success / len(events) if events else None
+        # §9.5: true_yield_rate is run-scoped (distinct runs that reached
+        # ``published`` and were never ``qc_failed`` / ``manual_rejected``) over
+        # distinct runs that entered the funnel — NOT successes/total_events,
+        # which inflates as the taxonomy grows.
+        rate = compute_true_yield_rate(events)
         return YieldFunnelResponse(events=events, true_yield_rate=rate)
 
     def list_budgets(self, *, limit: int = 50) -> list[Budget]:

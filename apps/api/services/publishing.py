@@ -16,7 +16,7 @@ from packages.core import contracts as c
 from packages.core.contracts.state_machines import assert_transition
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
-from packages.ops.funnel import record_funnel_event
+from packages.core.observability import record_funnel_event
 
 
 def _publish_run_ids(repo, package_id: str | None) -> tuple[str | None, str | None]:
@@ -34,42 +34,46 @@ def _publish_run_ids(repo, package_id: str | None) -> tuple[str | None, str | No
 
 
 def _record_publish_attempt_funnel(repo, batch, item, attempt) -> None:
-    """Emit the submitted -> terminal funnel pair for one publish attempt.
+    """Emit the §9.5 publish-stage funnel events for one publish attempt.
 
-    Always records ``publish_attempt_submitted``; then records the terminal
-    stage (``publish_attempt_succeeded`` for a published attempt,
-    ``publish_attempt_failed`` for a failed one). Dry-run / manual-review-ready
-    attempts emit only the submitted stage. All writes are best-effort."""
+    Always records ``publish_started`` (the attempt was submitted); then records
+    the terminal §9.5 stage (``published`` for a published attempt,
+    ``publish_failed`` for a failed one). Dry-run / manual-review-ready attempts
+    emit only ``publish_started``. All writes are best-effort.
+
+    ``published`` is the load-bearing true-yield success string (spec §9.5); the
+    read side keys ``true_yield_rate`` on it (run-scoped, excluding qc_failed /
+    manual_rejected runs)."""
 
     run_id, job_id = _publish_run_ids(repo, getattr(item, "publish_package_id", None))
     record_funnel_event(
         repo,
-        event_type="publish_attempt_submitted",
+        event_type="publish_started",
         job_id=job_id,
         run_id=run_id,
         publish_attempt_id=attempt.id,
-        dedupe_key=f"{attempt.id}:publish_attempt_submitted",
+        dedupe_key=f"{attempt.id}:publish_started",
         event_time=attempt.created_at,
     )
     status_value = attempt.status.value if hasattr(attempt.status, "value") else str(attempt.status)
     if status_value == "published":
         record_funnel_event(
             repo,
-            event_type="publish_attempt_succeeded",
+            event_type="published",
             job_id=job_id,
             run_id=run_id,
             publish_attempt_id=attempt.id,
-            dedupe_key=f"{attempt.id}:publish_attempt_succeeded",
+            dedupe_key=f"{attempt.id}:published",
             event_time=attempt.finished_at or attempt.updated_at,
         )
     elif status_value == "failed":
         record_funnel_event(
             repo,
-            event_type="publish_attempt_failed",
+            event_type="publish_failed",
             job_id=job_id,
             run_id=run_id,
             publish_attempt_id=attempt.id,
-            dedupe_key=f"{attempt.id}:publish_attempt_failed",
+            dedupe_key=f"{attempt.id}:publish_failed",
             event_time=attempt.finished_at or attempt.updated_at,
         )
 
@@ -101,17 +105,8 @@ def create_publish_package(payload: c.CreatePublishPackageRequest, request: Requ
             platform_defaults=c.PublishDefaults(title=payload.title, description=payload.description),
         )
         repo.publish_packages[package.id] = package
-    run_id, job_id = _publish_run_ids(repo, package.id)
-    record_funnel_event(
-        repo,
-        event_type="publish_package_created",
-        job_id=job_id,
-        run_id=run_id,
-        finished_video_id=package.source_finished_video_id,
-        publish_package_id=package.id,
-        dedupe_key=f"{package.id}:publish_package_created",
-        event_time=package.created_at,
-    )
+    # Package creation is not a §9.5 funnel stage; the publish lifecycle is
+    # tracked via publish_started / published / publish_failed at submit time.
     return package
 
 

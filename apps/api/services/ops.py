@@ -11,6 +11,7 @@ from apps.api.common import (
     request_id,
 )
 from packages.core import contracts as c
+from packages.core.observability import compute_true_yield_rate, record_funnel_event
 from packages.core.storage.repository import new_id
 from apps.api.services import providers as provider_service
 
@@ -136,23 +137,15 @@ def yield_funnel(
             case_id=case_id,
         )
     repo = repository(request)
-    if not repo.yield_events:
-        for run in repo.runs.values():
-            if case_id is None or run.case_id == case_id:
-                repo.record_yield_funnel_event(
-                    job_id=run.job_id,
-                    run_id=run.id,
-                    event_type=f"workflow_{run.status.value}",
-                    dedupe_key=f"{run.id}:workflow_{run.status.value}",
-                    event_time=run.updated_at,
-                )
     events = []
     for event in repo.yield_events.values():
         run = repo.runs.get(event.run_id or "")
         if case_id is None or (run is not None and run.case_id == case_id):
             events.append(event)
-    success = len([event for event in events if event.event_type == "workflow_succeeded"])
-    rate = success / len(events) if events else None
+    # §9.5: true_yield_rate must be run-scoped, NOT successes/total_events (the
+    # denominator inflates as the taxonomy grows). A run is true-yield only if it
+    # reached ``published`` and was never ``qc_failed`` / ``manual_rejected``.
+    rate = compute_true_yield_rate(events)
     return c.YieldFunnelResponse(events=events, true_yield_rate=rate)
 
 
@@ -189,6 +182,83 @@ def resolve_alert(event_id: str, payload: c.ResolveAlertRequest, request: Reques
     return repository(request).patch(repository(request).alerts, event_id, {"status": "resolved"})
 
 
+def _qc_run_ids(repo, *, target_type: str, target_id: str) -> tuple[str | None, str | None]:
+    """Best-effort (run_id, job_id) for a quality-check target so qc_* funnel
+    events stay run-scoped. A ``run`` target IS the run; a ``finished_video``
+    target resolves through the finished video's ``run_id``."""
+
+    if target_type == "run":
+        run = repo.runs.get(target_id)
+        return (target_id if run is not None else target_id), getattr(run, "job_id", None)
+    finished = repo.finished_videos.get(target_id) if target_id else None
+    run_id = getattr(finished, "run_id", None) if finished else None
+    run = repo.runs.get(run_id) if run_id else None
+    return run_id, getattr(run, "job_id", None)
+
+
+def _record_quality_check_funnel(repo, check: c.ProductionQualityCheck) -> None:
+    """Emit the §9.5 qc_* stages for one quality check. Always records
+    ``qc_started``; then ``qc_passed`` (result == passed) or ``qc_failed``
+    (result == failed). ``warning`` / ``manual_required`` results emit only
+    ``qc_started`` (the QC ran but did not terminally pass/fail). Best-effort —
+    ``qc_failed`` disqualifies the run from true yield."""
+
+    run_id, job_id = _qc_run_ids(repo, target_type=check.target_type, target_id=check.target_id)
+    record_funnel_event(
+        repo,
+        event_type="qc_started",
+        job_id=job_id,
+        run_id=run_id,
+        finished_video_id=check.target_id if check.target_type == "finished_video" else None,
+        dedupe_key=f"{check.id}:qc_started",
+        event_time=check.created_at,
+    )
+    result = check.result.value if hasattr(check.result, "value") else str(check.result)
+    terminal = {"passed": "qc_passed", "failed": "qc_failed"}.get(result)
+    if terminal is not None:
+        record_funnel_event(
+            repo,
+            event_type=terminal,
+            job_id=job_id,
+            run_id=run_id,
+            finished_video_id=check.target_id if check.target_type == "finished_video" else None,
+            dedupe_key=f"{check.id}:{terminal}",
+            event_time=check.created_at,
+        )
+
+
+def _approval_run_ids(repo, approval: c.ApprovalRequest) -> tuple[str | None, str | None]:
+    """Best-effort (run_id, job_id) for an approval decision so manual_* funnel
+    events stay run-scoped. Resolves a run/finished_video resource_id to its run."""
+
+    resource_id = getattr(approval, "resource_id", None)
+    if not resource_id:
+        return None, None
+    if resource_id in repo.runs:
+        return resource_id, getattr(repo.runs[resource_id], "job_id", None)
+    finished = repo.finished_videos.get(resource_id)
+    run_id = getattr(finished, "run_id", None) if finished else None
+    run = repo.runs.get(run_id) if run_id else None
+    return run_id, getattr(run, "job_id", None)
+
+
+def _record_approval_funnel(repo, approval: c.ApprovalRequest, *, decision: str) -> None:
+    """Emit the §9.5 manual_* stage for one approval decision: ``manual_approved``
+    (approved) or ``manual_rejected`` (rejected). Best-effort — ``manual_rejected``
+    disqualifies the run from true yield."""
+
+    event_type = "manual_approved" if decision == "approved" else "manual_rejected"
+    run_id, job_id = _approval_run_ids(repo, approval)
+    record_funnel_event(
+        repo,
+        event_type=event_type,
+        job_id=job_id,
+        run_id=run_id,
+        dedupe_key=f"{approval.id}:{event_type}",
+        event_time=approval.updated_at,
+    )
+
+
 def run_quality_check(
     run_id: str, payload: c.CreateQualityCheckRequest, request: Request
 ) -> c.ProductionQualityCheck:
@@ -198,8 +268,10 @@ def run_quality_check(
             target_id=run_id,
             payload=payload,
         )
+    repo = repository(request)
     check = c.ProductionQualityCheck(id=new_id("qc"), target_type="run", target_id=run_id, **payload.model_dump())
-    repository(request).quality_checks[check.id] = check
+    repo.quality_checks[check.id] = check
+    _record_quality_check_funnel(repo, check)
     return check
 
 
@@ -212,41 +284,49 @@ def finished_video_quality_check(
             target_id=id,
             payload=payload,
         )
+    repo = repository(request)
     check = c.ProductionQualityCheck(
         id=new_id("qc"),
         target_type="finished_video",
         target_id=id,
         **payload.model_dump(),
     )
-    repository(request).quality_checks[check.id] = check
+    repo.quality_checks[check.id] = check
+    _record_quality_check_funnel(repo, check)
     return check
 
 
 def approve_request(id: str, payload: c.ApprovalDecisionRequest, request: Request) -> c.ApprovalRequest:
     if ops_repository(request) is not None:
         return ops_repository(request).decide_approval(id, "approved", payload)
+    repo = repository(request)
+    existing = repo.approvals.get(id)
     approval = c.ApprovalRequest(
         id=id,
-        resource_type="unknown",
-        resource_id=None,
+        resource_type=getattr(existing, "resource_type", None) or "approval_request",
+        resource_id=getattr(existing, "resource_id", None) or id,
         status="approved",
         reason=payload.reason,
     )
-    repository(request).approvals[id] = approval
+    repo.approvals[id] = approval
+    _record_approval_funnel(repo, approval, decision="approved")
     return approval
 
 
 def reject_request(id: str, payload: c.ApprovalDecisionRequest, request: Request) -> c.ApprovalRequest:
     if ops_repository(request) is not None:
         return ops_repository(request).decide_approval(id, "rejected", payload)
+    repo = repository(request)
+    existing = repo.approvals.get(id)
     approval = c.ApprovalRequest(
         id=id,
-        resource_type="unknown",
-        resource_id=None,
+        resource_type=getattr(existing, "resource_type", None) or "approval_request",
+        resource_id=getattr(existing, "resource_id", None) or id,
         status="rejected",
         reason=payload.reason,
     )
-    repository(request).approvals[id] = approval
+    repo.approvals[id] = approval
+    _record_approval_funnel(repo, approval, decision="rejected")
     return approval
 
 

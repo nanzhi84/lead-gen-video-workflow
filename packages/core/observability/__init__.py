@@ -12,6 +12,15 @@ from .logging import (
     configure_logging,
     reset_observability_context,
 )
+from .funnel import (
+    FUNNEL_TAXONOMY,
+    TRUE_YIELD_DISQUALIFIERS,
+    TRUE_YIELD_SUCCESS,
+    compute_true_yield_rate,
+    node_stage,
+    record_funnel_event,
+    workflow_stage,
+)
 from .outbox import OutboxWriter
 from .telemetry import (
     REQUIRED_LOG_FIELDS,
@@ -35,6 +44,13 @@ __all__ = [
     "bind_observability_context",
     "clear_observability_context",
     "configure_logging",
+    "FUNNEL_TAXONOMY",
+    "TRUE_YIELD_DISQUALIFIERS",
+    "TRUE_YIELD_SUCCESS",
+    "compute_true_yield_rate",
+    "node_stage",
+    "record_funnel_event",
+    "workflow_stage",
     "metric_snapshot",
     "record_api_request",
     "record_node_run",

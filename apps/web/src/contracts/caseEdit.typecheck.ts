@@ -61,16 +61,18 @@ async function assertCaseEditContract(caseId: string) {
   };
   const patched: CaseDetail = await api.cases.patch(created.id, patchPayload);
 
-  // CaseDetail exposes the profile fields back to the UI.
-  patched.key_selling_points satisfies string[];
+  // CaseDetail exposes the profile fields back to the UI. List fields carry a
+  // server-side default ([]), so openapi-typescript types them as optional
+  // (string[] | undefined); the UI reads them defensively.
+  patched.key_selling_points satisfies string[] | undefined;
   patched.ip_persona satisfies string | null | undefined;
   patched.brand_voice satisfies string | null | undefined;
-  patched.strategy_tags satisfies string[];
-  patched.brand_keywords satisfies string[];
-  patched.competitor_names satisfies string[];
+  patched.strategy_tags satisfies string[] | undefined;
+  patched.brand_keywords satisfies string[] | undefined;
+  patched.competitor_names satisfies string[] | undefined;
 
   // Modal helpers round-trip list fields and produce typed payloads.
-  joinList(patched.strategy_tags) satisfies string;
+  joinList(patched.strategy_tags ?? []) satisfies string;
   parseList("a\nb, c") satisfies string[];
   buildCreatePayload satisfies (form: never) => CreateCaseRequest;
   buildPatchPayload satisfies (form: never) => PatchCaseRequest;

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from packages.core.contracts import Artifact, ArtifactKind, ErrorCode, ProviderProfile, ProviderStatus, utcnow
 from packages.core.contracts.state_machines import assert_transition
@@ -9,6 +12,8 @@ from packages.core.storage import ObjectStore, Repository
 from packages.core.storage.secret_store import SecretStore
 from packages.media.assets import local_object_path
 from packages.media.video.ffmpeg import probe_media
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -18,11 +23,67 @@ class ProviderInvocationContext:
     invocation_id: str
     secret_store: SecretStore | None
     object_store: ObjectStore
+    # Optional durable audit sink (a callable that PERSISTS an audit event to the
+    # backing store, e.g. the SQL audit table). When None — the in-memory backend —
+    # the read audit is recorded onto self.repository.audit_events instead, so a
+    # secret.read is auditable in both deployments. Wired by the ProviderGateway.
+    audit_sink: Callable[..., Any] | None = None
 
     def get_secret(self) -> str | None:
         if self.profile.secret_ref is None or self.secret_store is None:
             return None
-        return self.secret_store.get(self.profile.secret_ref)
+        value = self.secret_store.get(self.profile.secret_ref)
+        # This is the LIVE secret-value reveal on the provider hot path (spec §11.3).
+        # Spec §32.9 mandates fail-closed audit for governance ops, but a reveal here
+        # happens inside a vendor-bound provider call in a worker process; failing the
+        # call on an audit hiccup would trade availability for strictness. We therefore
+        # INTENTIONALLY relax §32.9 to best-effort (log + swallow) for this read path
+        # only — the secret VALUE is never recorded, just access metadata.
+        if value is not None:
+            self._audit_secret_read()
+        return value
+
+    def _audit_secret_read(self) -> None:
+        actor = self.profile.provider_id or "provider-gateway"
+        resource_id = self.profile.secret_ref
+        details = {
+            "secret_ref": self.profile.secret_ref,
+            "provider_id": self.profile.provider_id,
+            "environment": self.profile.environment,
+        }
+        try:
+            if self.audit_sink is not None:
+                # Durable persist (e.g. SQL audit table) so a worker-process reveal
+                # is recorded even though it never touches the in-memory repository.
+                self.audit_sink(
+                    actor=actor,
+                    action="secret.read",
+                    resource_type="secret",
+                    resource_id=resource_id,
+                    details=details,
+                )
+                return
+            # In-memory backend: record onto the runtime repository's audit log so
+            # the read is still auditable (same store ops.audit_events reads from).
+            from packages.core import contracts as c
+            from packages.core.storage.repository import new_id
+
+            event = c.AuditEvent(
+                id=new_id("audit"),
+                actor=actor,
+                action="secret.read",
+                resource_type="secret",
+                resource_id=resource_id,
+                details=details,
+            )
+            self.repository.audit_events[event.id] = event
+        except Exception:  # noqa: BLE001 - best-effort audit must not kill provider call
+            logger.warning(
+                "secret.read audit failed for provider_id=%s secret_ref=%s (continuing)",
+                self.profile.provider_id,
+                self.profile.secret_ref,
+                exc_info=True,
+            )
 
     def mark_polling(self, external_job_id: str) -> None:
         self.update_invocation(

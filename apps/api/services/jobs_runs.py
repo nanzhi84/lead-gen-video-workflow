@@ -21,7 +21,7 @@ from packages.core.observability.outbox import OutboxWriter
 from packages.core.contracts.state_machines import assert_transition
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
-from packages.ops.funnel import record_funnel_event, workflow_stage
+from packages.core.observability import record_funnel_event, workflow_stage
 from packages.production.pipeline import ReusePlan, ReuseSourceRun, compute_reuse_plan
 from packages.production.pipeline.digital_human import digital_human_template
 
@@ -126,7 +126,8 @@ def _admit_run(
         message="Run admitted.",
     )
     # Funnel head: the run passes through created -> admitted in this one call, so
-    # emit both stages here (the run never lingers in ``created`` anywhere else).
+    # emit both §9.5 stages here (RunStatus.created -> "submitted",
+    # RunStatus.admitted -> "admitted"); the run never lingers in ``created``.
     record_funnel_event(
         repo,
         event_type=workflow_stage(c.RunStatus.created),

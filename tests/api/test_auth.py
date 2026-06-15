@@ -433,3 +433,70 @@ def test_change_password_rejects_weak_new_password():
     )
     assert resp.status_code == 400
     assert resp.json()["error"]["code"] == "validation.invalid_options"
+
+
+def test_session_cookie_is_httponly_and_samesite_lax_by_default():
+    # Spec §33.2: the session cookie MUST be HttpOnly; SameSite=lax is also set.
+    rate_limit.reset()
+    client = TestClient(app)
+    response = client.post(
+        "/api/auth/login",
+        json={"email": "admin@local.cutagent", "password": "local-admin"},
+    )
+    assert response.status_code == 200, response.text
+    cookie = response.headers["set-cookie"]
+    assert "HttpOnly" in cookie
+    assert "samesite=lax" in cookie.lower()
+    # Plain-HTTP TestClient with the knob unset must NOT mark the cookie Secure
+    # (deriving from the http:// request scheme keeps local dev usable).
+    assert "secure" not in cookie.lower()
+
+
+def test_session_cookie_secure_forced_in_production(monkeypatch):
+    # Spec §33.2: production MUST set Secure. The explicit knob forces it on even
+    # though the TestClient request itself is plain HTTP.
+    monkeypatch.setenv("CUTAGENT_AUTH_COOKIE_SECURE", "true")
+    rate_limit.reset()
+    client = TestClient(app)
+    response = client.post(
+        "/api/auth/login",
+        json={"email": "admin@local.cutagent", "password": "local-admin"},
+    )
+    assert response.status_code == 200, response.text
+    cookie = response.headers["set-cookie"]
+    assert "Secure" in cookie
+    assert "HttpOnly" in cookie
+
+
+def test_session_cookie_secure_derived_from_forwarded_proto(monkeypatch):
+    # Behind a trusted TLS-terminating proxy: X-Forwarded-Proto=https marks the
+    # cookie Secure when forwarded headers are trusted, with the knob left unset.
+    monkeypatch.setenv("CUTAGENT_AUTH_TRUST_FORWARDED_FOR", "true")
+    monkeypatch.delenv("CUTAGENT_AUTH_COOKIE_SECURE", raising=False)
+    rate_limit.reset()
+    client = TestClient(app)
+    response = client.post(
+        "/api/auth/login",
+        json={"email": "admin@local.cutagent", "password": "local-admin"},
+        headers={"X-Forwarded-Proto": "https"},
+    )
+    assert response.status_code == 200, response.text
+    assert "Secure" in response.headers["set-cookie"]
+
+
+def test_logout_clears_cookie_with_secure_when_forced(monkeypatch):
+    monkeypatch.setenv("CUTAGENT_AUTH_COOKIE_SECURE", "true")
+    rate_limit.reset()
+    # Use an https base_url so the Secure session cookie round-trips back on the
+    # authenticated logout call (a Secure cookie is not sent over plain HTTP).
+    client = TestClient(app, base_url="https://testserver")
+    login = client.post(
+        "/api/auth/login",
+        json={"email": "admin@local.cutagent", "password": "local-admin"},
+    )
+    assert login.status_code == 200, login.text
+    logout = client.post("/api/auth/logout")
+    assert logout.status_code == 200, logout.text
+    cookie = logout.headers["set-cookie"]
+    assert "Secure" in cookie
+    assert "HttpOnly" in cookie

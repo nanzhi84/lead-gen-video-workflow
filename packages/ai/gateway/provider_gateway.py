@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Iterable
 from dataclasses import dataclass
 from decimal import Decimal
@@ -329,6 +330,26 @@ class ProviderGateway:
                 message="Provider secret is missing.",
                 retryable=False,
             )
+        # SSRF / key-exfiltration guard (defense in depth). The AUTHORITATIVE gate
+        # is at provider-profile create/patch (apps/api/services/providers.py),
+        # which rejects an off-list base_url before it is ever persisted — that
+        # fully covers the user-supplied vector. This gateway-level re-check is an
+        # OPT-IN belt-and-suspenders layer that re-asserts the host allow-list just
+        # before the adapter delivers the secret, catching a row tampered with
+        # post-persist. It is OFF by default so test fixtures / seeds that
+        # construct profiles directly with synthetic hosts keep working; enable in
+        # production via CUTAGENT_ENFORCE_PROVIDER_HOST_ALLOWLIST=1.
+        if os.getenv("CUTAGENT_ENFORCE_PROVIDER_HOST_ALLOWLIST") == "1":
+            from packages.ai.netpolicy import assert_options_hosts_allowed
+
+            try:
+                assert_options_hosts_allowed(profile.default_options)
+            except ValueError as exc:
+                return ProviderError(
+                    code=ErrorCode.provider_unsupported_option,
+                    message=str(exc),
+                    retryable=False,
+                )
         return None
 
     def _matching_price_items(self, *, provider_id: str, model_id: str, capability_id: str) -> list[ProviderPriceItem]:

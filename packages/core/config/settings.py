@@ -62,6 +62,19 @@ def _env_int_blank_default(name: str, default: int) -> int:
     return int(value)
 
 
+def _env_bool_optional(name: str) -> bool | None:
+    """Parse a tri-state boolean env var.
+
+    Returns ``None`` when the var is unset or blank (caller derives a default),
+    ``True`` for ``1/true/yes/on`` and ``False`` for ``0/false/no/off`` (case-
+    insensitive). Used by the cookie-Secure knob, whose "unset" state means
+    "derive from the request scheme" rather than a fixed boolean."""
+    value = os.getenv(name)
+    if value is None or value.strip() == "":
+        return None
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _default_ephemeral_local_path() -> str:
     """Default ephemeral object-store root under the OS temp dir.
 
@@ -200,6 +213,17 @@ class AuthSettings(BaseModel):
     # request and bypass the brute-force throttle. Enable ONLY when the API sits
     # behind a trusted proxy/LB that overwrites the header.
     trust_forwarded_for: bool = False
+    # CUTAGENT_AUTH_COOKIE_SECURE: force the session cookie's ``Secure`` flag.
+    # Spec §33.2: the session cookie MUST be HttpOnly and, in production, Secure.
+    # Three-state knob:
+    #   - "true"/"1"  -> always emit Secure (production / TLS-terminating deploys);
+    #   - "false"/"0" -> never emit Secure (local plain-HTTP dev only);
+    #   - None (unset, the default) -> derive per-request from the connection
+    #     scheme (request.url.scheme == "https", or the X-Forwarded-Proto first hop
+    #     when ``trust_forwarded_for`` is enabled for a trusted proxy/LB). Deriving
+    #     keeps local HTTP dev working while a TLS prod deployment automatically
+    #     marks the cookie Secure.
+    cookie_secure: bool | None = None
 
 
 class SecretStoreSettings(BaseModel):
@@ -268,6 +292,13 @@ class ProviderSettings(BaseModel):
     # output. The test suite opts in (conftest) so its golden/fallback fixtures keep
     # exercising the sandbox path.
     allow_sandbox_fallback: bool = False
+    # CUTAGENT_ENFORCE_PROVIDER_HOST_ALLOWLIST: "1" turns on the OPT-IN, defense-in-
+    # depth host allow-list re-check in the provider gateway (before the bearer
+    # secret is delivered to the profile's base_url). The AUTHORITATIVE SSRF gate is
+    # always-on at provider-profile create/patch; this gateway re-check is OFF by
+    # default so fixtures/seeds that build profiles directly with synthetic hosts
+    # keep working. Enable in production for belt-and-suspenders enforcement.
+    enforce_provider_host_allowlist: bool = False
 
 
 class Settings(BaseModel):
@@ -385,6 +416,7 @@ def build_settings() -> Settings:
                 "CUTAGENT_AUTH_TRUST_FORWARDED_FOR", "false"
             ).strip().lower()
             in {"1", "true", "yes", "on"},
+            cookie_secure=_env_bool_optional("CUTAGENT_AUTH_COOKIE_SECURE"),
         ),
         secret_store=SecretStoreSettings(
             dir=_env_str("CUTAGENT_SECRET_STORE_DIR", ".data/secrets"),
@@ -410,6 +442,10 @@ def build_settings() -> Settings:
         ),
         providers=ProviderSettings(
             allow_sandbox_fallback=os.getenv("CUTAGENT_ALLOW_SANDBOX_FALLBACK") == "1",
+            enforce_provider_host_allowlist=os.getenv(
+                "CUTAGENT_ENFORCE_PROVIDER_HOST_ALLOWLIST"
+            )
+            == "1",
         ),
     )
 

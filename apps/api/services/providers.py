@@ -13,9 +13,25 @@ from apps.api.common import (
     request_id,
     secret_store,
 )
+from packages.ai.netpolicy import assert_options_hosts_allowed
 from packages.core import contracts as c
 from packages.core.storage.repository import new_id
+from packages.core.workflow import NodeExecutionError
 from packages.ops.balance import BalancePollerService, refresh_balances
+
+
+def _validate_outbound_hosts(default_options: dict | None) -> None:
+    """Reject user-supplied base_url overrides whose host is not allow-listed.
+
+    The stored provider secret is delivered to ``default_options.base_url`` on the
+    next provider call, so an off-list host is an SSRF / key-exfiltration vector.
+    Enforced here (before persist) AND in the gateway (before the secret is sent)
+    for defense in depth — see ``packages.ai.netpolicy``.
+    """
+    try:
+        assert_options_hosts_allowed(default_options)
+    except ValueError as exc:
+        raise NodeExecutionError(c.ErrorCode.validation_invalid_options, str(exc)) from exc
 
 
 def _balance_item_from_snapshot(snapshot: c.ProviderBalanceSnapshot) -> c.ProviderBalanceItem:
@@ -70,6 +86,7 @@ def provider_profiles(
 
 
 def create_provider_profile(payload: c.CreateProviderProfileRequest, request: Request) -> c.ProviderProfile:
+    _validate_outbound_hosts(payload.default_options)
     if provider_repository(request) is not None:
         return provider_repository(request).create_profile(payload)
     profile = c.ProviderProfile(id=new_id("provider_profile"), **payload.model_dump())
@@ -80,6 +97,8 @@ def create_provider_profile(payload: c.CreateProviderProfileRequest, request: Re
 def patch_provider_profile(
     profile_id: str, payload: c.PatchProviderProfileRequest, request: Request
 ) -> c.ProviderProfile:
+    # default_options is optional on patch; only validate when it is being set.
+    _validate_outbound_hosts(payload.default_options)
     if provider_repository(request) is not None:
         return provider_repository(request).patch_profile(profile_id, payload)
     return repository(request).patch(repository(request).provider_profiles, profile_id, payload.model_dump(exclude_none=True))

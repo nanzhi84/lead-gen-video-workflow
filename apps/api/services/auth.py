@@ -10,6 +10,7 @@ from apps.api.common import (
     request_id,
 )
 from apps.api.dependencies import SESSION_COOKIE, current_user
+from apps.api.services.auth_cookies import clear_session_cookie, set_session_cookie
 from packages.core import contracts as c
 from packages.core.auth import SqlAlchemyAuthService
 from packages.core.auth import rate_limit
@@ -43,7 +44,7 @@ def register(request: Request, payload: c.RegisterRequest, response: Response) -
     rate_limit.check_registration_rate_limit(client_id)
     rate_limit.record_registration_attempt(client_id)
     auth_response, token = auth(request).register(payload)
-    response.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="lax")
+    set_session_cookie(response, request, token)
     return auth_response.model_copy(update={"request_id": request_id()})
 
 
@@ -60,14 +61,14 @@ def login(request: Request, payload: c.LoginRequest, response: Response) -> c.Au
         rate_limit.record_login_failure(client_id, identifier)
         raise
     rate_limit.record_login_success(client_id, identifier)
-    response.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="lax")
+    set_session_cookie(response, request, token)
     return auth_response.model_copy(update={"request_id": request_id()})
 
 
 def logout(request: Request, response: Response) -> c.OkResponse:
     current_user(request)
     auth(request).logout(request.cookies.get(SESSION_COOKIE))
-    response.delete_cookie(SESSION_COOKIE)
+    clear_session_cookie(response, request)
     return c.OkResponse(request_id=request_id())
 
 

@@ -66,6 +66,92 @@ def test_provider_secret_missing_is_auth_failure():
     assert invocation.error.code == ErrorCode.provider_auth_failed
 
 
+def test_gateway_blocks_offlist_base_url_when_enforcement_enabled(tmp_path, monkeypatch):
+    # Opt-in defense in depth: with CUTAGENT_ENFORCE_PROVIDER_HOST_ALLOWLIST=1 a
+    # profile row carrying a non-allowlisted base_url (e.g. tampered post-persist)
+    # is refused before the secret is delivered.
+    monkeypatch.setenv("CUTAGENT_ENFORCE_PROVIDER_HOST_ALLOWLIST", "1")
+    repository = Repository()
+    secret_store = LocalSecretStore(tmp_path)
+    secret_ref = secret_store.put("provider-secret")
+    profile = ProviderProfile(
+        id="sandbox.prod.ssrf.tts",
+        provider_id="sandbox",
+        model_id="tts.local",
+        capability="tts.speech",
+        display_name="SSRF TTS",
+        environment="prod",
+        secret_ref=secret_ref,
+        options_schema_ref=ProviderOptionsSchemaRef(schema_id="provider.tts.options"),
+        default_options={"base_url": "https://evil.example.com/v1"},
+    )
+    repository.provider_profiles[profile.id] = profile
+    gw = ProviderGateway(repository, secret_store=secret_store)
+
+    invocation, result = gw.invoke(
+        ProviderCall(provider_profile_id=profile.id, capability_id="tts.speech", input={"text": "hello"})
+    )
+    assert result is None
+    assert invocation.error
+    assert invocation.error.code == ErrorCode.provider_unsupported_option
+    assert "not allowed" in invocation.error.message
+
+
+def test_gateway_allows_offlist_base_url_when_enforcement_disabled(tmp_path, monkeypatch):
+    # Default OFF: synthetic/test hosts are NOT blocked at the gateway (the
+    # authoritative gate lives at the create/patch API). Sandbox ignores base_url,
+    # so the call still succeeds.
+    monkeypatch.delenv("CUTAGENT_ENFORCE_PROVIDER_HOST_ALLOWLIST", raising=False)
+    repository = Repository()
+    secret_store = LocalSecretStore(tmp_path)
+    secret_ref = secret_store.put("provider-secret")
+    profile = ProviderProfile(
+        id="sandbox.prod.offlist.tts",
+        provider_id="sandbox",
+        model_id="tts.local",
+        capability="tts.speech",
+        display_name="Off-list TTS",
+        environment="prod",
+        secret_ref=secret_ref,
+        options_schema_ref=ProviderOptionsSchemaRef(schema_id="provider.tts.options"),
+        default_options={"base_url": "https://example.invalid/v1"},
+    )
+    repository.provider_profiles[profile.id] = profile
+    gw = ProviderGateway(repository, secret_store=secret_store)
+
+    invocation, result = gw.invoke(
+        ProviderCall(provider_profile_id=profile.id, capability_id="tts.speech", input={"text": "hello"})
+    )
+    assert result is not None
+    assert invocation.status == ProviderStatus.succeeded
+
+
+def test_gateway_allows_sanctioned_base_url_with_enforcement(tmp_path, monkeypatch):
+    monkeypatch.setenv("CUTAGENT_ENFORCE_PROVIDER_HOST_ALLOWLIST", "1")
+    repository = Repository()
+    secret_store = LocalSecretStore(tmp_path)
+    secret_ref = secret_store.put("provider-secret")
+    profile = ProviderProfile(
+        id="sandbox.prod.ok.tts",
+        provider_id="sandbox",
+        model_id="tts.local",
+        capability="tts.speech",
+        display_name="OK TTS",
+        environment="prod",
+        secret_ref=secret_ref,
+        options_schema_ref=ProviderOptionsSchemaRef(schema_id="provider.tts.options"),
+        default_options={"base_url": "https://api.minimaxi.com/v1"},
+    )
+    repository.provider_profiles[profile.id] = profile
+    gw = ProviderGateway(repository, secret_store=secret_store)
+
+    invocation, result = gw.invoke(
+        ProviderCall(provider_profile_id=profile.id, capability_id="tts.speech", input={"text": "hello"})
+    )
+    assert result is not None
+    assert invocation.status == ProviderStatus.succeeded
+
+
 def test_provider_secret_store_disable_blocks_profile(tmp_path):
     repository = Repository()
     secret_store = LocalSecretStore(tmp_path)

@@ -36,6 +36,8 @@ class ErrorCode(str, Enum):
     upload_size_mismatch = "upload.size_mismatch"
     upload_sha256_mismatch = "upload.sha256_mismatch"
     upload_unsupported_type = "upload.unsupported_type"
+    upload_too_large = "upload.too_large"
+    upload_normalization_failed = "upload.normalization_failed"
     material_insufficient_portrait = "material.insufficient.portrait"
     material_insufficient_broll = "material.insufficient.broll"
     material_annotation_failed = "material.annotation_failed"
@@ -291,6 +293,13 @@ class MediaInfo(ContractModel):
     fps: float | None = None
     sample_rate: int | None = None
     channels: int | None = None
+    # Color metadata for video streams. ``is_hdr`` is True when the source uses a
+    # BT.2020 primaries or a PQ/HLG transfer curve and therefore needs a
+    # tonemap to BT.709 before it can be rendered/thumbnailed without color
+    # degradation. ``None`` means "not a video / not probed".
+    color_transfer: str | None = None
+    color_primaries: str | None = None
+    is_hdr: bool | None = None
 
 
 class Artifact(EntityMeta):

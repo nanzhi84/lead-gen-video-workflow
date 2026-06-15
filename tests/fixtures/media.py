@@ -83,6 +83,53 @@ def generate_test_video(
     return path
 
 
+def generate_test_hdr_video(
+    directory: Path,
+    *,
+    duration_sec: float = 1,
+    width: int = 320,
+    height: int = 568,
+    fps: int = 15,
+    filename: str | None = None,
+) -> Path:
+    """Generate a BT.2020 / PQ (smpte2084) HDR video for tonemap tests.
+
+    Uses HEVC 10-bit with explicit HDR color tags so ``probe_media`` reports
+    ``is_hdr=True``."""
+    path = directory / (filename or f"hdr_{width}x{height}_{fps}fps_{duration_sec:g}s.mp4")
+    if path.exists():
+        return path
+    FfmpegRunner().run(
+        [
+            ffmpeg_bin(),
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            f"testsrc2=size={width}x{height}:rate={fps}",
+            "-t",
+            f"{duration_sec:.3f}",
+            "-pix_fmt",
+            "yuv420p10le",
+            "-c:v",
+            "libx265",
+            "-x265-params",
+            "colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc",
+            "-color_primaries",
+            "bt2020",
+            "-color_trc",
+            "smpte2084",
+            "-colorspace",
+            "bt2020nc",
+            str(path),
+        ]
+    )
+    return path
+
+
 def generate_test_audio(
     directory: Path,
     *,

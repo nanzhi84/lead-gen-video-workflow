@@ -58,6 +58,7 @@ class UploadSession(EntityMeta):
     object_uri: str | None = None
     stabilize: bool = False
     stabilized: bool = False
+    normalized: bool = False
     expires_at: datetime = Field(default_factory=lambda: utcnow() + timedelta(hours=1))
 
 

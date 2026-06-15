@@ -249,6 +249,29 @@ class MediaSettings(BaseModel):
     ffprobe_bin: str | None = None
 
 
+class UploadSettings(BaseModel):
+    """Upload ingestion knobs (``settings.upload.*``).
+
+    The HTTP upload path streams the body to disk in chunks and enforces a hard
+    size cap so a single oversized request can never buffer hundreds of MB in
+    RAM. The cap is a defence-in-depth ceiling: a per-session declared
+    ``size_bytes`` (when present) tightens it further, but this guards against a
+    session that omits / under-declares its size."""
+
+    model_config = ConfigDict(frozen=True)
+
+    # CUTAGENT_UPLOAD_MAX_SIZE_BYTES: hard ceiling for a single uploaded file.
+    # Default 2 GiB. Exceeding it aborts the stream early with upload.too_large.
+    max_size_bytes: int = 2 * 1024 * 1024 * 1024
+    # CUTAGENT_UPLOAD_CHUNK_BYTES: streaming chunk size (read granularity).
+    chunk_bytes: int = 1024 * 1024
+    # CUTAGENT_UPLOAD_NORMALIZE_VIDEO: "1" normalizes portrait/b-roll uploads to
+    # the strict delivery profile (rotation/cropdetect/1080p/bt709 + post-encode
+    # validation) before admitting them. Off by default so the existing upload
+    # flow / tests are unchanged unless a deployment opts in.
+    normalize_video: bool = False
+
+
 class ApiSettings(BaseModel):
     """API process behaviour (``settings.api.*``)."""
 
@@ -316,6 +339,7 @@ class Settings(BaseModel):
     auth: AuthSettings = Field(default_factory=AuthSettings)
     secret_store: SecretStoreSettings = Field(default_factory=SecretStoreSettings)
     media: MediaSettings = Field(default_factory=MediaSettings)
+    upload: UploadSettings = Field(default_factory=UploadSettings)
     api: ApiSettings = Field(default_factory=ApiSettings)
     balance: BalanceSettings = Field(default_factory=BalanceSettings)
     providers: ProviderSettings = Field(default_factory=ProviderSettings)
@@ -424,6 +448,13 @@ def build_settings() -> Settings:
         media=MediaSettings(
             ffmpeg_bin=os.getenv("CUTAGENT_FFMPEG_BIN"),
             ffprobe_bin=os.getenv("CUTAGENT_FFPROBE_BIN"),
+        ),
+        upload=UploadSettings(
+            max_size_bytes=_env_int(
+                "CUTAGENT_UPLOAD_MAX_SIZE_BYTES", 2 * 1024 * 1024 * 1024
+            ),
+            chunk_bytes=_env_int("CUTAGENT_UPLOAD_CHUNK_BYTES", 1024 * 1024),
+            normalize_video=os.getenv("CUTAGENT_UPLOAD_NORMALIZE_VIDEO") == "1",
         ),
         api=ApiSettings(
             disable_background_dispatcher=os.getenv(

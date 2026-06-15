@@ -712,6 +712,22 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
                 dedupe_key=f"{failed_node.id}:node_failed",
                 event_time=failed_node.finished_at,
             )
+            # §9.6: classify the terminal node failure into the failure taxonomy so
+            # the failure-analysis view + QC/retry alerts have a real signal.
+            try:
+                self.repository.record_failure_taxonomy(
+                    target_type="node_run",
+                    target_id=failed_node.id,
+                    error_code=error.code.value,
+                    run_id=run.id,
+                    job_id=job.id,
+                    case_id=run.case_id,
+                    node_id=node_id,
+                    message=error.message,
+                    dedupe_key=f"{failed_node.id}:failure",
+                )
+            except Exception:  # pragma: no cover - classification must never break a run
+                pass
             return False
 
     def _complete_run(self, run_id: str) -> None:

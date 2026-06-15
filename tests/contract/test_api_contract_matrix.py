@@ -64,6 +64,7 @@ PATH_VALUES = {
     "attempt_id": "pub_attempt_missing",
     "budget_id": "budget_missing",
     "event_id": "alert_unpriced",
+    "rule_id": "rule_missing",
 }
 
 

@@ -22,6 +22,7 @@ from .funnel import (
     record_funnel_event,
     workflow_stage,
 )
+from .failure_taxonomy import classify_error_code, classify_funnel_event
 from .outbox import OutboxWriter
 from .telemetry import (
     REQUIRED_LOG_FIELDS,
@@ -48,6 +49,8 @@ __all__ = [
     "FUNNEL_TAXONOMY",
     "TRUE_YIELD_DISQUALIFIERS",
     "TRUE_YIELD_SUCCESS",
+    "classify_error_code",
+    "classify_funnel_event",
     "compute_true_yield_rate",
     "node_stage",
     "persist_funnel_event_rows",

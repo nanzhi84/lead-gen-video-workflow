@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
 from fastapi import Request
 
@@ -13,7 +14,132 @@ from apps.api.common import (
 from packages.core import contracts as c
 from packages.core.observability import compute_true_yield_rate, record_funnel_event
 from packages.core.storage.repository import new_id
+from packages.ops import (
+    FunnelCounts,
+    InvocationCost,
+    SpendRecord,
+    classify_error_code,
+    compute_cost_metrics,
+    compute_yield_rates,
+    evaluate_budget,
+    evaluate_rules,
+)
 from apps.api.services import providers as provider_service
+
+
+def _memory_events(request: Request, case_id: str | None = None) -> list:
+    """The §9.5 funnel events visible to the in-memory backend, optionally filtered
+    by the case_id that owns each event's run."""
+
+    repo = repository(request)
+    events = []
+    for event in repo.yield_events.values():
+        run = repo.runs.get(getattr(event, "run_id", None) or "")
+        if case_id is None or (run is not None and run.case_id == case_id):
+            events.append(event)
+    return events
+
+
+def _memory_run_prompt_versions(request: Request) -> dict[str, set[str]]:
+    repo = repository(request)
+    mapping: dict[str, set[str]] = {}
+    for invocation in repo.provider_invocations.values():
+        if invocation.run_id and invocation.prompt_version_id:
+            mapping.setdefault(invocation.run_id, set()).add(invocation.prompt_version_id)
+    return mapping
+
+
+def _memory_provider_success_rate(request: Request) -> float | None:
+    repo = repository(request)
+    invocations = list(repo.provider_invocations.values())
+    if not invocations:
+        return None
+    ok = sum(1 for inv in invocations if inv.status == c.ProviderStatus.succeeded)
+    return ok / len(invocations)
+
+
+def _memory_yield_rates(request: Request, case_id: str | None = None) -> c.YieldRates:
+    return compute_yield_rates(
+        _memory_events(request, case_id),
+        provider_success_rate=_memory_provider_success_rate(request),
+        run_prompt_versions=_memory_run_prompt_versions(request),
+    )
+
+
+def _memory_cost_metrics(request: Request) -> c.CostMetrics:
+    repo = repository(request)
+    events = list(repo.yield_events.values())
+    finished = {e.finished_video_id for e in events if e.event_type == "finished_video_created" and getattr(e, "finished_video_id", None)}
+    finished_jobs = {e.job_id for e in events if e.event_type == "finished_video_created" and getattr(e, "job_id", None)}
+    qc_passed = {(getattr(e, "finished_video_id", None) or e.run_id) for e in events if e.event_type == "qc_passed" and (getattr(e, "finished_video_id", None) or e.run_id)}
+    published = {(getattr(e, "publish_package_id", None) or e.run_id) for e in events if e.event_type == "published" and (getattr(e, "publish_package_id", None) or e.run_id)}
+    wasted_runs = {e.run_id for e in events if e.event_type in ("qc_failed", "manual_rejected") and e.run_id}
+
+    invocations: list[InvocationCost] = []
+    for inv in repo.provider_invocations.values():
+        run = repo.runs.get(inv.run_id or "")
+        invocations.append(
+            InvocationCost(
+                estimated_amount=inv.estimated_cost.amount if inv.estimated_cost else Decimal("0"),
+                actual_amount=inv.actual_cost.amount if inv.actual_cost else None,
+                currency=(inv.estimated_cost.currency if inv.estimated_cost else "CNY"),
+                provider_id=inv.provider_id,
+                model_id=inv.model_id,
+                prompt_version_id=inv.prompt_version_id,
+                run_id=inv.run_id,
+                run_is_failed=(getattr(run, "status", None) == c.RunStatus.failed),
+                run_is_retry=bool(getattr(run, "retry_of_run_id", None)),
+                node_attempt=(inv.retry_count or 0) + 1,
+            )
+        )
+    counts = FunnelCounts(
+        finished_video_count=len(finished) or len(finished_jobs),
+        qc_passed_count=len(qc_passed),
+        published_count=len(published),
+        wasted_run_ids=frozenset(wasted_runs),
+    )
+    return compute_cost_metrics(invocations, counts, currency="CNY")
+
+
+def _memory_spend_records(request: Request) -> list[SpendRecord]:
+    repo = repository(request)
+    return [
+        SpendRecord(
+            amount=inv.estimated_cost.amount if inv.estimated_cost else Decimal("0"),
+            currency=inv.estimated_cost.currency if inv.estimated_cost else "CNY",
+            created_at=inv.created_at,
+            provider_id=inv.provider_id,
+            capability_id=inv.capability_id,
+            case_id=inv.case_id,
+        )
+        for inv in repo.provider_invocations.values()
+    ]
+
+
+def _memory_budget_evaluations(request: Request) -> list[c.BudgetEvaluation]:
+    repo = repository(request)
+    now = datetime.now(timezone.utc)
+    records = _memory_spend_records(request)
+    return [
+        evaluate_budget(budget, records, now=now)
+        for budget in repo.budgets.values()
+        if budget.enabled
+    ]
+
+
+def _memory_failure_analysis(request: Request) -> c.FailureAnalysisReport:
+    repo = repository(request)
+    counts: dict[str, int] = {}
+    for entry in getattr(repo, "failures", {}).values():
+        fc = entry.failure_class.value if hasattr(entry.failure_class, "value") else str(entry.failure_class)
+        counts[fc] = counts.get(fc, 0) + 1
+    items = [
+        c.FailureAnalysisItem(failure_class=c.FailureClass(fc), count=n)
+        for fc, n in counts.items()
+        if fc in c.FailureClass._value2member_map_
+    ]
+    items.sort(key=lambda item: (-item.count, item.failure_class.value))
+    return c.FailureAnalysisReport(items=items, total=sum(i.count for i in items))
 
 def ops_dashboard(
     request: Request,
@@ -23,11 +149,17 @@ def ops_dashboard(
         return ops_repository(request).dashboard(window_start=window_start, window_end=window_end)
     usage = provider_service.provider_usage(request, window_start=window_start, window_end=window_end)
     funnel = yield_funnel(request, window_start=window_start, window_end=window_end)
+    # Refresh the in-memory cost rollups so the dashboard reflects current spend.
+    cost_rollups(request, window_start=window_start, window_end=window_end)
     return c.OpsDashboardVm(
         usage=usage,
         yield_funnel=funnel,
         alerts=list(repository(request).alerts.values()),
         cost_rollups=list(repository(request).cost_rollups.values()),
+        cost_metrics=_memory_cost_metrics(request),
+        yield_rates=funnel.rates,
+        budget_evaluations=_memory_budget_evaluations(request),
+        failure_analysis=_memory_failure_analysis(request),
     )
 
 
@@ -46,21 +178,47 @@ def cost_rollups(
             limit=limit,
         )
         return c.PageResponse(items=values, total_hint=len(values), request_id=request_id())
-    rollup = c.CostRollup(
-        id="cost_current",
-        group_key=group_by or "all",
-        group_by=group_by,
-        estimated_cost=c.Money(
-            amount=sum(
-                (item.estimated_cost.amount for item in repository(request).provider_invocations.values() if item.estimated_cost),
-                c.Decimal("0"),
-            ),
-            currency="CNY",
-        ),
-        invocations=len(repository(request).provider_invocations),
-    )
-    repository(request).cost_rollups[rollup.id] = rollup
-    return page(repository(request).cost_rollups.values(), limit)
+    repo = repository(request)
+    # §26.1: GROUP BY the requested dimension and emit one CostRollup per group_key.
+    groups: dict[str, tuple[c.Decimal, int]] = {}
+    for inv in repo.provider_invocations.values():
+        key = _cost_group_key(repo, inv, group_by)
+        amount, count = groups.get(key, (c.Decimal("0"), 0))
+        amount += inv.estimated_cost.amount if inv.estimated_cost else c.Decimal("0")
+        groups[key] = (amount, count + 1)
+    if not groups:
+        groups["all" if group_by is None else "unknown"] = (c.Decimal("0"), 0)
+    for group_key, (amount, count) in groups.items():
+        rollup_id = "cost_current_all" if group_by is None else f"cost_{group_by}_{group_key}"
+        repo.cost_rollups[rollup_id] = c.CostRollup(
+            id=rollup_id,
+            group_key=group_key,
+            group_by=group_by,
+            estimated_cost=c.Money(amount=amount, currency="CNY"),
+            invocations=count,
+            window_start=window_start,
+            window_end=window_end,
+        )
+    return page(repo.cost_rollups.values(), limit)
+
+
+def _cost_group_key(repo, invocation, group_by: str | None) -> str:
+    if group_by is None:
+        return "all"
+    if group_by == "case":
+        return invocation.case_id or "unknown"
+    if group_by == "provider":
+        return invocation.provider_id or "unknown"
+    if group_by == "model":
+        return invocation.model_id or "unknown"
+    if group_by == "prompt_version":
+        return invocation.prompt_version_id or "unknown"
+    if group_by == "run":
+        return invocation.run_id or "unknown"
+    if group_by == "job":
+        run = repo.runs.get(invocation.run_id or "")
+        return getattr(run, "job_id", None) or "unknown"
+    return "unknown"
 
 
 def _provider_usage_metrics_from_invocations(
@@ -136,17 +294,87 @@ def yield_funnel(
             window_end=window_end,
             case_id=case_id,
         )
-    repo = repository(request)
-    events = []
-    for event in repo.yield_events.values():
-        run = repo.runs.get(event.run_id or "")
-        if case_id is None or (run is not None and run.case_id == case_id):
-            events.append(event)
+    events = _memory_events(request, case_id)
     # §9.5: true_yield_rate must be run-scoped, NOT successes/total_events (the
     # denominator inflates as the taxonomy grows). A run is true-yield only if it
     # reached ``published`` and was never ``qc_failed`` / ``manual_rejected``.
     rate = compute_true_yield_rate(events)
-    return c.YieldFunnelResponse(events=events, true_yield_rate=rate)
+    rates = _memory_yield_rates(request, case_id)
+    return c.YieldFunnelResponse(events=events, true_yield_rate=rate, rates=rates)
+
+
+def cost_metrics(
+    request: Request,
+    window_start: datetime | None = None,
+    window_end: datetime | None = None,
+) -> c.CostMetrics:
+    if ops_repository(request) is not None:
+        return ops_repository(request).cost_metrics(
+            window_start=window_start, window_end=window_end
+        )
+    return _memory_cost_metrics(request)
+
+
+def failure_taxonomy(
+    request: Request,
+    failure_class: str | None = None,
+    run_id: str | None = None,
+    case_id: str | None = None,
+    limit: int = 50,
+) -> c.PageResponse[c.FailureTaxonomyEntry]:
+    if ops_repository(request) is not None:
+        values = ops_repository(request).list_failures(
+            failure_class=failure_class, run_id=run_id, case_id=case_id, limit=limit
+        )
+        return c.PageResponse(items=values, total_hint=len(values), request_id=request_id())
+    repo = repository(request)
+    items = []
+    for entry in getattr(repo, "failures", {}).values():
+        fc = entry.failure_class.value if hasattr(entry.failure_class, "value") else str(entry.failure_class)
+        if failure_class and fc != failure_class:
+            continue
+        if run_id and entry.run_id != run_id:
+            continue
+        if case_id and entry.case_id != case_id:
+            continue
+        items.append(entry)
+    items = items[:limit]
+    return c.PageResponse(items=items, total_hint=len(items), request_id=request_id())
+
+
+def failure_analysis(request: Request) -> c.FailureAnalysisReport:
+    if ops_repository(request) is not None:
+        return ops_repository(request).failure_analysis()
+    return _memory_failure_analysis(request)
+
+
+def list_alert_rules(request: Request, limit: int = 50) -> c.PageResponse[c.OpsAlertRule]:
+    if ops_repository(request) is not None:
+        values = ops_repository(request).list_alert_rules(limit=limit)
+        return c.PageResponse(items=values, total_hint=len(values), request_id=request_id())
+    repo = repository(request)
+    return c.PageResponse(
+        items=list(getattr(repo, "alert_rules", {}).values())[:limit],
+        total_hint=len(getattr(repo, "alert_rules", {})),
+        request_id=request_id(),
+    )
+
+
+def upsert_alert_rule(payload: c.UpsertAlertRuleRequest, request: Request) -> c.OpsAlertRule:
+    if ops_repository(request) is not None:
+        return ops_repository(request).upsert_alert_rule(payload)
+    repo = repository(request)
+    if not hasattr(repo, "alert_rules"):
+        repo.alert_rules = {}
+    repo.alert_rules[payload.rule.id] = payload.rule
+    return payload.rule
+
+
+def patch_alert_rule(rule_id: str, payload: c.PatchAlertRuleRequest, request: Request) -> c.OpsAlertRule:
+    if ops_repository(request) is not None:
+        return ops_repository(request).patch_alert_rule(rule_id, payload)
+    repo = repository(request)
+    return repo.patch(getattr(repo, "alert_rules", {}), rule_id, payload.model_dump(exclude_none=True))
 
 
 def budgets(request: Request, limit: int = 50) -> c.PageResponse[c.Budget]:
@@ -225,6 +453,19 @@ def _record_quality_check_funnel(repo, check: c.ProductionQualityCheck) -> None:
             dedupe_key=f"{check.id}:{terminal}",
             event_time=check.created_at,
         )
+    # §9.6: a failed QC is a terminal failure -> classify ``qc_failed``.
+    if result == "failed":
+        run = repo.runs.get(run_id or "")
+        repo.record_failure_taxonomy(
+            target_type=check.target_type,
+            target_id=check.target_id,
+            failure_class=c.FailureClass.qc_failed,
+            run_id=run_id,
+            job_id=job_id,
+            case_id=getattr(run, "case_id", None),
+            message=check.reason_code,
+            dedupe_key=f"{check.id}:qc_failed",
+        )
 
 
 def _approval_run_ids(repo, approval: c.ApprovalRequest) -> tuple[str | None, str | None]:
@@ -257,6 +498,19 @@ def _record_approval_funnel(repo, approval: c.ApprovalRequest, *, decision: str)
         dedupe_key=f"{approval.id}:{event_type}",
         event_time=approval.updated_at,
     )
+    # §9.6: a manual rejection is a terminal failure -> classify ``manual_rejected``.
+    if decision == "rejected":
+        run = repo.runs.get(run_id or "")
+        repo.record_failure_taxonomy(
+            target_type="run" if run_id else "approval_request",
+            target_id=run_id or approval.id,
+            failure_class=c.FailureClass.manual_rejected,
+            run_id=run_id,
+            job_id=job_id,
+            case_id=getattr(run, "case_id", None),
+            message=approval.reason,
+            dedupe_key=f"{approval.id}:manual_rejected",
+        )
 
 
 def run_quality_check(

@@ -2018,6 +2018,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ops/cost-metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Cost Metrics */
+        get: operations["cost_metrics_api_ops_cost_metrics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ops/provider-usage-metrics": {
         parameters: {
             query?: never;
@@ -2033,6 +2050,75 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/ops/failure-taxonomy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Failure Taxonomy */
+        get: operations["failure_taxonomy_api_ops_failure_taxonomy_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ops/failure-analysis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Failure Analysis */
+        get: operations["failure_analysis_api_ops_failure_analysis_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ops/alert-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Alert Rules */
+        get: operations["alert_rules_api_ops_alert_rules_get"];
+        put?: never;
+        /** Upsert Alert Rule */
+        post: operations["upsert_alert_rule_api_ops_alert_rules_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ops/alert-rules/{rule_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Patch Alert Rule */
+        patch: operations["patch_alert_rule_api_ops_alert_rules__rule_id__patch"];
         trace?: never;
     };
     "/api/ops/budgets": {
@@ -2695,6 +2781,12 @@ export interface components {
             scope_type: string;
             /** Scope Id */
             scope_id?: string | null;
+            /**
+             * Period
+             * @default day
+             * @enum {string}
+             */
+            period: "day" | "week" | "month";
             limit: components["schemas"]["Money-Input"];
             /**
              * Alert Threshold
@@ -2737,6 +2829,12 @@ export interface components {
             scope_type: string;
             /** Scope Id */
             scope_id?: string | null;
+            /**
+             * Period
+             * @default day
+             * @enum {string}
+             */
+            period: "day" | "week" | "month";
             limit: components["schemas"]["Money-Output"];
             /**
              * Alert Threshold
@@ -2748,6 +2846,46 @@ export interface components {
              * @default true
              */
             enabled: boolean;
+        };
+        /**
+         * BudgetEvaluation
+         * @description §9.8 预算执行: current-period spend evaluated against a Budget.
+         *
+         *     ``ratio`` = spend / limit (``None`` if the limit is 0). ``exceeded`` flags a
+         *     hard over-limit; ``threshold_crossed`` flags ``ratio >= alert_threshold`` (the
+         *     75/90%-style warning level the OLD quota_monitor produced).
+         */
+        BudgetEvaluation: {
+            /** Budget Id */
+            budget_id: string;
+            /** Scope Type */
+            scope_type: string;
+            /** Scope Id */
+            scope_id?: string | null;
+            /**
+             * Period
+             * @enum {string}
+             */
+            period: "day" | "week" | "month";
+            /**
+             * Period Start
+             * Format: date-time
+             */
+            period_start: string;
+            spend: components["schemas"]["Money-Output"];
+            limit: components["schemas"]["Money-Output"];
+            /** Ratio */
+            ratio?: number | null;
+            /**
+             * Threshold Crossed
+             * @default false
+             */
+            threshold_crossed: boolean;
+            /**
+             * Exceeded
+             * @default false
+             */
+            exceeded: boolean;
         };
         /** CancelRunRequest */
         CancelRunRequest: {
@@ -3336,6 +3474,58 @@ export interface components {
              */
             unpriced: boolean;
         };
+        /**
+         * CostMetrics
+         * @description §9.4 / §26.2 cost indicators for an ops window.
+         *
+         *     All monetary values are CNY ``Money``. The ``unit_cost_per_*`` ratios divide
+         *     total provider-invocation cost by the relevant §9.5 funnel count and are
+         *     ``None`` when that denominator is 0 (no finished/qc-passed/published videos).
+         *     ``cost_variance = actual_cost - estimated_cost`` is ``None`` until actual_cost
+         *     is backfilled. ``provider_cost`` / ``model_cost`` / ``prompt_version_cost`` map
+         *     a dimension key to its cost share.
+         */
+        CostMetrics: {
+            /** Window Start */
+            window_start?: string | null;
+            /** Window End */
+            window_end?: string | null;
+            estimated_cost: components["schemas"]["Money-Output"];
+            actual_cost?: components["schemas"]["Money-Output"] | null;
+            cost_variance?: components["schemas"]["Money-Output"] | null;
+            wasted_cost: components["schemas"]["Money-Output"];
+            retry_cost: components["schemas"]["Money-Output"];
+            /**
+             * Finished Video Count
+             * @default 0
+             */
+            finished_video_count: number;
+            /**
+             * Qc Passed Count
+             * @default 0
+             */
+            qc_passed_count: number;
+            /**
+             * Published Count
+             * @default 0
+             */
+            published_count: number;
+            unit_cost_per_finished_video?: components["schemas"]["Money-Output"] | null;
+            unit_cost_per_qc_passed_video?: components["schemas"]["Money-Output"] | null;
+            unit_cost_per_published_video?: components["schemas"]["Money-Output"] | null;
+            /** Provider Cost */
+            provider_cost?: {
+                [key: string]: components["schemas"]["Money-Output"];
+            };
+            /** Model Cost */
+            model_cost?: {
+                [key: string]: components["schemas"]["Money-Output"];
+            };
+            /** Prompt Version Cost */
+            prompt_version_cost?: {
+                [key: string]: components["schemas"]["Money-Output"];
+            };
+        };
         /** CostRollup */
         CostRollup: {
             /** Id */
@@ -3373,6 +3563,10 @@ export interface components {
              * @default 0
              */
             invocations: number;
+            /** Window Start */
+            window_start?: string | null;
+            /** Window End */
+            window_end?: string | null;
         };
         /** CoverOptions */
         CoverOptions: {
@@ -3907,6 +4101,82 @@ export interface components {
             time: number;
             /** Image Url */
             image_url: string;
+        };
+        /** FailureAnalysisItem */
+        FailureAnalysisItem: {
+            failure_class: components["schemas"]["FailureClass"];
+            /** Count */
+            count: number;
+        };
+        /** FailureAnalysisReport */
+        FailureAnalysisReport: {
+            /** Items */
+            items?: components["schemas"]["FailureAnalysisItem"][];
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+            /** Window Start */
+            window_start?: string | null;
+            /** Window End */
+            window_end?: string | null;
+        };
+        /**
+         * FailureClass
+         * @description §9.6 失败分类法 — the 15 required failure classes.
+         * @enum {string}
+         */
+        FailureClass: "provider_error" | "provider_timeout" | "quota_exceeded" | "price_missing" | "prompt_render_error" | "prompt_output_invalid" | "material_insufficient" | "timeline_invalid" | "render_failed" | "subtitle_failed" | "bgm_failed" | "lipsync_quality_failed" | "qc_failed" | "publish_failed" | "manual_rejected";
+        /**
+         * FailureTaxonomyEntry
+         * @description §9.2 failure_taxonomy — one classified run/node terminal failure.
+         */
+        FailureTaxonomyEntry: {
+            /** Id */
+            id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at?: string;
+            /** Created By */
+            created_by?: string | null;
+            /**
+             * Version
+             * @default 1
+             */
+            version: number;
+            /**
+             * Schema Version
+             * @default v1
+             */
+            schema_version: string;
+            /**
+             * Target Type
+             * @enum {string}
+             */
+            target_type: "run" | "node_run" | "finished_video" | "publish_attempt" | "approval_request";
+            /** Target Id */
+            target_id: string;
+            failure_class: components["schemas"]["FailureClass"];
+            /** Error Code */
+            error_code?: string | null;
+            /** Run Id */
+            run_id?: string | null;
+            /** Job Id */
+            job_id?: string | null;
+            /** Case Id */
+            case_id?: string | null;
+            /** Node Id */
+            node_id?: string | null;
+            /** Message */
+            message?: string | null;
         };
         /** FinishedVideo */
         FinishedVideo: {
@@ -4545,6 +4815,8 @@ export interface components {
             schema_version: string;
             /** Code */
             code: string;
+            /** Rule Id */
+            rule_id?: string | null;
             /**
              * Status
              * @default open
@@ -4558,7 +4830,65 @@ export interface components {
              * @default warning
              * @enum {string}
              */
-            severity: "info" | "warning" | "error";
+            severity: "info" | "warning" | "error" | "critical";
+            /** Triggered At */
+            triggered_at?: string | null;
+            /** Resolved At */
+            resolved_at?: string | null;
+        };
+        /**
+         * OpsAlertRule
+         * @description §9.2 ops_alert_rules / §26.1 OpsAlertRule — a metric threshold that the
+         *     alert engine periodically evaluates and emits OpsAlertEvent for.
+         */
+        OpsAlertRule: {
+            /** Id */
+            id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at?: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at?: string;
+            /** Created By */
+            created_by?: string | null;
+            /**
+             * Version
+             * @default 1
+             */
+            version: number;
+            /**
+             * Schema Version
+             * @default v1
+             */
+            schema_version: string;
+            /** Metric */
+            metric: string;
+            /**
+             * Condition
+             * @enum {string}
+             */
+            condition: "gt" | "gte" | "lt" | "lte" | "change_gt";
+            /** Threshold */
+            threshold: number;
+            scope?: components["schemas"]["OpsScopeFilter"];
+            /** Channels */
+            channels?: string[];
+            /**
+             * Severity
+             * @default warning
+             * @enum {string}
+             */
+            severity: "info" | "warning" | "error" | "critical";
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
         };
         /** OpsDashboardVm */
         OpsDashboardVm: {
@@ -4568,6 +4898,31 @@ export interface components {
             alerts: components["schemas"]["OpsAlertEvent"][];
             /** Cost Rollups */
             cost_rollups: components["schemas"]["CostRollup"][];
+            cost_metrics?: components["schemas"]["CostMetrics"] | null;
+            yield_rates?: components["schemas"]["YieldRates"] | null;
+            /** Budget Evaluations */
+            budget_evaluations?: components["schemas"]["BudgetEvaluation"][];
+            failure_analysis?: components["schemas"]["FailureAnalysisReport"] | null;
+        };
+        /**
+         * OpsScopeFilter
+         * @description §26.1 OpsScopeFilter — narrows an alert rule to a subset of the pipeline.
+         */
+        OpsScopeFilter: {
+            /** Case Ids */
+            case_ids?: string[];
+            /** Provider Ids */
+            provider_ids?: string[];
+            /** Model Ids */
+            model_ids?: string[];
+            /** Capability Id */
+            capability_id?: string | null;
+            /** Prompt Template Ids */
+            prompt_template_ids?: string[];
+            /** Prompt Version Ids */
+            prompt_version_ids?: string[];
+            /** Environment */
+            environment?: ("local" | "dev" | "staging" | "prod") | null;
         };
         /** OutputOptions */
         OutputOptions: {
@@ -4723,6 +5078,17 @@ export interface components {
             /** Request Id */
             request_id: string;
         };
+        /** PageResponse[FailureTaxonomyEntry] */
+        PageResponse_FailureTaxonomyEntry_: {
+            /** Items */
+            items: components["schemas"]["FailureTaxonomyEntry"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Total Hint */
+            total_hint?: number | null;
+            /** Request Id */
+            request_id: string;
+        };
         /** PageResponse[FinishedVideo] */
         PageResponse_FinishedVideo_: {
             /** Items */
@@ -4749,6 +5115,17 @@ export interface components {
         PageResponse_MemoryProposal_: {
             /** Items */
             items: components["schemas"]["MemoryProposal"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Total Hint */
+            total_hint?: number | null;
+            /** Request Id */
+            request_id: string;
+        };
+        /** PageResponse[OpsAlertRule] */
+        PageResponse_OpsAlertRule_: {
+            /** Items */
+            items: components["schemas"]["OpsAlertRule"][];
             /** Next Cursor */
             next_cursor?: string | null;
             /** Total Hint */
@@ -4921,6 +5298,19 @@ export interface components {
             /** Request Id */
             request_id: string;
         };
+        /** PatchAlertRuleRequest */
+        PatchAlertRuleRequest: {
+            /** Threshold */
+            threshold?: number | null;
+            /** Condition */
+            condition?: ("gt" | "gte" | "lt" | "lte" | "change_gt") | null;
+            /** Severity */
+            severity?: ("info" | "warning" | "error" | "critical") | null;
+            /** Channels */
+            channels?: string[] | null;
+            /** Enabled */
+            enabled?: boolean | null;
+        };
         /** PatchAnnotationRequest */
         PatchAnnotationRequest: {
             /** Etag */
@@ -4934,6 +5324,8 @@ export interface components {
             alert_threshold?: number | null;
             /** Enabled */
             enabled?: boolean | null;
+            /** Period */
+            period?: ("day" | "week" | "month") | null;
         };
         /** PatchCaseRequest */
         PatchCaseRequest: {
@@ -6980,6 +7372,10 @@ export interface components {
          * @enum {string}
          */
         UploadSessionStatus: "prepared" | "uploading" | "completed" | "failed" | "cancelled" | "expired";
+        /** UpsertAlertRuleRequest */
+        UpsertAlertRuleRequest: {
+            rule: components["schemas"]["OpsAlertRule"];
+        };
         /** UpsertBudgetRequest */
         UpsertBudgetRequest: {
             budget: components["schemas"]["Budget-Input"];
@@ -7276,6 +7672,43 @@ export interface components {
             events: components["schemas"]["YieldFunnelEvent"][];
             /** True Yield Rate */
             true_yield_rate?: number | null;
+            rates?: components["schemas"]["YieldRates"] | null;
+        };
+        /**
+         * YieldRates
+         * @description §9.5 / §26.3 成品率指标. Each rate is a fraction in [0, 1] or ``None`` when
+         *     its denominator is 0 (no data). Denominators follow §26.3 exactly:
+         *     technical_success uses started runs, finished_video / true_yield use submitted
+         *     jobs, qc_pass / rework / discard use finished videos, approval_pass uses manual
+         *     reviews started, publish_success uses publish_started packages, stage_pass uses
+         *     node_started. ``prompt_version_yield`` maps prompt_version_id -> its true-yield
+         *     fraction over the runs that used it.
+         */
+        YieldRates: {
+            /** Technical Success Rate */
+            technical_success_rate?: number | null;
+            /** Finished Video Rate */
+            finished_video_rate?: number | null;
+            /** Qc Pass Rate */
+            qc_pass_rate?: number | null;
+            /** Approval Pass Rate */
+            approval_pass_rate?: number | null;
+            /** Publish Success Rate */
+            publish_success_rate?: number | null;
+            /** True Yield Rate */
+            true_yield_rate?: number | null;
+            /** Rework Rate */
+            rework_rate?: number | null;
+            /** Discard Rate */
+            discard_rate?: number | null;
+            /** Stage Pass Rate */
+            stage_pass_rate?: number | null;
+            /** Provider Success Rate */
+            provider_success_rate?: number | null;
+            /** Prompt Version Yield */
+            prompt_version_yield?: {
+                [key: string]: number;
+            };
         };
     };
     responses: never;
@@ -11907,6 +12340,38 @@ export interface operations {
             };
         };
     };
+    cost_metrics_api_ops_cost_metrics_get: {
+        parameters: {
+            query?: {
+                window_start?: string | null;
+                window_end?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CostMetrics"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     provider_usage_metrics_api_ops_provider_usage_metrics_get: {
         parameters: {
             query?: {
@@ -11925,6 +12390,159 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProviderUsageMetricsReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    failure_taxonomy_api_ops_failure_taxonomy_get: {
+        parameters: {
+            query?: {
+                failure_class?: string | null;
+                run_id?: string | null;
+                case_id?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageResponse_FailureTaxonomyEntry_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    failure_analysis_api_ops_failure_analysis_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FailureAnalysisReport"];
+                };
+            };
+        };
+    };
+    alert_rules_api_ops_alert_rules_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PageResponse_OpsAlertRule_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upsert_alert_rule_api_ops_alert_rules_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpsertAlertRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpsAlertRule"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_alert_rule_api_ops_alert_rules__rule_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchAlertRuleRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpsAlertRule"];
                 };
             };
             /** @description Validation Error */

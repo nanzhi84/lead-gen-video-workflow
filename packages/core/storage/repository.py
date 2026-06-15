@@ -66,6 +66,8 @@ from packages.core.contracts import (
     SelectionReservationRecord,
     UploadSession,
     UsageMeterRecord,
+    FailureClass,
+    FailureTaxonomyEntry,
     UserRole,
     VideoVersion,
     VoiceProfile,
@@ -134,6 +136,9 @@ class Repository:
         self.yield_events: dict[str, object] = {}
         self.budgets: dict[str, Budget] = {}
         self.alerts: dict[str, OpsAlertEvent] = {}
+        self.alert_rules: dict[str, object] = {}
+        self.failures: dict[str, object] = {}
+        self._failure_dedupe_keys: dict[str, str] = {}
         self.quality_checks: dict[str, object] = {}
         self.approvals: dict[str, object] = {}
         self.audit_events: dict[str, object] = {}
@@ -733,3 +738,50 @@ class Repository:
             message=f"Yield funnel event {event_type}.",
         )
         return event
+
+    def record_failure_taxonomy(
+        self,
+        *,
+        target_type: str,
+        target_id: str,
+        failure_class: str | FailureClass | None = None,
+        error_code: str | None = None,
+        run_id: str | None = None,
+        job_id: str | None = None,
+        case_id: str | None = None,
+        node_id: str | None = None,
+        message: str | None = None,
+        dedupe_key: str | None = None,
+    ) -> FailureTaxonomyEntry:
+        """§9.6: classify and record one run/node terminal failure into the failure
+        taxonomy. Idempotent on ``dedupe_key``. Classifies ``error_code`` into one of
+        the 15 §9.6 classes when ``failure_class`` is not given."""
+
+        from packages.core.observability import classify_error_code
+
+        if failure_class is None:
+            resolved = classify_error_code(error_code)
+        elif isinstance(failure_class, FailureClass):
+            resolved = failure_class
+        else:
+            resolved = FailureClass(failure_class)
+
+        if dedupe_key is not None and dedupe_key in self._failure_dedupe_keys:
+            return self.failures[self._failure_dedupe_keys[dedupe_key]]
+
+        entry = FailureTaxonomyEntry(
+            id=new_id("failure"),
+            target_type=target_type,
+            target_id=target_id,
+            failure_class=resolved,
+            error_code=error_code,
+            run_id=run_id,
+            job_id=job_id,
+            case_id=case_id,
+            node_id=node_id,
+            message=message,
+        )
+        self.failures[entry.id] = entry
+        if dedupe_key is not None:
+            self._failure_dedupe_keys[dedupe_key] = entry.id
+        return entry

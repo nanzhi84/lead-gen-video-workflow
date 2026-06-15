@@ -39,10 +39,56 @@ def yield_funnel(
     return service.yield_funnel(request, window_start, window_end, case_id)
 
 
+@router.get("/api/ops/cost-metrics", response_model=c.CostMetrics)
+def cost_metrics(
+    request: Request,
+    window_start: datetime | None = None,
+    window_end: datetime | None = None,
+) -> c.CostMetrics:
+    require_role(request, c.UserRole.operator)
+    return service.cost_metrics(request, window_start, window_end)
+
+
 @router.get("/api/ops/provider-usage-metrics", response_model=c.ProviderUsageMetricsReport)
 def provider_usage_metrics(request: Request, window_hours: int = 24) -> c.ProviderUsageMetricsReport:
     require_role(request, c.UserRole.operator)
     return service.provider_usage_metrics(request, window_hours)
+
+
+@router.get("/api/ops/failure-taxonomy", response_model=c.PageResponse[c.FailureTaxonomyEntry])
+def failure_taxonomy(
+    request: Request,
+    failure_class: str | None = None,
+    run_id: str | None = None,
+    case_id: str | None = None,
+    limit: int = 50,
+) -> c.PageResponse[c.FailureTaxonomyEntry]:
+    require_role(request, c.UserRole.operator)
+    return service.failure_taxonomy(request, failure_class, run_id, case_id, limit)
+
+
+@router.get("/api/ops/failure-analysis", response_model=c.FailureAnalysisReport)
+def failure_analysis(request: Request) -> c.FailureAnalysisReport:
+    require_role(request, c.UserRole.operator)
+    return service.failure_analysis(request)
+
+
+@router.get("/api/ops/alert-rules", response_model=c.PageResponse[c.OpsAlertRule])
+def alert_rules(request: Request, limit: int = 50) -> c.PageResponse[c.OpsAlertRule]:
+    require_role(request, c.UserRole.operator)
+    return service.list_alert_rules(request, limit)
+
+
+@router.post("/api/ops/alert-rules", response_model=c.OpsAlertRule, status_code=201)
+def upsert_alert_rule(payload: c.UpsertAlertRuleRequest, request: Request) -> c.OpsAlertRule:
+    require_role(request, c.UserRole.admin)
+    return service.upsert_alert_rule(payload, request)
+
+
+@router.patch("/api/ops/alert-rules/{rule_id}", response_model=c.OpsAlertRule)
+def patch_alert_rule(rule_id: str, payload: c.PatchAlertRuleRequest, request: Request) -> c.OpsAlertRule:
+    require_role(request, c.UserRole.admin)
+    return service.patch_alert_rule(rule_id, payload, request)
 
 
 @router.get("/api/ops/budgets", response_model=c.PageResponse[c.Budget])

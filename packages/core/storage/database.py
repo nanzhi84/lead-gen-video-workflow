@@ -736,6 +736,8 @@ class CostRollupRow(TimestampMixin, Base):
     estimated_cost: Mapped[dict] = mapped_column(JSONB, nullable=False)
     actual_cost: Mapped[dict | None] = mapped_column(JSONB)
     invocations: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    window_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    window_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class BudgetRow(TimestampMixin, Base):
@@ -744,8 +746,22 @@ class BudgetRow(TimestampMixin, Base):
     id: Mapped[str] = mapped_column(String, primary_key=True)
     scope_type: Mapped[str] = mapped_column(String, nullable=False)
     scope_id: Mapped[str | None] = mapped_column(String)
+    period: Mapped[str] = mapped_column(String, nullable=False, default="day")
     limit: Mapped[dict] = mapped_column(JSONB, nullable=False)
     alert_threshold: Mapped[float] = mapped_column(Float, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class OpsAlertRuleRow(TimestampMixin, Base):
+    __tablename__ = "ops_alert_rules"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    metric: Mapped[str] = mapped_column(String, nullable=False)
+    condition: Mapped[str] = mapped_column(String, nullable=False)
+    threshold: Mapped[float] = mapped_column(Float, nullable=False)
+    scope: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    channels: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    severity: Mapped[str] = mapped_column(String, nullable=False, default="warning")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
@@ -754,9 +770,28 @@ class OpsAlertEventRow(TimestampMixin, Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     code: Mapped[str] = mapped_column(String, nullable=False)
+    rule_id: Mapped[str | None] = mapped_column(ForeignKey("ops_alert_rules.id", ondelete="SET NULL"))
     status: Mapped[str] = mapped_column(String, nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
     severity: Mapped[str] = mapped_column(String, nullable=False)
+    triggered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class FailureTaxonomyRow(TimestampMixin, Base):
+    __tablename__ = "failure_taxonomy"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    target_type: Mapped[str] = mapped_column(String, nullable=False)
+    target_id: Mapped[str] = mapped_column(String, nullable=False)
+    failure_class: Mapped[str] = mapped_column(String, nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String)
+    run_id: Mapped[str | None] = mapped_column(ForeignKey("workflow_runs.id", ondelete="SET NULL"))
+    job_id: Mapped[str | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"))
+    case_id: Mapped[str | None] = mapped_column(ForeignKey("cases.id", ondelete="SET NULL"))
+    node_id: Mapped[str | None] = mapped_column(String)
+    message: Mapped[str | None] = mapped_column(Text)
+    dedupe_key: Mapped[str | None] = mapped_column(String, unique=True)
 
 
 class ProductionQualityCheckRow(TimestampMixin, Base):
@@ -852,6 +887,9 @@ Index("idx_usage_meter_provider", UsageMeterRecordRow.provider_id, UsageMeterRec
 Index("idx_case_memories_case_status", CaseMemoryRow.case_id, CaseMemoryRow.status)
 Index("idx_performance_case_metric", PerformanceObservationRow.case_id, PerformanceObservationRow.metric_name)
 Index("idx_outbox_pending", OutboxEventRow.status, OutboxEventRow.available_at, OutboxEventRow.created_at, OutboxEventRow.id)
+Index("idx_failure_taxonomy_class", FailureTaxonomyRow.failure_class, FailureTaxonomyRow.created_at)
+Index("idx_failure_taxonomy_run", FailureTaxonomyRow.run_id)
+Index("idx_ops_alert_events_status", OpsAlertEventRow.status, OpsAlertEventRow.code)
 
 
 def database_url() -> str:

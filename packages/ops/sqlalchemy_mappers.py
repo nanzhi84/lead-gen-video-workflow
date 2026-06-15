@@ -5,8 +5,11 @@ from packages.core.contracts import (
     AuditEvent,
     Budget,
     CostRollup,
+    FailureTaxonomyEntry,
     Money,
     OpsAlertEvent,
+    OpsAlertRule,
+    OpsScopeFilter,
     ProductionQualityCheck,
     YieldFunnelEvent,
 )
@@ -15,7 +18,9 @@ from packages.core.storage.database import (
     AuditEventRow,
     BudgetRow,
     CostRollupRow,
+    FailureTaxonomyRow,
     OpsAlertEventRow,
+    OpsAlertRuleRow,
     ProductionQualityCheckRow,
     YieldFunnelEventRow,
 )
@@ -29,6 +34,8 @@ def cost_rollup_row_to_contract(row: CostRollupRow) -> CostRollup:
         estimated_cost=Money.model_validate(row.estimated_cost),
         actual_cost=Money.model_validate(row.actual_cost) if row.actual_cost else None,
         invocations=row.invocations,
+        window_start=row.window_start,
+        window_end=row.window_end,
         schema_version=row.schema_version,
         created_at=row.created_at,
         updated_at=row.updated_at,
@@ -40,9 +47,44 @@ def budget_row_to_contract(row: BudgetRow) -> Budget:
         id=row.id,
         scope_type=row.scope_type,
         scope_id=row.scope_id,
+        period=row.period or "day",
         limit=Money.model_validate(row.limit),
         alert_threshold=row.alert_threshold,
         enabled=row.enabled,
+        schema_version=row.schema_version,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def alert_rule_row_to_contract(row: OpsAlertRuleRow) -> OpsAlertRule:
+    return OpsAlertRule(
+        id=row.id,
+        metric=row.metric,
+        condition=row.condition,
+        threshold=row.threshold,
+        scope=OpsScopeFilter.model_validate(row.scope or {}),
+        channels=list(row.channels or []),
+        severity=row.severity,
+        enabled=row.enabled,
+        schema_version=row.schema_version,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def failure_taxonomy_row_to_contract(row: FailureTaxonomyRow) -> FailureTaxonomyEntry:
+    return FailureTaxonomyEntry(
+        id=row.id,
+        target_type=row.target_type,
+        target_id=row.target_id,
+        failure_class=row.failure_class,
+        error_code=row.error_code,
+        run_id=row.run_id,
+        job_id=row.job_id,
+        case_id=row.case_id,
+        node_id=row.node_id,
+        message=row.message,
         schema_version=row.schema_version,
         created_at=row.created_at,
         updated_at=row.updated_at,
@@ -53,9 +95,12 @@ def alert_row_to_contract(row: OpsAlertEventRow) -> OpsAlertEvent:
     return OpsAlertEvent(
         id=row.id,
         code=row.code,
+        rule_id=row.rule_id,
         status=row.status,
         message=row.message,
         severity=row.severity,
+        triggered_at=row.triggered_at,
+        resolved_at=row.resolved_at,
         schema_version=row.schema_version,
         created_at=row.created_at,
         updated_at=row.updated_at,

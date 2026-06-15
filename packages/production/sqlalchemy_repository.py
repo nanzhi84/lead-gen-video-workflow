@@ -48,6 +48,7 @@ from packages.core.contracts import (
     RunStatus,
     ScriptVersion,
     SelectionLedgerEntry,
+    FailureTaxonomyEntry,
     UsageMeterRecord,
     VideoVersion,
     WorkflowRun,
@@ -76,6 +77,7 @@ from packages.core.storage.database import (
     PublishPackageRow,
     PublishRecordRow,
     ScriptVersionRow,
+    FailureTaxonomyRow,
     SelectionLedgerRow,
     UsageMeterRecordRow,
     VoiceProfileRow,
@@ -313,6 +315,13 @@ class SqlAlchemyProductionRepository:
             for event in repository.yield_events.values():
                 if getattr(event, "run_id", None) == run.id:
                     session.merge(self._yield_funnel_event_row(event, run.case_id))
+            for entry in repository.failures.values():
+                if getattr(entry, "run_id", None) == run.id:
+                    session.merge(
+                        self._failure_taxonomy_row(
+                            entry, repository._failure_dedupe_keys
+                        )
+                    )
             for entry in repository.selection_ledger.values():
                 if entry.run_id == run.id:
                     session.merge(self._selection_ledger_row(entry))
@@ -1440,6 +1449,33 @@ class SqlAlchemyProductionRepository:
             schema_version=event.schema_version,
             created_at=event.created_at,
             updated_at=event.updated_at,
+        )
+
+    def _failure_taxonomy_row(
+        self, entry: FailureTaxonomyEntry, dedupe_index: dict[str, str]
+    ) -> FailureTaxonomyRow:
+        # Recover the dedupe_key (held in the repo's side index, not on the contract).
+        dedupe_key = next((key for key, eid in dedupe_index.items() if eid == entry.id), None)
+        failure_class = (
+            entry.failure_class.value
+            if hasattr(entry.failure_class, "value")
+            else str(entry.failure_class)
+        )
+        return FailureTaxonomyRow(
+            id=entry.id,
+            target_type=entry.target_type,
+            target_id=entry.target_id,
+            failure_class=failure_class,
+            error_code=entry.error_code,
+            run_id=entry.run_id,
+            job_id=entry.job_id,
+            case_id=entry.case_id,
+            node_id=entry.node_id,
+            message=entry.message,
+            dedupe_key=dedupe_key,
+            schema_version=entry.schema_version,
+            created_at=entry.created_at,
+            updated_at=entry.updated_at,
         )
 
     def _script_version_row(self, script: ScriptVersion) -> ScriptVersionRow:

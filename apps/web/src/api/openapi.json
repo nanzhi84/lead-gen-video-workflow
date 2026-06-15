@@ -6488,6 +6488,70 @@
         }
       }
     },
+    "/api/ops/cost-metrics": {
+      "get": {
+        "summary": "Cost Metrics",
+        "operationId": "cost_metrics_api_ops_cost_metrics_get",
+        "parameters": [
+          {
+            "name": "window_start",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Window Start"
+            }
+          },
+          {
+            "name": "window_end",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Window End"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostMetrics"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/ops/provider-usage-metrics": {
       "get": {
         "summary": "Provider Usage Metrics",
@@ -6511,6 +6575,237 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ProviderUsageMetricsReport"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ops/failure-taxonomy": {
+      "get": {
+        "summary": "Failure Taxonomy",
+        "operationId": "failure_taxonomy_api_ops_failure_taxonomy_get",
+        "parameters": [
+          {
+            "name": "failure_class",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Failure Class"
+            }
+          },
+          {
+            "name": "run_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "case_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Case Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageResponse_FailureTaxonomyEntry_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ops/failure-analysis": {
+      "get": {
+        "summary": "Failure Analysis",
+        "operationId": "failure_analysis_api_ops_failure_analysis_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FailureAnalysisReport"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ops/alert-rules": {
+      "get": {
+        "summary": "Alert Rules",
+        "operationId": "alert_rules_api_ops_alert_rules_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageResponse_OpsAlertRule_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Upsert Alert Rule",
+        "operationId": "upsert_alert_rule_api_ops_alert_rules_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertAlertRuleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpsAlertRule"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ops/alert-rules/{rule_id}": {
+      "patch": {
+        "summary": "Patch Alert Rule",
+        "operationId": "patch_alert_rule_api_ops_alert_rules__rule_id__patch",
+        "parameters": [
+          {
+            "name": "rule_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Rule Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchAlertRuleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpsAlertRule"
                 }
               }
             }
@@ -8251,6 +8546,16 @@
             ],
             "title": "Scope Id"
           },
+          "period": {
+            "type": "string",
+            "enum": [
+              "day",
+              "week",
+              "month"
+            ],
+            "title": "Period",
+            "default": "day"
+          },
           "limit": {
             "$ref": "#/components/schemas/Money-Input"
           },
@@ -8328,6 +8633,16 @@
             ],
             "title": "Scope Id"
           },
+          "period": {
+            "type": "string",
+            "enum": [
+              "day",
+              "week",
+              "month"
+            ],
+            "title": "Period",
+            "default": "day"
+          },
           "limit": {
             "$ref": "#/components/schemas/Money-Output"
           },
@@ -8352,6 +8667,82 @@
           "limit"
         ],
         "title": "Budget"
+      },
+      "BudgetEvaluation": {
+        "properties": {
+          "budget_id": {
+            "type": "string",
+            "title": "Budget Id"
+          },
+          "scope_type": {
+            "type": "string",
+            "title": "Scope Type"
+          },
+          "scope_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope Id"
+          },
+          "period": {
+            "type": "string",
+            "enum": [
+              "day",
+              "week",
+              "month"
+            ],
+            "title": "Period"
+          },
+          "period_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Period Start"
+          },
+          "spend": {
+            "$ref": "#/components/schemas/Money-Output"
+          },
+          "limit": {
+            "$ref": "#/components/schemas/Money-Output"
+          },
+          "ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ratio"
+          },
+          "threshold_crossed": {
+            "type": "boolean",
+            "title": "Threshold Crossed",
+            "default": false
+          },
+          "exceeded": {
+            "type": "boolean",
+            "title": "Exceeded",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "budget_id",
+          "scope_type",
+          "period",
+          "period_start",
+          "spend",
+          "limit"
+        ],
+        "title": "BudgetEvaluation",
+        "description": "§9.8 预算执行: current-period spend evaluated against a Budget.\n\n``ratio`` = spend / limit (``None`` if the limit is 0). ``exceeded`` flags a\nhard over-limit; ``threshold_crossed`` flags ``ratio >= alert_threshold`` (the\n75/90%-style warning level the OLD quota_monitor produced)."
       },
       "CancelRunRequest": {
         "properties": {
@@ -9577,6 +9968,138 @@
         ],
         "title": "CostEstimateLine"
       },
+      "CostMetrics": {
+        "properties": {
+          "window_start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Start"
+          },
+          "window_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window End"
+          },
+          "estimated_cost": {
+            "$ref": "#/components/schemas/Money-Output"
+          },
+          "actual_cost": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cost_variance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "wasted_cost": {
+            "$ref": "#/components/schemas/Money-Output"
+          },
+          "retry_cost": {
+            "$ref": "#/components/schemas/Money-Output"
+          },
+          "finished_video_count": {
+            "type": "integer",
+            "title": "Finished Video Count",
+            "default": 0
+          },
+          "qc_passed_count": {
+            "type": "integer",
+            "title": "Qc Passed Count",
+            "default": 0
+          },
+          "published_count": {
+            "type": "integer",
+            "title": "Published Count",
+            "default": 0
+          },
+          "unit_cost_per_finished_video": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unit_cost_per_qc_passed_video": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unit_cost_per_published_video": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Money-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provider_cost": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/Money-Output"
+            },
+            "type": "object",
+            "title": "Provider Cost"
+          },
+          "model_cost": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/Money-Output"
+            },
+            "type": "object",
+            "title": "Model Cost"
+          },
+          "prompt_version_cost": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/Money-Output"
+            },
+            "type": "object",
+            "title": "Prompt Version Cost"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "estimated_cost",
+          "wasted_cost",
+          "retry_cost"
+        ],
+        "title": "CostMetrics",
+        "description": "§9.4 / §26.2 cost indicators for an ops window.\n\nAll monetary values are CNY ``Money``. The ``unit_cost_per_*`` ratios divide\ntotal provider-invocation cost by the relevant §9.5 funnel count and are\n``None`` when that denominator is 0 (no finished/qc-passed/published videos).\n``cost_variance = actual_cost - estimated_cost`` is ``None`` until actual_cost\nis backfilled. ``provider_cost`` / ``model_cost`` / ``prompt_version_cost`` map\na dimension key to its cost share."
+      },
       "CostRollup": {
         "properties": {
           "id": {
@@ -9646,6 +10169,30 @@
             "type": "integer",
             "title": "Invocations",
             "default": 0
+          },
+          "window_start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Start"
+          },
+          "window_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window End"
           }
         },
         "additionalProperties": false,
@@ -11194,6 +11741,222 @@
         ],
         "title": "EvidenceFrameImage",
         "description": "A rendered evidence frame: a representative timestamp plus its image URL.\n\nPairs with ``AnnotationV4.evidence_frames`` (the bare timestamps) to give the\neditor a previewable thumbnail for each cited moment. ``time`` is informational\n(frame position in seconds); it is not range-validated against duration so that\npre-rendered frames at edges remain legal."
+      },
+      "FailureAnalysisItem": {
+        "properties": {
+          "failure_class": {
+            "$ref": "#/components/schemas/FailureClass"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "failure_class",
+          "count"
+        ],
+        "title": "FailureAnalysisItem"
+      },
+      "FailureAnalysisReport": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FailureAnalysisItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "default": 0
+          },
+          "window_start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Start"
+          },
+          "window_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window End"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "FailureAnalysisReport"
+      },
+      "FailureClass": {
+        "type": "string",
+        "enum": [
+          "provider_error",
+          "provider_timeout",
+          "quota_exceeded",
+          "price_missing",
+          "prompt_render_error",
+          "prompt_output_invalid",
+          "material_insufficient",
+          "timeline_invalid",
+          "render_failed",
+          "subtitle_failed",
+          "bgm_failed",
+          "lipsync_quality_failed",
+          "qc_failed",
+          "publish_failed",
+          "manual_rejected"
+        ],
+        "title": "FailureClass",
+        "description": "§9.6 失败分类法 — the 15 required failure classes."
+      },
+      "FailureTaxonomyEntry": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
+          },
+          "schema_version": {
+            "type": "string",
+            "title": "Schema Version",
+            "default": "v1"
+          },
+          "target_type": {
+            "type": "string",
+            "enum": [
+              "run",
+              "node_run",
+              "finished_video",
+              "publish_attempt",
+              "approval_request"
+            ],
+            "title": "Target Type"
+          },
+          "target_id": {
+            "type": "string",
+            "title": "Target Id"
+          },
+          "failure_class": {
+            "$ref": "#/components/schemas/FailureClass"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "case_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id"
+          },
+          "node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Id"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "target_type",
+          "target_id",
+          "failure_class"
+        ],
+        "title": "FailureTaxonomyEntry",
+        "description": "§9.2 failure_taxonomy — one classified run/node terminal failure."
       },
       "FinishedVideo": {
         "properties": {
@@ -12932,6 +13695,17 @@
             "type": "string",
             "title": "Code"
           },
+          "rule_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Id"
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -12951,10 +13725,35 @@
             "enum": [
               "info",
               "warning",
-              "error"
+              "error",
+              "critical"
             ],
             "title": "Severity",
             "default": "warning"
+          },
+          "triggered_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Triggered At"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
           }
         },
         "additionalProperties": false,
@@ -12965,6 +13764,100 @@
           "message"
         ],
         "title": "OpsAlertEvent"
+      },
+      "OpsAlertRule": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 1
+          },
+          "schema_version": {
+            "type": "string",
+            "title": "Schema Version",
+            "default": "v1"
+          },
+          "metric": {
+            "type": "string",
+            "title": "Metric"
+          },
+          "condition": {
+            "type": "string",
+            "enum": [
+              "gt",
+              "gte",
+              "lt",
+              "lte",
+              "change_gt"
+            ],
+            "title": "Condition"
+          },
+          "threshold": {
+            "type": "number",
+            "title": "Threshold"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/OpsScopeFilter"
+          },
+          "channels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Channels"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "info",
+              "warning",
+              "error",
+              "critical"
+            ],
+            "title": "Severity",
+            "default": "warning"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "metric",
+          "condition",
+          "threshold"
+        ],
+        "title": "OpsAlertRule",
+        "description": "§9.2 ops_alert_rules / §26.1 OpsAlertRule — a metric threshold that the\nalert engine periodically evaluates and emits OpsAlertEvent for."
       },
       "OpsDashboardVm": {
         "properties": {
@@ -12987,6 +13880,43 @@
             },
             "type": "array",
             "title": "Cost Rollups"
+          },
+          "cost_metrics": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CostMetrics"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "yield_rates": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/YieldRates"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "budget_evaluations": {
+            "items": {
+              "$ref": "#/components/schemas/BudgetEvaluation"
+            },
+            "type": "array",
+            "title": "Budget Evaluations"
+          },
+          "failure_analysis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FailureAnalysisReport"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
@@ -12998,6 +13928,77 @@
           "cost_rollups"
         ],
         "title": "OpsDashboardVm"
+      },
+      "OpsScopeFilter": {
+        "properties": {
+          "case_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Case Ids"
+          },
+          "provider_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Provider Ids"
+          },
+          "model_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Model Ids"
+          },
+          "capability_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capability Id"
+          },
+          "prompt_template_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Prompt Template Ids"
+          },
+          "prompt_version_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Prompt Version Ids"
+          },
+          "environment": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "local",
+                  "dev",
+                  "staging",
+                  "prod"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Environment"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "OpsScopeFilter",
+        "description": "§26.1 OpsScopeFilter — narrows an alert rule to a subset of the pipeline."
       },
       "OutputOptions": {
         "properties": {
@@ -13487,6 +14488,50 @@
         ],
         "title": "PageResponse[CreativePattern]"
       },
+      "PageResponse_FailureTaxonomyEntry_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FailureTaxonomyEntry"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "total_hint": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Hint"
+          },
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "request_id"
+        ],
+        "title": "PageResponse[FailureTaxonomyEntry]"
+      },
       "PageResponse_FinishedVideo_": {
         "properties": {
           "items": {
@@ -13618,6 +14663,50 @@
           "request_id"
         ],
         "title": "PageResponse[MemoryProposal]"
+      },
+      "PageResponse_OpsAlertRule_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OpsAlertRule"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "total_hint": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Hint"
+          },
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "request_id"
+        ],
+        "title": "PageResponse[OpsAlertRule]"
       },
       "PageResponse_PromptBindingView_": {
         "properties": {
@@ -14279,6 +15368,84 @@
         ],
         "title": "PageResponse[VoiceProfile]"
       },
+      "PatchAlertRuleRequest": {
+        "properties": {
+          "threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold"
+          },
+          "condition": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "gt",
+                  "gte",
+                  "lt",
+                  "lte",
+                  "change_gt"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Condition"
+          },
+          "severity": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "info",
+                  "warning",
+                  "error",
+                  "critical"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Severity"
+          },
+          "channels": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channels"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "PatchAlertRuleRequest"
+      },
       "PatchAnnotationRequest": {
         "properties": {
           "etag": {
@@ -14330,6 +15497,22 @@
               }
             ],
             "title": "Enabled"
+          },
+          "period": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "day",
+                  "week",
+                  "month"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period"
           }
         },
         "additionalProperties": false,
@@ -19426,6 +20609,19 @@
         ],
         "title": "UploadSessionStatus"
       },
+      "UpsertAlertRuleRequest": {
+        "properties": {
+          "rule": {
+            "$ref": "#/components/schemas/OpsAlertRule"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "rule"
+        ],
+        "title": "UpsertAlertRuleRequest"
+      },
       "UpsertBudgetRequest": {
         "properties": {
           "budget": {
@@ -20155,6 +21351,16 @@
               }
             ],
             "title": "True Yield Rate"
+          },
+          "rates": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/YieldRates"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
@@ -20163,6 +21369,131 @@
           "events"
         ],
         "title": "YieldFunnelResponse"
+      },
+      "YieldRates": {
+        "properties": {
+          "technical_success_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Technical Success Rate"
+          },
+          "finished_video_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished Video Rate"
+          },
+          "qc_pass_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qc Pass Rate"
+          },
+          "approval_pass_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Pass Rate"
+          },
+          "publish_success_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publish Success Rate"
+          },
+          "true_yield_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "True Yield Rate"
+          },
+          "rework_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rework Rate"
+          },
+          "discard_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discard Rate"
+          },
+          "stage_pass_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage Pass Rate"
+          },
+          "provider_success_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Success Rate"
+          },
+          "prompt_version_yield": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Prompt Version Yield"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "YieldRates",
+        "description": "§9.5 / §26.3 成品率指标. Each rate is a fraction in [0, 1] or ``None`` when\nits denominator is 0 (no data). Denominators follow §26.3 exactly:\ntechnical_success uses started runs, finished_video / true_yield use submitted\njobs, qc_pass / rework / discard use finished videos, approval_pass uses manual\nreviews started, publish_success uses publish_started packages, stage_pass uses\nnode_started. ``prompt_version_yield`` maps prompt_version_id -> its true-yield\nfraction over the runs that used it."
       }
     }
   }

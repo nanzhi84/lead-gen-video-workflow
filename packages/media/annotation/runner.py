@@ -164,6 +164,7 @@ def annotate_asset(
         vlm_call=vlm_call,
         resolve_asr_text=lambda _vp: full_asr_text or "",
         sleep=sensor_deps.sleep,
+        detect_max_faces=sensor_deps.detect_max_faces,
     )
     annotation = run_annotation_v4(
         asset_id=asset_id,
@@ -338,6 +339,10 @@ class SensorDeps:
     detect_quality_events: Callable[[str], list[dict]]
     extract_frames: Callable[..., list[tuple[float, str]]]
     sleep: Callable[[float], None] = staticmethod(lambda _s: None)
+    # Deterministic multi-face sensor over a window's frame paths (portrait gating).
+    detect_max_faces: Callable[[list[str]], int] = staticmethod(
+        lambda paths: int(sensors.max_faces_in_frame_paths(list(paths or [])))
+    )
 
     @classmethod
     def real(cls) -> SensorDeps:
@@ -366,4 +371,7 @@ class SensorDeps:
             detect_quality_events=_detect_quality_events,
             extract_frames=_extract_frames,
             sleep=lambda seconds: time.sleep(max(0.0, float(seconds))),
+            detect_max_faces=lambda paths: int(
+                sensors.max_faces_in_frame_paths(list(paths or []))
+            ),
         )

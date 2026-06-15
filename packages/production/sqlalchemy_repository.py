@@ -239,6 +239,12 @@ class SqlAlchemyProductionRepository:
         self.session_factory = session_factory
         self.object_store = object_store or get_object_store()
 
+    def persist_job(self, job: Job) -> None:
+        """Persist a standalone Job (e.g. an annotation_batch job with no workflow run)."""
+        with self.session_factory() as session:
+            session.merge(self._job_row(job))
+            session.commit()
+
     def sync_workflow_snapshot(
         self,
         *,

@@ -14,9 +14,11 @@ Without a real profile (or without a readable source video) it DEGRADES: the run
 still completes, but the annotation is sensor-only with ``vlm_status=vlm_unconfigured``
 and empty semantics - it never fabricates labels.
 
-Only the in-memory ``Repository`` path is wired here (the SQLAlchemy media repo keeps
-its existing lightweight rerun); this keeps the gated runner unit-testable end to end
-with a mocked gateway and no network.
+Both the in-memory ``Repository`` path and the production SQLAlchemy media-repo path
+are wired here, so '重新分析/rerun' actually runs the gated V4 pipeline (sensors +
+gated VLM -> AnnotationV4 canonical) on every deployment - the canonical is what
+material planning consumes (Spec §12.2). Both keep the gated runner unit-testable
+end to end with a mocked gateway and no network.
 """
 
 from __future__ import annotations
@@ -25,7 +27,13 @@ import logging
 
 from fastapi import Request
 
-from apps.api.common import object_store, repository
+from apps.api.common import (
+    media_repository,
+    object_store,
+    provider_repository,
+    repository,
+)
+from apps.api.services.annotation_patch import build_projection
 from packages.core import contracts as c
 from packages.core.storage.repository import new_id
 from packages.media.annotation import (
@@ -104,17 +112,20 @@ def _persist(
 
     is_failed = _is_failed(result)
     usable = not is_failed and result.vlm_configured and bool(annotation.usage_windows)
+    # canonical-owns-projection (Spec §12.1): rebuild the editor projection from the
+    # canonical AnnotationV4 so segments/quality_events are visible to the editor.
+    projection = build_projection(
+        annotation,
+        asset,
+        annotation_artifact_id=artifact.id,
+        vlm_configured=result.vlm_configured,
+    )
+    projection["usable"] = usable
     repo.annotations[asset.id] = c.AnnotationEditorVm(
         asset=asset,
         etag=new_id("etag"),
         canonical=canonical,
-        projection={
-            "title": asset.title,
-            "usable": usable,
-            "annotation_artifact_id": artifact.id,
-            "vlm_configured": result.vlm_configured,
-            "annotation_status": annotation.meta.annotation_status.value,
-        },
+        projection=projection,
         editable_paths=["/labels", "/usable", "/title"],
     )
 
@@ -131,6 +142,96 @@ def _persist(
     repo.media_assets[asset.id] = asset.model_copy(
         update={"annotation_status": annotation_status, "usable": usable, "updated_at": c.utcnow()}
     )
+
+
+def run_sqlalchemy_asset_annotation(
+    request: Request,
+    asset_id: str,
+    payload: c.RerunAnnotationRequest,
+    *,
+    sensor_deps: SensorDeps | None = None,
+) -> c.AnnotationRunResponse | None:
+    """Run a gated AnnotationV4 for a DB-backed asset and persist canonical + projection.
+
+    This is the production '重新分析/rerun' path: it drives the SAME gated runner the
+    in-memory path uses, then writes the AnnotationV4 canonical into AnnotationRow.canonical
+    (schema ``AnnotationV4.v1``) + a ``material_annotation`` artifact, so material planning
+    reads a real V4 annotation via ``annotation_v4_for_asset``. Without a real
+    ``vlm.annotation`` profile + active secret (or without a readable source video) it
+    degrades to a sensor-only ``vlm_unconfigured`` result (never fabricated semantics).
+
+    Returns ``None`` when the asset is missing (router maps to 404).
+    """
+    media_repo = media_repository(request)
+    asset = media_repo.asset_record(asset_id)
+    if asset is None:
+        return None
+    gateway = request.app.state.provider_gateway
+
+    provider_repo = provider_repository(request)
+    candidates: list[c.ProviderProfile] = []
+    explicit: c.ProviderProfile | None = None
+    if provider_repo is not None:
+        candidates = provider_repo.list_profiles(capability="vlm.annotation", limit=100)
+        if payload.provider_profile_id:
+            explicit = next((p for p in candidates if p.id == payload.provider_profile_id), None)
+            if explicit is None:
+                explicit = gateway.get_profile(payload.provider_profile_id)
+    vlm_profile = resolve_vlm_profile(gateway, candidate_profiles=candidates, explicit_profile=explicit)
+
+    video_path = _sqlalchemy_local_video_path(request, media_repo, asset_id)
+    if vlm_profile is not None and video_path is None:
+        logger.warning("[annotation] asset %s has no readable source video; degrading", asset_id)
+        vlm_profile = None
+
+    duration = media_repo.asset_source_duration(asset_id)
+    result = annotate_asset(
+        asset_id=asset.id,
+        case_id=asset.case_id,
+        material_type=asset.kind,
+        video_path=str(video_path or ""),
+        duration=duration,
+        gateway=gateway,
+        vlm_profile=vlm_profile,
+        cfg=V4Config(),
+        sensor_deps=sensor_deps,
+    )
+
+    annotation = result.annotation
+    canonical = annotation.model_dump(mode="json")
+    is_failed = _is_failed(result)
+    usable = (not is_failed) and result.vlm_configured and bool(annotation.usage_windows)
+    projection = build_projection(annotation, asset, vlm_configured=result.vlm_configured)
+    projection["usable"] = usable
+    annotation_status = "annotation_failed" if is_failed else "annotated"
+
+    editor = media_repo.persist_annotation_v4(
+        asset_id,
+        canonical=canonical,
+        projection=projection,
+        annotation_status=annotation_status,
+        usable=usable,
+        case_id=asset.case_id,
+    )
+    if editor is None:
+        return None
+    status = "failed" if (result.vlm_configured and is_failed) else "completed"
+    return c.AnnotationRunResponse(asset_id=asset_id, run_id=None, status=status)
+
+
+def _sqlalchemy_local_video_path(request: Request, media_repo, asset_id: str):
+    """Resolve a local filesystem path for the DB asset's source video, or None."""
+    source = media_repo.media_source_for_asset(asset_id)
+    if source is None:
+        return None
+    uri, _media_info = source
+    if not uri:
+        return None
+    try:
+        path = local_object_path(object_store(request), uri)
+    except ValueError:
+        return None
+    return path if path.exists() else None
 
 
 def _is_failed(result: GatedAnnotationResult) -> bool:

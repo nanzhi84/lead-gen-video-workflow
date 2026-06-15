@@ -54,6 +54,7 @@ from .errors import (
     UnrecoverableError,
 )
 from .report import build_quality_report
+from .sensors import max_faces_in_frame_paths
 
 logger = logging.getLogger("packages.media.annotation.pipeline")
 
@@ -87,6 +88,14 @@ def _noop_sleep(_seconds: float) -> None:
     return None
 
 
+def _default_detect_max_faces(paths: list[str]) -> int:
+    """Default multi-face sensor: deterministic YuNet over the window's frame paths.
+
+    fail-open (cv2/model unavailable -> 0); see ``sensors.faces``.
+    """
+    return max_faces_in_frame_paths(list(paths or []))
+
+
 @dataclass
 class V4Deps:
     """All external dependencies of the V4 pipeline (sensors / frames / VLM / ASR).
@@ -104,6 +113,11 @@ class V4Deps:
     sleep: Callable[[float], None] = _noop_sleep
     build_prompt: Callable[..., str] = _default_build_prompt
     parse_response: Callable[..., list[ClipV4]] = _default_parse_response
+    # Deterministic multi-face sensor (portrait only). Counts faces (incl.
+    # mirror/reflection) over a window's already-extracted frame paths so the
+    # authoritative ``clip.semantics.face_count_max`` never depends on the VLM
+    # volunteering it. fail-open: 0 when cv2/model unavailable.
+    detect_max_faces: Callable[[list[str]], int] = _default_detect_max_faces
 
 
 @dataclass
@@ -211,6 +225,7 @@ def run_annotation_v4(
                 full_asr_text=full_asr_text,
                 deps=deps,
                 cfg=cfg,
+                is_portrait=is_portrait,
             )
             all_clips.extend(window_clips)
     except WindowFailed as wf:
@@ -276,12 +291,20 @@ def _analyze_window_with_retry(
     full_asr_text: str,
     deps: V4Deps,
     cfg: V4Config,
+    is_portrait: bool = False,
 ) -> list[ClipV4]:
     """Retry one window, routing by failure type; exhausting any cap raises WindowFailed.
 
     Retry counts accumulate per type (independent caps). Frames are (re)sampled on
     first use and on SemanticError; SchemaError changes the prompt only;
     RuntimeVLMError backs off with the same frames/prompt.
+
+    Portrait only: after a successful parse, the deterministic multi-face sensor
+    runs over this window's still-alive frame paths and sets each clip's
+    ``semantics.face_count_max`` (authoritative CV source for the multi_face
+    blocker in report.py), exactly as OLD ``_annotate_face_counts`` did. The
+    frames are cleaned up in ``finally`` afterwards, so the count must happen here
+    while they still exist on disk. fail-open: 0 when cv2/model unavailable.
     """
     fmt_attempt = 0
     sem_attempt = 0
@@ -327,6 +350,8 @@ def _analyze_window_with_retry(
                         min_confidence=cfg.min_confidence,
                     )
                 )
+                if is_portrait:
+                    _annotate_face_counts(clips, frames, deps)
                 return clips
             except SchemaError as exc:
                 if fmt_attempt >= cfg.fmt_max_retries:
@@ -350,6 +375,48 @@ def _analyze_window_with_retry(
     finally:
         for temp_dir in temp_dirs:
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+# ===========================================================================
+# Multi-face deterministic CV gating (portrait only)
+# ===========================================================================
+def _annotate_face_counts(
+    clips: list[ClipV4],
+    frames: list[tuple[float, str]],
+    deps: V4Deps,
+) -> None:
+    """Set ``semantics.face_count_max`` on portrait clips from the CV multi-face sensor.
+
+    Reuses this window's already-extracted frames: for each clip take the max
+    single-frame face count over the frames sampled inside the clip's time window
+    (falling back to the whole window's max when no frame falls inside, which is
+    the conservative choice). Determined by the deterministic ``deps.detect_max_faces``
+    sensor (YuNet by default), never by the VLM. fail-open: a sensor returning 0 (cv2 /
+    model unavailable) leaves face_count_max=0, so a single-speaker window is never
+    wrongly flagged multi_face.
+    """
+    if not clips or not frames:
+        return
+    overall_paths = [path for _t, path in frames]
+    try:
+        overall_max = int(deps.detect_max_faces(overall_paths))
+    except Exception as exc:  # pragma: no cover - fail-open
+        logger.warning("[V4] multi-face sensor error, treating as 0: %s", exc)
+        return
+    for clip in clips:
+        within = [
+            path
+            for (t, path) in frames
+            if clip.start - 1e-6 <= float(t) <= clip.end + 1e-6
+        ]
+        if within:
+            try:
+                clip.semantics.face_count_max = int(deps.detect_max_faces(within))
+            except Exception as exc:  # pragma: no cover - fail-open
+                logger.warning("[V4] multi-face sensor error on clip, treating as 0: %s", exc)
+                clip.semantics.face_count_max = 0
+        else:
+            clip.semantics.face_count_max = overall_max
 
 
 # ===========================================================================

@@ -29,6 +29,11 @@ from .errors import (
     UnrecoverableError,
 )
 from .pipeline import V4Config, V4Deps, WindowFailed, run_annotation_v4
+from .reclip import (
+    DEFAULT_DURATION_DRIFT_THRESHOLD,
+    reclip_canonical_to_duration,
+    reclipped_or_validated,
+)
 from .report import build_quality_report, merged_event_duration
 from .runner import (
     VLM_UNCONFIGURED,
@@ -84,6 +89,10 @@ __all__ = [
     "V4Config",
     "V4Deps",
     "WindowFailed",
+    # replace-source re-clip
+    "reclip_canonical_to_duration",
+    "reclipped_or_validated",
+    "DEFAULT_DURATION_DRIFT_THRESHOLD",
     # gated runner
     "annotate_asset",
     "resolve_vlm_profile",

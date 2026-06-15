@@ -259,6 +259,23 @@ class AnnotationRunResponse(ContractModel):
     status: Literal["queued", "running", "completed", "failed"]
 
 
+class AnnotationBatchResultItem(ContractModel):
+    asset_id: str
+    status: Literal["completed", "failed", "skipped"]
+    annotation_status: str | None = None
+    error_code: ErrorCode | None = None
+    message: str | None = None
+
+
+class AnnotationBatchResponse(ContractModel):
+    job_id: str
+    results: list[AnnotationBatchResultItem]
+    completed_count: int = 0
+    failed_count: int = 0
+    skipped_count: int = 0
+    request_id: str
+
+
 class AnnotationEditorVm(ContractModel):
     asset: MediaAssetRecord
     etag: str

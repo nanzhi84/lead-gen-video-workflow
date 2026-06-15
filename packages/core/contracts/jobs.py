@@ -143,6 +143,10 @@ class AnnotationBatchRequest(ContractModel):
     schema_version: Literal["annotation_batch_request.v1"] = "annotation_batch_request.v1"
     asset_ids: list[str]
     provider_profile_id: str | None = None
+    # When False, assets already in annotation_status=annotated are skipped;
+    # when True every asset is (re-)annotated.
+    force: bool = True
+    material_type: str | None = None
 
 
 JobRequest = Annotated[

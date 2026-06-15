@@ -10,6 +10,10 @@ from packages.core import contracts as c
 from packages.core.storage.database import AnnotationRow, ArtifactRow, MediaAssetRow, UploadSessionRow
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
+from packages.media.annotation import (
+    DEFAULT_DURATION_DRIFT_THRESHOLD,
+    reclipped_or_validated,
+)
 from packages.media.assets import local_object_path, store_file
 from packages.media.video.ffmpeg import FfmpegCommandError, probe_media, stabilize_video, trim_to_valid_segments
 
@@ -87,13 +91,145 @@ def trim_annotation(
 def replace_asset_source(
     asset_id: str, payload: c.MediaAssetReplaceSourceRequest, request: Request
 ) -> c.MediaAssetReplaceResponse:
+    # Capture the OLD source duration BEFORE swapping the source artifact, so the
+    # duration-drift guard can compare against the replacement.
+    old_duration = _annotated_old_duration(request, asset_id)
     artifact = _upload_artifact(request, payload.upload_session_id)
+    new_duration = _artifact_duration(request, artifact)
+
     asset = _replace_with_existing_artifact(request, asset_id, artifact["artifact_id"], "replaced")
+
+    # Duration-drift guard (Spec §2.3 no-silent-degrade): replacing with a
+    # differently-timed clip would leave the preserved annotation's clips /
+    # usage_windows / quality_events pointing past or into the wrong frames. Within
+    # the 0.15s threshold (OLD: template_upload_runner) the annotation is preserved
+    # as-is; beyond it we re-clip the canonical to the new duration (clamp time
+    # layers). If re-clipping can't yield a valid annotation, the annotation is
+    # invalidated (annotation_status=pending) and preserved_annotation=false -- we
+    # never report a preserved annotation whose timestamps diverge from the media.
+    preserved = _has_annotation(request, asset_id)
+    if (
+        preserved
+        and old_duration is not None
+        and new_duration is not None
+        and old_duration > 0
+        and new_duration > 0
+        and abs(new_duration - old_duration) > DEFAULT_DURATION_DRIFT_THRESHOLD
+    ):
+        preserved = _reconcile_annotation_duration(
+            request, asset_id, old_duration=old_duration, new_duration=new_duration
+        )
+
     return c.MediaAssetReplaceResponse(
         asset=asset,
         artifact=_artifact_ref(artifact),
-        preserved_annotation=_has_annotation(request, asset_id),
+        preserved_annotation=preserved,
         request_id=request_id(),
+    )
+
+
+def _annotated_old_duration(request: Request, asset_id: str) -> float | None:
+    """OLD media duration to compare against the replacement.
+
+    Prefers the annotation canonical's meta.duration (what the annotation was timed
+    against), then the current source artifact's media_info, then probing it. None when
+    nothing is annotated / no readable old duration (the guard then no-ops)."""
+    canonical = _annotation_canonical(request, asset_id)
+    if isinstance(canonical, dict):
+        meta = canonical.get("meta")
+        if isinstance(meta, dict):
+            try:
+                duration = float(meta.get("duration") or 0.0)
+            except (TypeError, ValueError):
+                duration = 0.0
+            if duration > 0:
+                return duration
+    source = _asset_source_ref(request, asset_id)
+    if source is None or not getattr(source, "uri", None):
+        return None
+    try:
+        return float(probe_media(local_object_path(object_store(request), source.uri)).duration_sec or 0.0)
+    except (FfmpegCommandError, ValueError, OSError):
+        return None
+
+
+def _artifact_duration(request: Request, artifact: dict) -> float | None:
+    """Probe the (replacement) artifact's source duration, or None when unreadable."""
+    uri = artifact.get("uri")
+    if not uri:
+        return None
+    try:
+        return float(probe_media(local_object_path(object_store(request), uri)).duration_sec or 0.0)
+    except (FfmpegCommandError, ValueError, OSError):
+        return None
+
+
+def _annotation_canonical(request: Request, asset_id: str) -> dict | None:
+    sql_repo = media_repository(request)
+    if sql_repo is not None:
+        with sql_repo.session_factory() as session:
+            row = session.scalar(
+                select(AnnotationRow)
+                .where(AnnotationRow.asset_id == asset_id)
+                .order_by(AnnotationRow.updated_at.desc())
+                .limit(1)
+            )
+            return dict(row.canonical) if row is not None and isinstance(row.canonical, dict) else None
+    editor = repository(request).annotations.get(asset_id)
+    if editor is None:
+        return None
+    canonical = editor.canonical
+    if isinstance(canonical, c.AnnotationV4):
+        return canonical.model_dump(mode="json")
+    return dict(canonical) if isinstance(canonical, dict) else None
+
+
+def _reconcile_annotation_duration(
+    request: Request, asset_id: str, *, old_duration: float, new_duration: float
+) -> bool:
+    """Re-clip the preserved annotation to the new duration, or invalidate it.
+
+    Returns True when a valid re-clipped canonical was persisted (annotation
+    preserved), False when the annotation had to be invalidated
+    (annotation_status=pending) because it could not be safely re-clipped."""
+    canonical = _annotation_canonical(request, asset_id)
+    if canonical is None:
+        return False
+    reclipped = reclipped_or_validated(
+        canonical, old_duration=old_duration, new_duration=new_duration
+    )
+    sql_repo = media_repository(request)
+    if reclipped is None:
+        # Not a V4 canonical or it cannot be re-clipped safely -> force re-annotation.
+        if sql_repo is not None:
+            sql_repo.invalidate_annotation(asset_id)
+        else:
+            _invalidate_inmemory_annotation(request, asset_id)
+        return False
+    if sql_repo is not None:
+        sql_repo.set_annotation_canonical(asset_id, reclipped)
+    else:
+        _set_inmemory_annotation_canonical(request, asset_id, reclipped)
+    return True
+
+
+def _invalidate_inmemory_annotation(request: Request, asset_id: str) -> None:
+    repo = repository(request)
+    repo.annotations.pop(asset_id, None)
+    asset = repo.media_assets.get(asset_id)
+    if asset is not None:
+        repo.media_assets[asset_id] = asset.model_copy(
+            update={"annotation_status": "pending", "updated_at": c.utcnow()}
+        )
+
+
+def _set_inmemory_annotation_canonical(request: Request, asset_id: str, canonical: dict) -> None:
+    repo = repository(request)
+    editor = repo.annotations.get(asset_id)
+    if editor is None:
+        return
+    repo.annotations[asset_id] = editor.model_copy(
+        update={"etag": new_id("etag"), "canonical": canonical}
     )
 
 

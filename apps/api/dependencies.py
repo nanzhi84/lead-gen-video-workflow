@@ -52,6 +52,8 @@ def node_error_response(exc: NodeExecutionError, *, status_override: int | None 
         status = 409
     elif error.code in {c.ErrorCode.artifact_missing, c.ErrorCode.validation_missing_case}:
         status = 404
+    elif error.code == c.ErrorCode.upload_too_large:
+        status = 413
     return JSONResponse(
         status_code=status_override or status,
         content=c.ErrorEnvelope(error=error).model_dump(mode="json"),

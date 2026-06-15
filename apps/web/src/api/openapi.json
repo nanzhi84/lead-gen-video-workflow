@@ -10910,6 +10910,8 @@
           "upload.size_mismatch",
           "upload.sha256_mismatch",
           "upload.unsupported_type",
+          "upload.too_large",
+          "upload.normalization_failed",
           "material.insufficient.portrait",
           "material.insufficient.broll",
           "material.annotation_failed",
@@ -19188,6 +19190,11 @@
           "stabilized": {
             "type": "boolean",
             "title": "Stabilized",
+            "default": false
+          },
+          "normalized": {
+            "type": "boolean",
+            "title": "Normalized",
             "default": false
           },
           "expires_at": {

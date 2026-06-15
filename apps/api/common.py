@@ -39,6 +39,10 @@ def object_store(request: Request) -> ObjectStore:
     return request.app.state.object_store
 
 
+def settings(request: Request):
+    return request.app.state.settings
+
+
 def secret_store(request: Request) -> SecretStore:
     return request.app.state.secret_store
 

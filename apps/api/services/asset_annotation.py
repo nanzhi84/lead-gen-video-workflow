@@ -255,6 +255,12 @@ def run_sqlalchemy_asset_annotation(
         return None
     gateway = request.app.state.provider_gateway
 
+    # BGM / audio assets are annotated through the audio path (objective features +
+    # gated LLM semantics); the visual VLM path cannot annotate an audio asset and
+    # would clobber a real BGM annotation with a degraded/empty visual V4.
+    if asset.kind in _AUDIO_ANNOTATION_KINDS:
+        return _run_sqlalchemy_bgm_annotation(request, media_repo, asset, payload)
+
     provider_repo = provider_repository(request)
     candidates: list[c.ProviderProfile] = []
     explicit: c.ProviderProfile | None = None
@@ -306,6 +312,77 @@ def run_sqlalchemy_asset_annotation(
     return c.AnnotationRunResponse(asset_id=asset_id, run_id=None, status=status)
 
 
+def _run_sqlalchemy_bgm_annotation(
+    request: Request,
+    media_repo,
+    asset: c.MediaAssetRecord,
+    payload: c.RerunAnnotationRequest,
+    *,
+    feature_extractor=None,
+) -> c.AnnotationRunResponse:
+    """Annotate a DB-backed BGM/audio asset: objective features + gated LLM semantics.
+
+    Mirrors the in-memory ``_run_bgm_annotation`` but resolves the source from the
+    SQLAlchemy media repo and persists via the SAME ``persist_annotation_v4`` writer the
+    visual rerun uses (AnnotationV4 canonical + ``material_annotation`` artifact + flip
+    ``media_assets.annotation_status``). Gates the paid ``llm.chat`` path behind a real
+    profile + active secret; without one (or with an unreadable source) it degrades to a
+    features-only annotation and never fabricates semantics. Does NOT fall through to the
+    visual ``annotate_asset`` path. ``feature_extractor`` is injectable for tests.
+    """
+    gateway = request.app.state.provider_gateway
+
+    provider_repo = provider_repository(request)
+    candidates: list[c.ProviderProfile] = []
+    explicit: c.ProviderProfile | None = None
+    if provider_repo is not None:
+        candidates = provider_repo.list_profiles(capability="llm.chat", limit=100)
+        if payload.provider_profile_id:
+            explicit = next((p for p in candidates if p.id == payload.provider_profile_id), None)
+            if explicit is None:
+                explicit = gateway.get_profile(payload.provider_profile_id)
+    llm_profile = resolve_llm_profile(gateway, candidate_profiles=candidates, explicit_profile=explicit)
+
+    audio_path = _sqlalchemy_local_audio_path(request, media_repo, asset.id)
+    duration = media_repo.asset_source_duration(asset.id)
+    result = annotate_bgm(
+        asset_id=asset.id,
+        case_id=asset.case_id or "",
+        audio_path=str(audio_path or ""),
+        duration=duration,
+        asset_title=asset.title,
+        gateway=gateway,
+        llm_profile=llm_profile,
+        feature_extractor=feature_extractor,
+    )
+
+    annotation = result.annotation
+    canonical = annotation.model_dump(mode="json")
+    is_failed = _bgm_is_failed(result)
+    # A BGM annotation is usable when the real LLM path produced semantics (mood/genre).
+    bgm_report = canonical.get("quality_report", {}).get("bgm", {}) if isinstance(canonical, dict) else {}
+    usable = (not is_failed) and result.llm_configured and bool(bgm_report.get("mood"))
+    # canonical-owns-projection (Spec §12.1): rebuild the editor projection from the
+    # canonical AnnotationV4, then surface the BGM-specific fields the editor reads.
+    projection = build_projection(annotation, asset, llm_configured=result.llm_configured)
+    projection["usable"] = usable
+    projection["bgm"] = bgm_report
+    annotation_status = "annotation_failed" if is_failed else "annotated"
+
+    editor = media_repo.persist_annotation_v4(
+        asset.id,
+        canonical=canonical,
+        projection=projection,
+        annotation_status=annotation_status,
+        usable=usable,
+        case_id=asset.case_id,
+    )
+    if editor is None:
+        return c.AnnotationRunResponse(asset_id=asset.id, run_id=None, status="failed")
+    status = "failed" if (result.llm_configured and is_failed) else "completed"
+    return c.AnnotationRunResponse(asset_id=asset.id, run_id=None, status=status)
+
+
 def _sqlalchemy_local_video_path(request: Request, media_repo, asset_id: str):
     """Resolve a local filesystem path for the DB asset's source video, or None."""
     source = media_repo.media_source_for_asset(asset_id)
@@ -319,6 +396,13 @@ def _sqlalchemy_local_video_path(request: Request, media_repo, asset_id: str):
     except ValueError:
         return None
     return path if path.exists() else None
+
+
+# BGM source resolution shares the same artifact-uri -> local-path resolution as
+# video; the only difference is intent (audio vs. video), so it reuses the helper.
+def _sqlalchemy_local_audio_path(request: Request, media_repo, asset_id: str):
+    """Resolve a local filesystem path for the DB BGM/audio asset's source, or None."""
+    return _sqlalchemy_local_video_path(request, media_repo, asset_id)
 
 
 def _is_failed(result: GatedAnnotationResult) -> bool:

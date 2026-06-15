@@ -255,18 +255,26 @@ def batch_annotation(
 def rerun_annotation(
     asset_id: str, payload: c.RerunAnnotationRequest, request: Request
 ) -> c.AnnotationRunResponse:
-    if media_repository(request) is not None:
+    media_repo = media_repository(request)
+    if media_repo is not None:
         # Production (DB) path: drive the SAME gated sensors + (gated) VLM -> AnnotationV4
         # pipeline as in-memory, persisting a real AnnotationV4 canonical so material
         # planning reads it (Spec §12.2). Without a real vlm.annotation profile it
         # degrades to a sensor-only vlm_unconfigured result (never fabricated semantics).
         if payload.provider_profile_id:
+            # BGM/audio assets are annotated through the gated llm.chat path; everything
+            # else through vlm.annotation. Validate the explicit profile's capability
+            # against the asset's annotation path so a correct profile isn't rejected.
+            db_asset = media_repo.asset_record(asset_id)
+            expected_capability = (
+                "llm.chat" if (db_asset is not None and db_asset.kind == "bgm") else "vlm.annotation"
+            )
             provider_repo = provider_repository(request)
             profile = (
                 next(
                     (
                         p
-                        for p in provider_repo.list_profiles(capability="vlm.annotation", limit=100)
+                        for p in provider_repo.list_profiles(capability=expected_capability, limit=100)
                         if p.id == payload.provider_profile_id
                     ),
                     None,

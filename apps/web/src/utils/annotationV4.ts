@@ -83,15 +83,6 @@ export interface AnnotationQualityEvent {
   segment_id?: string | null;
 }
 
-/** Recommended clip window (canonical.usage_windows). */
-export interface AnnotationUsageWindow {
-  start: number;
-  end: number;
-  role: string;
-  reason?: string;
-  confidence?: number;
-}
-
 /**
  * Evidence frame marker: a timestamp (seconds) optionally paired with a sampled
  * thumbnail URL. `time` comes from canonical.evidence_frames (flat number[]); the
@@ -374,25 +365,6 @@ export function parseQualityEvents(events?: unknown): AnnotationQualityEvent[] {
 
 export function canonicalToQualityEvents(canonical?: unknown): AnnotationQualityEvent[] {
   return parseQualityEvents(asRecord(canonical).quality_events);
-}
-
-export function usageWindowToView(raw: unknown): AnnotationUsageWindow {
-  const win = asRecord(raw);
-  return {
-    start: asNumber(win.start),
-    end: asNumber(win.end),
-    role: cleanString(win.role),
-    reason: cleanString(win.reason) || undefined,
-    confidence: asOptionalNumber(win.confidence),
-  };
-}
-
-export function parseUsageWindows(windows?: unknown): AnnotationUsageWindow[] {
-  return asArray(windows).map(usageWindowToView);
-}
-
-export function canonicalToUsageWindows(canonical?: unknown): AnnotationUsageWindow[] {
-  return parseUsageWindows(asRecord(canonical).usage_windows);
 }
 
 /** Evidence frame timestamps (seconds). canonical.evidence_frames is a flat number[]. */

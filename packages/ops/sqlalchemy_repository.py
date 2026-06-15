@@ -38,7 +38,6 @@ from packages.core.contracts import (
     UpsertAlertRuleRequest,
     UpsertBudgetRequest,
     YieldFunnelResponse,
-    YieldRates,
     utcnow,
 )
 from packages.core.storage.database import (

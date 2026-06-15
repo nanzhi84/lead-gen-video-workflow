@@ -58,27 +58,16 @@ class PlannedSegment:
     timeline_end_frame: int
     source_start_frame: int
     source_end_frame: int
-    source_pad_end_frames: int
     role: str | None
     phase: str | None
     source_mode: str
     boundary_source: str | None
     boundary_reason: str | None
     unit_ids: list[str]
-    reuse_index: int
-    material_reuse_fallback: bool
 
     @property
     def timeline_length_frames(self) -> int:
         return self.timeline_end_frame - self.timeline_start_frame
-
-    @property
-    def timeline_start_seconds(self) -> float:
-        return self.timeline_start_frame / TIMELINE_FPS
-
-    @property
-    def timeline_end_seconds(self) -> float:
-        return self.timeline_end_frame / TIMELINE_FPS
 
 
 @dataclass(frozen=True)
@@ -191,7 +180,7 @@ def _quantize_plan(
             )
             continue
         window = FrameWindow(start_frame=start_frame, end_frame=end_frame)
-        source_window, pad_end_frames = slice_source_window(
+        source_window, _ = slice_source_window(
             source_start_seconds=util.as_float(seg.get("source_start"), 0.0),
             length_frames=window.length_frames,
             source_window_start_seconds=_opt_float(seg.get("source_window_start")),
@@ -206,15 +195,12 @@ def _quantize_plan(
                 timeline_end_frame=window.end_frame,
                 source_start_frame=source_window.start_frame,
                 source_end_frame=source_window.end_frame,
-                source_pad_end_frames=pad_end_frames,
                 role=seg.get("role"),
                 phase=seg.get("slot_phase"),
                 source_mode=str(seg.get("source_mode") or "lipsynced"),
                 boundary_source=seg.get("boundary_source"),
                 boundary_reason=seg.get("boundary_reason"),
                 unit_ids=list(seg.get("unit_ids") or []),
-                reuse_index=int(seg.get("source_window_reuse_index", 0) or 0),
-                material_reuse_fallback=bool(seg.get("material_reuse_fallback")),
             )
         )
 

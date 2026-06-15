@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from packages.core.contracts import (
     AdoptScriptDraftRequest, CaseAgentRun, CaseAgentRunDetail, CaseAgentSourceBinding, CaseInsightCard,
-    CaseKnowledgeResponse, CaseMemory, CaseMemoryScope, CreateSourceBindingRequest, CreativePattern,
+    CaseKnowledgeResponse, CaseMemory, CreateSourceBindingRequest, CreativePattern,
     GenerateScriptWithMemoryRequest, ImportCaseSourceRequest, MemoryProposal, MemoryRecallQuery,
     MemoryRecallResponse, PerformanceObservation, ReflectionRun, RunStatus, ScriptDraft, ScriptVersion,
     StartCaseAgentRunRequest, StartReflectionRunRequest, utcnow,

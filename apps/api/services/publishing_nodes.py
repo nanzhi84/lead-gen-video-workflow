@@ -14,7 +14,6 @@ from packages.core import contracts as c
 from packages.publishing import (
     PublishCopyContext,
     PublishPayload,
-    derive_publish_copy,
     generate_publish_copy,
     generate_publish_cover,
     normalize_publish_tags,

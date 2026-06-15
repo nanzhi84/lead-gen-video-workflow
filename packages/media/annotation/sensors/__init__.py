@@ -19,7 +19,6 @@ from .faces import (
     reset_detector_cache,
 )
 from .frames import extract_frame_at_time, extract_frames_for_times
-from .motion import MotionGuard
 from .shots import detect_shot_cuts
 from .voice_activity import detect_speech_islands, merge_speech_probabilities
 
@@ -33,7 +32,6 @@ __all__ = [
     "reset_detector_cache",
     "extract_frame_at_time",
     "extract_frames_for_times",
-    "MotionGuard",
     "detect_shot_cuts",
     "detect_speech_islands",
     "merge_speech_probabilities",

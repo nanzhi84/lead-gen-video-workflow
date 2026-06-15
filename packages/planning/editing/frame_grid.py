@@ -77,9 +77,8 @@ def is_on_grid(t: float, *, epsilon: float = GRID_EPSILON) -> bool:
 class FrameWindow:
     """A half-open frame window ``[start_frame, end_frame)`` on the single grid.
 
-    ``length_frames == end_frame - start_frame`` exactly; ``start_seconds`` /
-    ``end_seconds`` are the exact grid values. Adjacent windows produced by
-    :func:`slice_windows` satisfy ``prev.end_frame == next.start_frame``.
+    ``length_frames == end_frame - start_frame`` exactly. Adjacent windows produced
+    by :func:`slice_windows` satisfy ``prev.end_frame == next.start_frame``.
     """
 
     start_frame: int
@@ -88,18 +87,6 @@ class FrameWindow:
     @property
     def length_frames(self) -> int:
         return self.end_frame - self.start_frame
-
-    @property
-    def start_seconds(self) -> float:
-        return to_seconds(self.start_frame)
-
-    @property
-    def end_seconds(self) -> float:
-        return to_seconds(self.end_frame)
-
-    @property
-    def duration_seconds(self) -> float:
-        return self.length_frames / TIMELINE_FPS
 
 
 def slice_windows(boundaries_seconds: list[float]) -> list[FrameWindow]:

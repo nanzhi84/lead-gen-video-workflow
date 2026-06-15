@@ -53,7 +53,6 @@ from .runner import (
     resolve_vlm_profile,
 )
 from .sensors import (
-    MotionGuard,
     count_faces_in_image,
     detect_cv_quality_events,
     detect_shot_cuts,
@@ -84,7 +83,6 @@ __all__ = [
     "reset_detector_cache",
     "extract_frame_at_time",
     "extract_frames_for_times",
-    "MotionGuard",
     # boundary / windows / report
     "snap_to_cuts",
     "apply_safety_inset",

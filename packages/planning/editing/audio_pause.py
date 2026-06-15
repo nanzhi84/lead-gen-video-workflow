@@ -10,7 +10,6 @@ are simply not consulted).
 
 from __future__ import annotations
 
-from typing import Any
 
 from packages.planning.editing import _util as util
 from packages.planning.editing.constants import (
@@ -109,23 +108,3 @@ def match_audio_pause_window(
         "distance_to_boundary": util.round_time(_pause_distance(best)),
         "min_duration_required": util.round_time(effective_min_duration),
     }
-
-
-def audio_pause_windows_to_payload(
-    pause_windows: list[dict[str, float]] | None,
-    *,
-    limit: int = 120,
-) -> list[dict[str, Any]]:
-    payload: list[dict[str, Any]] = []
-    for window in list(pause_windows or [])[: max(0, int(limit))]:
-        duration = util.as_float(window.get("duration"), 0.0)
-        payload.append(
-            {
-                "start": util.round_time(window.get("start", 0.0)),
-                "end": util.round_time(window.get("end", 0.0)),
-                "duration_ms": int(round(duration * 1000)),
-                "center": util.round_time(window.get("center", 0.0)),
-                "strong": duration + 1e-6 >= AUDIO_PAUSE_STRONG_MIN_DURATION,
-            }
-        )
-    return payload

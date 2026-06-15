@@ -14,8 +14,6 @@ from __future__ import annotations
 
 from packages.core.observability.funnel import (
     FUNNEL_TAXONOMY,
-    TRUE_YIELD_DISQUALIFIERS,
-    TRUE_YIELD_SUCCESS,
     compute_true_yield_rate,
     node_stage,
     record_funnel_event,
@@ -24,8 +22,6 @@ from packages.core.observability.funnel import (
 
 __all__ = [
     "FUNNEL_TAXONOMY",
-    "TRUE_YIELD_DISQUALIFIERS",
-    "TRUE_YIELD_SUCCESS",
     "compute_true_yield_rate",
     "node_stage",
     "record_funnel_event",

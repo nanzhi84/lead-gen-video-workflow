@@ -90,7 +90,7 @@ def detect_silence_windows(
     except FfmpegCommandError as exc:
         # Honest "no pauses" on failure — never fabricate. stderr still carries the
         # silencedetect lines even on a non-zero exit, so parse what we have.
-        output = "\n".join([getattr(exc, "stdout", "") or "", exc.stderr or ""])
+        output = exc.stderr or ""
         if not output.strip():
             _DETECTION_CACHE[cache_key] = []
             return []

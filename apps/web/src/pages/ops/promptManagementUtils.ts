@@ -72,13 +72,6 @@ export function schemaText(ref: { schema_id: string; schema_version?: string }) 
   return `${ref.schema_id}@${ref.schema_version ?? "v1"}`;
 }
 
-export function bindingSummary(items: PromptBindingView[], templateId: string) {
-  const matched = items.filter((item) => item.binding.prompt_template_id === templateId);
-  if (matched.length === 0) return "未绑定";
-  const first = matched[0].binding.node_id || "全局节点";
-  return matched.length > 1 ? `用于 ${first} 等 ${matched.length} 处` : `用于 ${first}`;
-}
-
 export type TemplateUsage = {
   inProduction: boolean;
   label: string;
@@ -96,9 +89,6 @@ export function templateUsage(items: PromptBindingView[], templateId: string): T
   const label = enabled.length > 1 ? `生产使用中 · ${node} 等 ${enabled.length} 处` : `生产使用中 · ${node}`;
   return { inProduction: true, label, nodeName: node, enabledCount: enabled.length };
 }
-
-export const BINDING_EXPLAINER =
-  "绑定 = 把某个已发布版本接到生产节点；只有绑定后的提示词才会被生产管线使用。";
 
 const PERSONA_LABELS: Record<string, string> = {
   hard_ad: "硬广投流",

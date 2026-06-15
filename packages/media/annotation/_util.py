@@ -21,15 +21,6 @@ def to_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
-# Alias kept for the motion guard's verbatim metric-reading helpers.
-as_float = to_float
-
-
-def clamp(value: float, low: float, high: float) -> float:
-    """Clamp ``value`` into ``[low, high]``."""
-    return max(low, min(high, value))
-
-
 def overlap_duration(start_a: float, end_a: float, start_b: float, end_b: float) -> float:
     """Overlap duration between two ranges (0 when disjoint)."""
     return max(0.0, min(end_a, end_b) - max(start_a, start_b))

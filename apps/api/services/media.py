@@ -10,6 +10,7 @@ from apps.api.common import (
     media_repository,
     object_store,
     page,
+    provider_repository,
     repository,
     request_id,
     signed,
@@ -17,7 +18,8 @@ from apps.api.common import (
 from packages.core import contracts as c
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
-from apps.api.services import asset_annotation, media_processing
+from apps.api.services import annotation_batch as annotation_batch_service
+from apps.api.services import annotation_patch, asset_annotation, media_processing
 
 _PLAYABLE_MEDIA_TYPES = {"video", "audio"}
 
@@ -204,58 +206,65 @@ def patch_annotation(asset_id: str, payload: c.PatchAnnotationRequest, request: 
         return editor
     editor = get_annotation(request, asset_id)
     # canonical may be an AnnotationV4 (coerced on load) or the minimal editor dict;
-    # normalize to a plain mutable dict so the JSON-pointer ops apply uniformly.
+    # normalize to a plain mutable dict so the PatchService can merge uniformly.
     raw_canonical = editor.canonical
     if isinstance(raw_canonical, c.AnnotationV4):
         canonical = raw_canonical.model_dump(mode="json")
     else:
         canonical = dict(raw_canonical or {})
-    projection = dict(editor.projection or {})
-    _apply_annotation_operations(canonical, projection, payload.patch.operations)
-    updated = editor.model_copy(update={"etag": new_id("etag"), "canonical": canonical, "projection": projection})
+    asset = repository(request).media_assets[asset_id]
+    # PatchService merges structural edits (segments / quality_events) into the
+    # canonical AnnotationV4 -> new canonical version, then rebuilds the projection
+    # from canonical (Spec §12.1/§12.2). Invalid edits raise artifact.schema_mismatch (400).
+    new_canonical, new_projection = annotation_patch.apply_patch(
+        canonical=canonical,
+        projection=dict(editor.projection or {}),
+        asset=asset,
+        operations=payload.patch.operations,
+    )
+    updated = editor.model_copy(
+        update={"etag": new_id("etag"), "canonical": new_canonical, "projection": new_projection}
+    )
     repository(request).annotations[asset_id] = updated
-    repository(request).media_assets[asset_id] = repository(request).media_assets[asset_id].model_copy(
+    repository(request).media_assets[asset_id] = asset.model_copy(
         update={"annotation_status": "annotated", "updated_at": c.utcnow()}
     )
     return updated
 
 
-def _apply_annotation_operations(canonical: dict, projection: dict, operations: list[dict]) -> None:
-    for operation in operations:
-        op_name = operation.get("op", "replace")
-        path = operation.get("path")
-        if op_name not in {"add", "replace"} or not isinstance(path, str) or "value" not in operation:
-            continue
-        value = operation["value"]
-        if path == "/labels":
-            canonical["labels"] = value
-        elif path == "/usable":
-            projection["usable"] = value
-        elif path == "/title":
-            projection["title"] = value
-        elif path.startswith("/canonical/"):
-            _set_nested(canonical, path.removeprefix("/canonical/").split("/"), value)
-        elif path.startswith("/projection/"):
-            _set_nested(projection, path.removeprefix("/projection/").split("/"), value)
-
-
-def _set_nested(target: dict, parts: list[str], value) -> None:
-    current = target
-    for part in [item for item in parts[:-1] if item]:
-        child = current.get(part)
-        if not isinstance(child, dict):
-            child = {}
-            current[part] = child
-        current = child
-    if parts and parts[-1]:
-        current[parts[-1]] = value
+def batch_annotation(
+    payload: c.AnnotationBatchRequest, request: Request
+) -> c.AnnotationBatchResponse:
+    return annotation_batch_service.run_batch_annotation(payload, request)
 
 
 def rerun_annotation(
     asset_id: str, payload: c.RerunAnnotationRequest, request: Request
 ) -> c.AnnotationRunResponse:
     if media_repository(request) is not None:
-        response = media_repository(request).rerun_annotation(asset_id, payload)
+        # Production (DB) path: drive the SAME gated sensors + (gated) VLM -> AnnotationV4
+        # pipeline as in-memory, persisting a real AnnotationV4 canonical so material
+        # planning reads it (Spec §12.2). Without a real vlm.annotation profile it
+        # degrades to a sensor-only vlm_unconfigured result (never fabricated semantics).
+        if payload.provider_profile_id:
+            provider_repo = provider_repository(request)
+            profile = (
+                next(
+                    (
+                        p
+                        for p in provider_repo.list_profiles(capability="vlm.annotation", limit=100)
+                        if p.id == payload.provider_profile_id
+                    ),
+                    None,
+                )
+                if provider_repo is not None
+                else None
+            )
+            if profile is None:
+                raise NodeExecutionError(
+                    c.ErrorCode.provider_unsupported_option, "Annotation provider profile is invalid."
+                )
+        response = asset_annotation.run_sqlalchemy_asset_annotation(request, asset_id, payload)
         if response is None:
             raise NodeExecutionError(c.ErrorCode.artifact_missing, "Asset missing.")
         return response

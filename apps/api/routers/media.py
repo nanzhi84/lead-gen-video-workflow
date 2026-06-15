@@ -72,6 +72,12 @@ def media_asset_preview(request: Request, asset_id: str) -> c.SignedUrlResponse:
     return service.media_asset_preview(request, asset_id)
 
 
+@router.post("/api/annotations/batch", response_model=c.AnnotationBatchResponse, status_code=202)
+def batch_annotation(payload: c.AnnotationBatchRequest, request: Request) -> c.AnnotationBatchResponse:
+    require_role(request, c.UserRole.operator)
+    return service.batch_annotation(payload, request)
+
+
 @router.get("/api/annotations/{asset_id}", response_model=c.AnnotationEditorVm)
 def get_annotation(request: Request, asset_id: str) -> c.AnnotationEditorVm:
 

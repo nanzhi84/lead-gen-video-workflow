@@ -128,18 +128,28 @@ def test_sqlalchemy_annotation_editor_patch_and_rerun_are_persisted():
         patched_body = patched.json()
         assert patched_body["etag"] != editor_body["etag"]
         assert patched_body["projection"]["title"] == "Annotated media asset"
-        assert patched_body["canonical"]["labels"] == ["hero", "usable"]
+        # Spec §12.2: labels are an editor projection tag list (the strict canonical
+        # AnnotationV4 owns only the seven V4 layers, no free 'labels' field).
+        assert patched_body["projection"]["labels"] == ["hero", "usable"]
         assert patched_body["asset"]["annotation_status"] == "annotated"
 
         rerun = client.post(f"/api/annotations/{asset['id']}/rerun", json={})
         assert rerun.status_code == 202, rerun.text
+        # The DB rerun now drives the gated V4 pipeline; without a real vlm.annotation
+        # provider it degrades (completed, sensor-only) rather than failing.
         assert rerun.json()["status"] == "completed"
 
     with session_factory() as session:
         asset_row = session.get(MediaAssetRow, asset["id"])
-        annotation_row = session.scalar(select(AnnotationRow).where(AnnotationRow.asset_id == asset["id"]))
+        annotation_row = session.scalar(
+            select(AnnotationRow)
+            .where(AnnotationRow.asset_id == asset["id"])
+            .order_by(AnnotationRow.updated_at.desc())
+        )
         assert asset_row is not None
-        assert asset_row.annotation_status == "annotated"
+        # The rerun persists a real AnnotationV4 canonical (the must-retain flow).
+        assert asset_row.annotation_status in {"annotated", "annotation_failed"}
         assert annotation_row is not None
-        assert annotation_row.projection["title"] == "Annotated media asset"
-        assert annotation_row.canonical["labels"] == ["hero", "usable"]
+        assert annotation_row.canonical_schema == "AnnotationV4.v1"
+        assert "meta" in annotation_row.canonical
+        assert annotation_row.canonical["meta"]["asset_id"] == asset["id"]

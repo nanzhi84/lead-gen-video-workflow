@@ -13,8 +13,16 @@ def login_admin() -> None:
     assert response.status_code == 200, response.text
 
 
-def upload_video(tmp_path, *, filename: str, case_id: str, title: str | None = None, replace_mode: bool = False) -> dict:
-    video = generate_test_video(tmp_path, duration_sec=1, width=160, height=120, fps=15, filename=filename)
+def upload_video(
+    tmp_path,
+    *,
+    filename: str,
+    case_id: str,
+    title: str | None = None,
+    replace_mode: bool = False,
+    duration_sec: float = 1,
+) -> dict:
+    video = generate_test_video(tmp_path, duration_sec=duration_sec, width=160, height=120, fps=15, filename=filename)
     content = video.read_bytes()
     digest = hashlib.sha256(content).hexdigest()
     prepared = client.post(
@@ -48,11 +56,22 @@ def test_single_replace_source_preserves_existing_annotation(tmp_path):
     original = upload_video(tmp_path, filename="single-original.mp4", case_id="case_single_replace")
     asset_id = original["media_asset"]["id"]
     editor = client.get(f"/api/annotations/{asset_id}").json()
+    # Per Spec §12.2, an edited segment is validated as a ClipV4 and merged into the
+    # canonical AnnotationV4 (not a free-JSON projection blob). The structural edit lands
+    # in canonical.clips, which material planning consumes via annotation_v4_for_asset.
+    kept_segment = {
+        "segment_id": "seg_keep",
+        "start": 0.0,
+        "end": 0.5,
+        "duration": 0.5,
+        "usage": {"role": "cover", "recommended_for_voiceover": True},
+        "retrieval": {"summary": "keep"},
+    }
     patched = client.patch(
         f"/api/annotations/{asset_id}",
         json={
             "etag": editor["etag"],
-            "patch": {"operations": [{"op": "replace", "path": "/canonical/segments", "value": [{"label": "keep"}]}]},
+            "patch": {"operations": [{"op": "replace", "path": "/canonical/segments", "value": [kept_segment]}]},
         },
     )
     assert patched.status_code == 200, patched.text
@@ -71,7 +90,65 @@ def test_single_replace_source_preserves_existing_annotation(tmp_path):
     assert body["asset"]["id"] == asset_id
     assert body["artifact"]["artifact_id"] == replacement["artifact"]["artifact_id"]
     assert body["preserved_annotation"] is True
-    assert repository().annotations[asset_id].canonical["segments"] == [{"label": "keep"}]
+    # The edited segment is now owned by the canonical AnnotationV4 (clips), not a blob.
+    canonical = repository().annotations[asset_id].canonical
+    assert [c["segment_id"] for c in canonical["clips"]] == ["seg_keep"]
+    assert canonical["clips"][0]["usage"]["role"] == "cover"
+
+
+def test_replace_source_reclips_annotation_on_duration_drift(tmp_path):
+    """Replacing with a shorter clip re-clips the preserved annotation to the new duration."""
+    login_admin()
+    original = upload_video(
+        tmp_path, filename="drift-original.mp4", case_id="case_drift", duration_sec=2
+    )
+    asset_id = original["media_asset"]["id"]
+    editor = client.get(f"/api/annotations/{asset_id}").json()
+    # A clip that ends at the OLD end-of-video (2s); after re-clip to 1s it must clamp.
+    seg = {
+        "segment_id": "seg_full",
+        "start": 0.0,
+        "end": 2.0,
+        "duration": 2.0,
+        "usage": {"role": "cover", "recommended_for_voiceover": True},
+    }
+    patched = client.patch(
+        f"/api/annotations/{asset_id}",
+        json={"etag": editor["etag"], "patch": {"operations": [{"op": "replace", "path": "/canonical/segments", "value": [seg]}]}},
+    )
+    assert patched.status_code == 200, patched.text
+
+    replacement = upload_video(
+        tmp_path, filename="drift-replacement.mp4", case_id="case_drift", replace_mode=True, duration_sec=1
+    )
+    response = client.post(
+        f"/api/media/assets/{asset_id}/replace-source",
+        json={"upload_session_id": replacement["upload_session"]["id"]},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    # Annotation preserved, but re-clipped: the clip is clamped to the new 1s duration.
+    assert body["preserved_annotation"] is True
+    canonical = repository().annotations[asset_id].canonical
+    assert canonical["clips"][0]["end"] <= 1.0 + 1e-6
+    assert canonical["meta"]["duration"] <= 1.0 + 1e-6
+
+
+def test_patch_annotation_rejects_invalid_segment_schema(tmp_path):
+    """A free-JSON segment (missing start/end, unknown fields) is rejected per §2.3."""
+    login_admin()
+    original = upload_video(tmp_path, filename="invalid-seg.mp4", case_id="case_invalid_seg")
+    asset_id = original["media_asset"]["id"]
+    editor = client.get(f"/api/annotations/{asset_id}").json()
+    response = client.patch(
+        f"/api/annotations/{asset_id}",
+        json={
+            "etag": editor["etag"],
+            "patch": {"operations": [{"op": "replace", "path": "/canonical/segments", "value": [{"label": "keep"}]}]},
+        },
+    )
+    assert response.status_code == 400, response.text
+    assert response.json()["error"]["code"] == "artifact.schema_mismatch"
 
 
 def test_auto_match_replace_reports_matched_unmatched_and_ambiguous(tmp_path):

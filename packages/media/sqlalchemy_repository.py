@@ -125,35 +125,10 @@ def artifact_ref_from_row(row: ArtifactRow) -> ArtifactRef:
     )
 
 
-def _set_json_pointer(target: dict, path_parts: list[str], value) -> None:
-    current = target
-    for part in path_parts[:-1]:
-        child = current.get(part)
-        if not isinstance(child, dict):
-            child = {}
-            current[part] = child
-        current = child
-    if path_parts:
-        current[path_parts[-1]] = value
-
-
-def _apply_annotation_operations(canonical: dict, projection: dict, operations: list[dict]) -> None:
-    for operation in operations:
-        op_name = operation.get("op", "replace")
-        path = operation.get("path")
-        if op_name not in {"add", "replace"} or not isinstance(path, str) or "value" not in operation:
-            continue
-        value = operation["value"]
-        if path == "/labels":
-            canonical["labels"] = value
-        elif path == "/usable":
-            projection["usable"] = value
-        elif path == "/title":
-            projection["title"] = value
-        elif path.startswith("/canonical/"):
-            _set_json_pointer(canonical, [part for part in path.removeprefix("/canonical/").split("/") if part], value)
-        elif path.startswith("/projection/"):
-            _set_json_pointer(projection, [part for part in path.removeprefix("/projection/").split("/") if part], value)
+def asset_record_is_v4(canonical: dict) -> bool:
+    """A canonical dict is a real AnnotationV4 only when it carries a V4 meta layer."""
+    meta = canonical.get("meta") if isinstance(canonical, dict) else None
+    return isinstance(meta, dict) and "asset_id" in meta
 
 
 class SqlAlchemyMediaRepository:
@@ -371,6 +346,9 @@ class SqlAlchemyMediaRepository:
             return annotation_row_to_editor(row, asset, object_store=self.object_store)
 
     def patch_annotation(self, asset_id: str, payload: PatchAnnotationRequest) -> AnnotationEditorVm | None:
+        # Import here to avoid an apps.api <-> packages.media import cycle at module load.
+        from apps.api.services.annotation_patch import apply_patch
+
         with self.session_factory() as session:
             asset = session.get(MediaAssetRow, asset_id)
             if asset is None:
@@ -389,9 +367,17 @@ class SqlAlchemyMediaRepository:
                 )
                 session.add(row)
                 session.flush()
-            canonical = dict(row.canonical or {})
-            projection = dict(row.projection or {})
-            _apply_annotation_operations(canonical, projection, payload.patch.operations)
+            # PatchService merges structural edits (segments / quality_events) into the
+            # canonical AnnotationV4 -> new canonical version, then rebuilds the projection
+            # from canonical (Spec §12.2). Invalid edits raise artifact.schema_mismatch (400).
+            canonical, projection = apply_patch(
+                canonical=dict(row.canonical or {}),
+                projection=dict(row.projection or {}),
+                asset=media_asset_row_to_contract(asset),
+                operations=payload.patch.operations,
+            )
+            if asset_record_is_v4(canonical):
+                row.canonical_schema = "AnnotationV4.v1"
             row.canonical = canonical
             row.projection = projection
             row.etag = new_id("etag")
@@ -425,6 +411,119 @@ class SqlAlchemyMediaRepository:
             asset.updated_at = utcnow()
             session.commit()
             return AnnotationRunResponse(asset_id=asset_id, run_id=None, status="completed")
+
+    def asset_record(self, asset_id: str) -> MediaAssetRecord | None:
+        with self.session_factory() as session:
+            row = session.get(MediaAssetRow, asset_id)
+            return media_asset_row_to_contract(row) if row is not None else None
+
+    def set_annotation_canonical(self, asset_id: str, canonical: dict) -> None:
+        """Overwrite the latest annotation's canonical (replace-source re-clip)."""
+        with self.session_factory() as session:
+            row = self._annotation_row(session, asset_id)
+            if row is None:
+                return
+            row.canonical = canonical
+            if asset_record_is_v4(canonical):
+                row.canonical_schema = "AnnotationV4.v1"
+            row.etag = new_id("etag")
+            row.updated_at = utcnow()
+            session.commit()
+
+    def invalidate_annotation(self, asset_id: str) -> None:
+        """Drop the annotation + mark the asset pending (re-annotation required)."""
+        with self.session_factory() as session:
+            asset = session.get(MediaAssetRow, asset_id)
+            row = self._annotation_row(session, asset_id)
+            if row is not None:
+                session.delete(row)
+            if asset is not None:
+                asset.annotation_status = "pending"
+                asset.usable = False
+                asset.updated_at = utcnow()
+            session.commit()
+
+    def asset_source_duration(self, asset_id: str) -> float:
+        """Best-effort source duration (sec) from the asset row / source artifact media_info."""
+        with self.session_factory() as session:
+            asset = session.get(MediaAssetRow, asset_id)
+            if asset is None:
+                return 0.0
+            if asset.duration_sec:
+                try:
+                    return max(0.0, float(asset.duration_sec))
+                except (TypeError, ValueError):
+                    pass
+            if not asset.source_artifact_id:
+                return 0.0
+            artifact = session.get(ArtifactRow, asset.source_artifact_id)
+            media_info = artifact.media_info if artifact is not None else None
+            duration = media_info.get("duration_sec") if isinstance(media_info, dict) else None
+            try:
+                return max(0.0, float(duration)) if duration is not None else 0.0
+            except (TypeError, ValueError):
+                return 0.0
+
+    def persist_annotation_v4(
+        self,
+        asset_id: str,
+        *,
+        canonical: dict,
+        projection: dict,
+        annotation_status: str,
+        usable: bool,
+        case_id: str | None = None,
+    ) -> AnnotationEditorVm | None:
+        """Write a fresh AnnotationV4 canonical + projection + artifact for one asset.
+
+        Mirrors the in-memory ``asset_annotation._persist``: the AnnotationV4 canonical
+        is the single source of truth (Spec §12.2) so material planning reads it via
+        ``annotation_v4_for_asset``; the projection is rebuilt from canonical. A
+        ``material_annotation`` ArtifactRow (schema ``AnnotationV4.v1``) is recorded too.
+        Returns ``None`` when the asset is missing.
+        """
+        with self.session_factory() as session:
+            asset = session.get(MediaAssetRow, asset_id)
+            if asset is None:
+                return None
+            artifact = ArtifactRow(
+                id=new_id("art"),
+                case_id=case_id or asset.case_id,
+                kind=ArtifactKind.material_annotation.value,
+                uri=None,
+                payload_schema="AnnotationV4.v1",
+                payload=canonical,
+            )
+            session.add(artifact)
+            session.flush()
+            projection = dict(projection)
+            projection.setdefault("annotation_artifact_id", artifact.id)
+            row = self._annotation_row(session, asset_id)
+            if row is None:
+                row = AnnotationRow(
+                    id=new_id("ann"),
+                    asset_id=asset_id,
+                    etag=new_id("etag"),
+                    canonical_schema="AnnotationV4.v1",
+                    canonical=canonical,
+                    projection_schema="MediaAnnotationProjection.v1",
+                    projection=projection,
+                    editable_paths=["/labels", "/usable", "/title"],
+                )
+                session.add(row)
+            else:
+                row.canonical_schema = "AnnotationV4.v1"
+                row.canonical = canonical
+                row.projection = projection
+                row.etag = new_id("etag")
+                row.updated_at = utcnow()
+            asset.annotation_status = annotation_status
+            asset.usable = usable
+            asset.updated_at = utcnow()
+            session.commit()
+            session.refresh(row)
+            session.refresh(asset)
+            return annotation_row_to_editor(row, asset, object_store=self.object_store)
 
     def _annotation_row(self, session: Session, asset_id: str) -> AnnotationRow | None:
         return session.scalar(

@@ -829,6 +829,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/annotations/batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Batch Annotation */
+        post: operations["batch_annotation_api_annotations_batch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/annotations/{asset_id}": {
         parameters: {
             query?: never;
@@ -2251,6 +2268,52 @@ export interface components {
             asset_ids: string[];
             /** Provider Profile Id */
             provider_profile_id?: string | null;
+            /**
+             * Force
+             * @default true
+             */
+            force: boolean;
+            /** Material Type */
+            material_type?: string | null;
+        };
+        /** AnnotationBatchResponse */
+        AnnotationBatchResponse: {
+            /** Job Id */
+            job_id: string;
+            /** Results */
+            results: components["schemas"]["AnnotationBatchResultItem"][];
+            /**
+             * Completed Count
+             * @default 0
+             */
+            completed_count: number;
+            /**
+             * Failed Count
+             * @default 0
+             */
+            failed_count: number;
+            /**
+             * Skipped Count
+             * @default 0
+             */
+            skipped_count: number;
+            /** Request Id */
+            request_id: string;
+        };
+        /** AnnotationBatchResultItem */
+        AnnotationBatchResultItem: {
+            /** Asset Id */
+            asset_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "completed" | "failed" | "skipped";
+            /** Annotation Status */
+            annotation_status?: string | null;
+            error_code?: components["schemas"]["ErrorCode"] | null;
+            /** Message */
+            message?: string | null;
         };
         /** AnnotationEditorVm */
         AnnotationEditorVm: {
@@ -8996,6 +9059,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SignedUrlResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    batch_annotation_api_annotations_batch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnnotationBatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnnotationBatchResponse"];
                 };
             };
             /** @description Validation Error */

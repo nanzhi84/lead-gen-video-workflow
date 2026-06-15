@@ -202,6 +202,87 @@ def test_pipeline_semantic_error_resamples_denser():
     assert budgets[1] > budgets[0]
 
 
+def _portrait_segment(start: float, end: float) -> dict:
+    """A clean portrait segment whose ONLY possible blocker is multi_face."""
+    return {
+        "start": start,
+        "end": end,
+        "semantics": {
+            "subject_type": "person",
+            "gaze_to_camera": True,
+            "mouth_visible": True,
+            "mouth_moving": True,
+            "speaker_intent": "explain",
+            "speech_action_alignment": "match",
+            "retake_cue": "none",
+        },
+        "visual": {"shot_scale": "medium", "camera_motion": "static", "composition": "centered"},
+        "usage": {
+            "recommended_for_lip_sync": True,
+            "recommended_for_voiceover": True,
+            "voiceover_only": False,
+            "role": "main",
+        },
+        "retrieval": {"summary": "talking head", "keywords": ["talk"], "retrieval_sentence": "talk"},
+        "confidence": 0.9,
+    }
+
+
+def test_pipeline_portrait_two_face_frame_yields_multi_face_blocker():
+    """A window whose CV multi-face sensor reports 2 faces sets face_count_max=2 and
+    makes report._clip_blockers emit a multi_face blocker (the deterministic gate)."""
+    from packages.media.annotation.report import _clip_blockers
+
+    deps = _base_deps(lambda p, f: json.dumps({"segments": [_portrait_segment(0.0, 4.0)]}))
+    # Deterministic CV sensor: this window has a 2-face frame (mirror/reflection).
+    deps.detect_max_faces = lambda paths: 2
+
+    ann = run_annotation_v4(
+        asset_id="a",
+        case_id="c",
+        material_type="portrait",
+        video_path="/fake.mp4",
+        duration=4.0,
+        deps=deps,
+        cfg=V4Config(),
+    )
+    assert ann.meta.annotation_status == AnnotationStatus.completed
+    assert len(ann.clips) == 1
+    clip = ann.clips[0]
+    # Authoritative CV source set face_count_max even though the VLM never volunteered it.
+    assert clip.semantics.face_count_max == 2
+    blockers = _clip_blockers(clip.model_dump(), hard_event=False)
+    assert "multi_face" in blockers
+    # The clean single-face counterpart has no multi_face blocker.
+    single = clip.model_copy(deep=True)
+    single.semantics.face_count_max = 1
+    assert "multi_face" not in _clip_blockers(single.model_dump(), hard_event=False)
+
+
+def test_pipeline_broll_does_not_run_multi_face_sensor():
+    """B-roll windows never invoke the portrait-only multi-face sensor."""
+    called = {"n": 0}
+
+    def _detect(paths):
+        called["n"] += 1
+        return 2
+
+    deps = _base_deps(lambda p, f: _vlm_response_for_window(0.0, 4.0))
+    deps.detect_max_faces = _detect
+    ann = run_annotation_v4(
+        asset_id="a",
+        case_id="c",
+        material_type="broll",
+        video_path="/fake.mp4",
+        duration=4.0,
+        deps=deps,
+        cfg=V4Config(),
+    )
+    assert ann.meta.annotation_status == AnnotationStatus.completed
+    assert called["n"] == 0
+    assert ann.clips[0].semantics.face_count_max is None
+
+
 def test_pipeline_zero_duration_is_empty_completed():
     ann = run_annotation_v4(
         asset_id="a",

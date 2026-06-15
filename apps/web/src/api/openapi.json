@@ -2311,6 +2311,44 @@
         }
       }
     },
+    "/api/annotations/batch": {
+      "post": {
+        "summary": "Batch Annotation",
+        "operationId": "batch_annotation_api_annotations_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnnotationBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnnotationBatchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/annotations/{asset_id}": {
       "get": {
         "summary": "Get Annotation",
@@ -7141,6 +7179,22 @@
               }
             ],
             "title": "Provider Profile Id"
+          },
+          "force": {
+            "type": "boolean",
+            "title": "Force",
+            "default": true
+          },
+          "material_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Material Type"
           }
         },
         "additionalProperties": false,
@@ -7149,6 +7203,104 @@
           "asset_ids"
         ],
         "title": "AnnotationBatchRequest"
+      },
+      "AnnotationBatchResponse": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/AnnotationBatchResultItem"
+            },
+            "type": "array",
+            "title": "Results"
+          },
+          "completed_count": {
+            "type": "integer",
+            "title": "Completed Count",
+            "default": 0
+          },
+          "failed_count": {
+            "type": "integer",
+            "title": "Failed Count",
+            "default": 0
+          },
+          "skipped_count": {
+            "type": "integer",
+            "title": "Skipped Count",
+            "default": 0
+          },
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "job_id",
+          "results",
+          "request_id"
+        ],
+        "title": "AnnotationBatchResponse"
+      },
+      "AnnotationBatchResultItem": {
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "title": "Asset Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "failed",
+              "skipped"
+            ],
+            "title": "Status"
+          },
+          "annotation_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annotation Status"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ErrorCode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "asset_id",
+          "status"
+        ],
+        "title": "AnnotationBatchResultItem"
       },
       "AnnotationEditorVm": {
         "properties": {

@@ -306,3 +306,72 @@ def test_canonical_metrics_are_captured():
     assert matched.canonical_metrics["impressions"] == 10000
     assert matched.canonical_metrics["completion_rate"] == 0.55
     assert matched.window == "7d"
+
+
+# --------------------------------------------------------------------------- #
+# Regression: scoring must not round-trip an unflushed ORM row (DB-path blocker)
+# --------------------------------------------------------------------------- #
+
+def _matched(**kwargs) -> "metrics_import.MatchedRow":
+    base = dict(
+        row_index=0,
+        publish_record_id="pr_1",
+        video_version_id="vv_1",
+        platform="douyin",
+        account_id="acc_1",
+        metric_name="completion_rate",
+        metric_value=0.42,
+        canonical_metrics={"impressions": 50000, "views": 12000, "completion_rate": 0.42},
+        window="7d",
+    )
+    base.update(kwargs)
+    return metrics_import.MatchedRow(**base)
+
+
+def test_observation_contract_from_match_populates_entity_meta_defaults():
+    """The canonical builder must yield a contract with non-None EntityMeta fields.
+
+    Regression for the DB-path blocker: the production import scored a contract
+    obtained from an *unflushed* ORM row whose created_at/updated_at/schema_version
+    were all None, raising a pydantic ValidationError on every matched row.
+    """
+    obs = metrics_import.observation_contract_from_match("case_x", _matched())
+    assert obs.id.startswith("perf_")
+    assert obs.created_at is not None
+    assert obs.updated_at is not None
+    assert obs.schema_version == "v1"
+    # canonical metrics fan out onto typed columns
+    assert obs.impressions == 50000
+    assert obs.views == 12000
+    assert obs.window == "7d"
+    # the contract scores cleanly on the DB path's exact code path
+    score = evolution.compute_performance_score(obs)
+    assert score.observation_id == obs.id
+    assert score.excluded_reason is None
+
+
+def test_production_observation_row_from_contract_round_trips_without_flush_error():
+    """_observation_row_from_contract + mapper must not require a flush.
+
+    Builds the ORM row from the contract (timestamps already set), then maps it
+    back to a contract — exercising the exact pair of calls the production import
+    makes, proving no None-timestamp ValidationError can occur on the happy path.
+    """
+    from packages.production.sqlalchemy_repository import SqlAlchemyProductionRepository
+    from packages.production.sqlalchemy_mappers import performance_observation_row_to_contract
+
+    obs = metrics_import.observation_contract_from_match("case_x", _matched())
+    row = SqlAlchemyProductionRepository._observation_row_from_contract(obs)
+    assert row.id == obs.id
+    assert row.observed_at is not None
+    # scoring is done on the contract, never on the (unflushed) row
+    score = evolution.compute_performance_score(obs)
+    assert score.normalized_score == 0.42
+    # once persisted columns are set (we copy them from the contract), the mapper
+    # round-trips; simulate post-flush state by stamping the timestamp columns.
+    row.created_at = obs.created_at
+    row.updated_at = obs.updated_at
+    row.schema_version = obs.schema_version
+    mapped = performance_observation_row_to_contract(row)
+    assert mapped.id == obs.id
+    assert mapped.impressions == 50000

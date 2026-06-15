@@ -15,7 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from packages.core.contracts import MetricsMatchingPolicy
+from packages.core.contracts import MetricsMatchingPolicy, PerformanceObservation
+from packages.core.storage.repository import new_id
 
 # Canonical numeric metric names recognized on structured rows (§8.3).
 _CANONICAL_METRIC_FIELDS = (
@@ -194,3 +195,40 @@ def match_metrics_rows(
         )
 
     return MatchResult(matched=matched, unmatched=unmatched, warnings=warnings)
+
+
+def observation_contract_from_match(
+    case_id: str, matched: MatchedRow, *, observation_id: str | None = None
+) -> PerformanceObservation:
+    """Build a fully-populated ``PerformanceObservation`` contract from a match.
+
+    This is the single canonical builder used by *both* the in-memory and the
+    DB-backed import paths. The contract is created via its own pydantic
+    constructors so ``created_at`` / ``updated_at`` / ``schema_version`` are
+    populated by their ``EntityMeta`` defaults — never round-tripped through an
+    unflushed ORM row (whose timestamp columns are still ``None`` until flush).
+    The DB path then persists an ORM row *from* this contract.
+    """
+    canonical = matched.canonical_metrics
+    return PerformanceObservation(
+        id=observation_id or new_id("perf"),
+        case_id=case_id,
+        publish_record_id=matched.publish_record_id,
+        video_version_id=matched.video_version_id,
+        platform=matched.platform,
+        account_id=matched.account_id,
+        window=matched.window,
+        metric_name=matched.metric_name,
+        metric_value=matched.metric_value,
+        impressions=int(canonical["impressions"]) if "impressions" in canonical else None,
+        views=int(canonical["views"]) if "views" in canonical else None,
+        avg_watch_sec=canonical.get("avg_watch_sec"),
+        completion_rate=canonical.get("completion_rate"),
+        like_rate=canonical.get("like_rate"),
+        comment_rate=canonical.get("comment_rate"),
+        share_rate=canonical.get("share_rate"),
+        follow_rate=canonical.get("follow_rate"),
+        conversion_count=int(canonical["conversion_count"]) if "conversion_count" in canonical else None,
+        conversion_rate=canonical.get("conversion_rate"),
+        raw_metrics=dict(canonical),
+    )

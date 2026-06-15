@@ -464,29 +464,10 @@ def import_metrics(case_id: str, payload: c.MetricsImportRequest, request: Reque
 def _observation_from_match(
     case_id: str, matched: metrics_import.MatchedRow
 ) -> c.PerformanceObservation:
-    canonical = matched.canonical_metrics
-    return c.PerformanceObservation(
-        id=new_id("perf"),
-        case_id=case_id,
-        publish_record_id=matched.publish_record_id,
-        video_version_id=matched.video_version_id,
-        platform=matched.platform,
-        account_id=matched.account_id,
-        window=matched.window,
-        metric_name=matched.metric_name,
-        metric_value=matched.metric_value,
-        impressions=int(canonical["impressions"]) if "impressions" in canonical else None,
-        views=int(canonical["views"]) if "views" in canonical else None,
-        avg_watch_sec=canonical.get("avg_watch_sec"),
-        completion_rate=canonical.get("completion_rate"),
-        like_rate=canonical.get("like_rate"),
-        comment_rate=canonical.get("comment_rate"),
-        share_rate=canonical.get("share_rate"),
-        follow_rate=canonical.get("follow_rate"),
-        conversion_count=int(canonical["conversion_count"]) if "conversion_count" in canonical else None,
-        conversion_rate=canonical.get("conversion_rate"),
-        raw_metrics=dict(canonical),
-    )
+    # Single canonical builder shared with the DB-backed path (see
+    # metrics_import.observation_contract_from_match) so both score the same
+    # contract shape.
+    return metrics_import.observation_contract_from_match(case_id, matched)
 
 
 def recall_memory(

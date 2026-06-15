@@ -887,16 +887,17 @@ class SqlAlchemyProductionRepository:
                 default_account_id=payload.account_id,
             )
             for matched in match.matched:
-                internal_id = new_id("perf")
+                # Build the contract directly from the match (mirrors the in-memory
+                # path) so created_at/updated_at/schema_version come from EntityMeta
+                # defaults — we never round-trip an unflushed ORM row through the
+                # contract mapper (whose timestamp columns are still None pre-flush).
+                observation = metrics_import.observation_contract_from_match(case_id, matched)
                 if not payload.dry_run:
-                    obs_row = self._observation_row_from_match(internal_id, case_id, matched)
-                    session.add(obs_row)
-                    score = evolution.compute_performance_score(
-                        performance_observation_row_to_contract(obs_row)
-                    )
+                    session.add(self._observation_row_from_contract(observation))
+                    score = evolution.compute_performance_score(observation)
                     session.add(self._performance_score_row(score))
                 results.append(
-                    ImportRowResult(row_index=matched.row_index, status="created", internal_id=internal_id)
+                    ImportRowResult(row_index=matched.row_index, status="created", internal_id=observation.id)
                 )
             for unmatched in match.unmatched:
                 results.append(
@@ -925,32 +926,36 @@ class SqlAlchemyProductionRepository:
             return report
 
     @staticmethod
-    def _observation_row_from_match(
-        internal_id: str, case_id: str, matched: metrics_import.MatchedRow
+    def _observation_row_from_contract(
+        observation: PerformanceObservation,
     ) -> PerformanceObservationRow:
-        canonical = matched.canonical_metrics
+        """Persist an ORM row from an already-built contract observation.
+
+        The contract is the source of truth for the import (it is also what we
+        feed to ``compute_performance_score``), so the row simply mirrors it.
+        """
         return PerformanceObservationRow(
-            id=internal_id,
-            case_id=case_id,
-            publish_record_id=matched.publish_record_id,
-            video_version_id=matched.video_version_id,
-            platform=matched.platform,
-            account_id=matched.account_id,
-            window=matched.window,
-            metric_name=matched.metric_name,
-            metric_value=matched.metric_value,
-            impressions=int(canonical["impressions"]) if "impressions" in canonical else None,
-            views=int(canonical["views"]) if "views" in canonical else None,
-            avg_watch_sec=canonical.get("avg_watch_sec"),
-            completion_rate=canonical.get("completion_rate"),
-            like_rate=canonical.get("like_rate"),
-            comment_rate=canonical.get("comment_rate"),
-            share_rate=canonical.get("share_rate"),
-            follow_rate=canonical.get("follow_rate"),
-            conversion_count=int(canonical["conversion_count"]) if "conversion_count" in canonical else None,
-            conversion_rate=canonical.get("conversion_rate"),
-            raw_metrics=dict(canonical),
-            observed_at=utcnow(),
+            id=observation.id,
+            case_id=observation.case_id,
+            publish_record_id=observation.publish_record_id,
+            video_version_id=observation.video_version_id,
+            platform=observation.platform,
+            account_id=observation.account_id,
+            window=observation.window,
+            metric_name=observation.metric_name,
+            metric_value=observation.metric_value,
+            impressions=observation.impressions,
+            views=observation.views,
+            avg_watch_sec=observation.avg_watch_sec,
+            completion_rate=observation.completion_rate,
+            like_rate=observation.like_rate,
+            comment_rate=observation.comment_rate,
+            share_rate=observation.share_rate,
+            follow_rate=observation.follow_rate,
+            conversion_count=observation.conversion_count,
+            conversion_rate=observation.conversion_rate,
+            raw_metrics=dict(observation.raw_metrics or {}),
+            observed_at=observation.observed_at,
         )
 
     @staticmethod

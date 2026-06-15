@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import json
 import re
 
 from fastapi import Request
 
 from apps.api.common import get_case, provider_repository, repository
 from packages.ai.gateway import ProviderCall
-from packages.ai.prompts.registry import case_prompt_variables
+from packages.ai.prompts.registry import case_prompt_variables, extract_script_from_output
 from packages.core import contracts as c
 from packages.core.config.settings import sandbox_fallback_allowed
 from packages.core.workflow import NodeExecutionError
@@ -17,6 +16,10 @@ _FALLBACK_SCRIPT_NODE_ID = "CaseAgentScriptGenerate"
 _FALLBACK_ERROR_CODES = frozenset(
     {c.ErrorCode.prompt_version_not_published, c.ErrorCode.prompt_render_error}
 )
+
+# Spec §2.3: prompt 输出不符合 schema 时重试，耗尽后 hard_fail: prompt.output_invalid.
+# Total attempts = 1 initial + _SCRIPT_OUTPUT_MAX_RETRIES re-tries.
+_SCRIPT_OUTPUT_MAX_RETRIES = 2
 
 
 _RESPONSE_CONTRACT = (
@@ -81,27 +84,56 @@ def generate_script_with_llm(
         provider_profile_id=profile.id,
     )
     rendered = f"{rendered}\n\n{_RESPONSE_CONTRACT}"
-    invocation, result = request.app.state.provider_gateway.invoke(
-        ProviderCall(
-            case_id=case_id,
-            provider_profile_id=profile.id,
-            capability_id="llm.chat",
-            prompt_version_id=prompt_invocation.prompt_version_id,
-            input={"prompt": rendered, "brief": brief, "memory_ids": memory_ids, "memories": memories},
+    registry = request.app.state.prompt_registry
+    last_invalid: NodeExecutionError | None = None
+    # No-silent-degrade (Spec §2.3): the model reply must validate against the
+    # script output schema (non-empty口播 script). On prompt.output_invalid we retry
+    # up to the bound, then hard_fail with prompt.output_invalid -- we never let a
+    # malformed-but-non-empty reply slip through as a usable script.
+    for attempt in range(_SCRIPT_OUTPUT_MAX_RETRIES + 1):
+        invocation, result = request.app.state.provider_gateway.invoke(
+            ProviderCall(
+                case_id=case_id,
+                provider_profile_id=profile.id,
+                capability_id="llm.chat",
+                prompt_version_id=prompt_invocation.prompt_version_id,
+                input={
+                    "prompt": rendered,
+                    "brief": brief,
+                    "memory_ids": memory_ids,
+                    "memories": memories,
+                    "attempt": attempt,
+                },
+            )
         )
-    )
-    if result is None or invocation.error:
-        raise NodeExecutionError(
-            invocation.error.code if invocation.error else c.ErrorCode.provider_remote_failed,
-            invocation.error.message if invocation.error else "Case agent LLM provider failed.",
+        if result is None or invocation.error:
+            raise NodeExecutionError(
+                invocation.error.code if invocation.error else c.ErrorCode.provider_remote_failed,
+                invocation.error.message if invocation.error else "Case agent LLM provider failed.",
+            )
+        repository(request).prompt_invocations[prompt_invocation.id] = prompt_invocation.model_copy(
+            update={"provider_invocation_id": invocation.id, "updated_at": c.utcnow()}
         )
-    repository(request).prompt_invocations[prompt_invocation.id] = prompt_invocation.model_copy(
-        update={"provider_invocation_id": invocation.id, "updated_at": c.utcnow()}
+        try:
+            registry.validate_output(
+                prompt_version_id=prompt_invocation.prompt_version_id,
+                output=result.output,
+            )
+        except NodeExecutionError as exc:
+            if exc.error.code != c.ErrorCode.prompt_output_invalid:
+                raise
+            last_invalid = exc
+            continue
+        script = _strip_stage_cues(extract_script_from_output(result.output))
+        if script:
+            return script
+        last_invalid = NodeExecutionError(
+            c.ErrorCode.prompt_output_invalid, "Case agent LLM output missing script."
+        )
+    raise NodeExecutionError(
+        c.ErrorCode.prompt_output_invalid,
+        last_invalid.error.message if last_invalid else "Case agent LLM output failed schema validation.",
     )
-    script = _strip_stage_cues(_script_from_llm_output(result.output))
-    if not script:
-        raise NodeExecutionError(c.ErrorCode.provider_remote_failed, "Case agent LLM output missing script.")
-    return script
 
 
 def _render_with_fallback(
@@ -171,31 +203,3 @@ def _strip_stage_cues(text: str) -> str:
     text = re.sub(r"[ \t]{2,}", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
-
-
-def _script_from_llm_output(output: dict) -> str:
-    items = output.get("items")
-    if isinstance(items, list) and items and isinstance(items[0], dict):
-        for nested_key in ("script", "content", "draft"):
-            nested = items[0].get(nested_key)
-            if isinstance(nested, str) and nested.strip():
-                return nested.strip()
-    for key in ("script", "draft", "polished_script", "content"):
-        value = output.get(key)
-        if isinstance(value, str) and value.strip():
-            if key == "content":
-                parsed = _json_object(value)
-                for nested_key in ("script", "draft", "polished_script"):
-                    nested = parsed.get(nested_key)
-                    if isinstance(nested, str) and nested.strip():
-                        return nested.strip()
-            return value.strip()
-    return ""
-
-
-def _json_object(value: str) -> dict:
-    try:
-        parsed = json.loads(value)
-    except json.JSONDecodeError:
-        return {}
-    return parsed if isinstance(parsed, dict) else {}

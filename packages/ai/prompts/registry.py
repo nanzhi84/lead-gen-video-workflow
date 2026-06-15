@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -7,6 +8,83 @@ from packages.core.contracts import ErrorCode, PromptBinding, PromptInvocation, 
 from packages.core.storage import Repository
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
+
+# Output schema ids whose contract is "must yield a non-empty口播 script string".
+# Both the provider_seed CaseAgentScriptGenerate template (case_agent_script.output)
+# and the migrated script-variant templates (prompt.script.output) share this rule.
+SCRIPT_OUTPUT_SCHEMA_IDS = frozenset({"case_agent_script.output", "prompt.script.output"})
+
+
+def _json_object(value: str) -> dict | None:
+    """Parse ``value`` to a dict, or ``None`` when it is not a JSON object.
+
+    ``None`` means "not structured JSON" (plain prose); an (even empty) dict means
+    the model emitted a structured object that must be judged by the contract."""
+    try:
+        parsed = json.loads(value)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def extract_script_from_output(output: Any) -> str:
+    """Extract the口播 script text from a script-generation provider output.
+
+    The strict contract (Spec §2.3) is JSON-items shaped: the model returns a JSON
+    object whose ``items[*].script`` (or top-level ``script`` / ``draft`` /
+    ``polished_script``) carries a non-empty script string. Real LLM plugins surface
+    the model reply under ``content`` (a string), so we also accept ``content``:
+
+      * If ``content`` parses to a JSON object that follows the structured contract
+        (it has ``items`` or a script field) we ONLY trust its nested script; a
+        structured-but-script-less object is a FAILED reply and yields ``""`` (it is
+        NOT silently treated as a script). This is the no-silent-degrade guard:
+        ``{"items": [{"title": "x"}]}`` must not pass as a usable script.
+      * Otherwise (plain-prose ``content``) the model wrote the script directly as
+        text, so the trimmed content IS the script.
+
+    Returns ``""`` when no usable script exists; callers map that to
+    ``ErrorCode.prompt_output_invalid``.
+    """
+    if not isinstance(output, dict):
+        return ""
+    nested = _script_from_items(output.get("items"))
+    if nested:
+        return nested
+    for key in ("script", "draft", "polished_script"):
+        value = output.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    content = output.get("content")
+    if isinstance(content, str) and content.strip():
+        return _script_from_content(content)
+    return ""
+
+
+def _script_from_items(items: Any) -> str:
+    if isinstance(items, list) and items and isinstance(items[0], dict):
+        for nested_key in ("script", "content", "draft"):
+            nested = items[0].get(nested_key)
+            if isinstance(nested, str) and nested.strip():
+                return nested.strip()
+    return ""
+
+
+def _script_from_content(content: str) -> str:
+    parsed = _json_object(content)
+    if parsed is None:
+        # content is plain prose (not a JSON object) -> it IS the script.
+        return content.strip()
+    # content is a structured JSON object (possibly empty): only its nested script
+    # counts. A structured object missing a usable script is a failed reply -> "".
+    nested = _script_from_items(parsed.get("items"))
+    if nested:
+        return nested
+    for nested_key in ("script", "draft", "polished_script"):
+        value = parsed.get(nested_key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
 
 
 def case_prompt_variables(case: Any) -> dict[str, str]:
@@ -160,6 +238,20 @@ class PromptRegistry:
                 raise NodeExecutionError(
                     ErrorCode.prompt_output_invalid,
                     "Creative intent output is missing hook or beats.",
+                )
+        elif schema_id in SCRIPT_OUTPUT_SCHEMA_IDS:
+            # Spec §2.3: a non-empty-but-malformed reply that yields no usable
+            # script must NOT pass silently -> prompt.output_invalid (the caller
+            # retries up to the bound, then hard_fails on exhaustion).
+            if not isinstance(output, dict):
+                raise NodeExecutionError(
+                    ErrorCode.prompt_output_invalid,
+                    f"Script prompt output for schema {schema_id} must be a JSON object.",
+                )
+            if not extract_script_from_output(output):
+                raise NodeExecutionError(
+                    ErrorCode.prompt_output_invalid,
+                    "Script prompt output is missing a non-empty script field.",
                 )
         elif not isinstance(output, dict):
             raise NodeExecutionError(

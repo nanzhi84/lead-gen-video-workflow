@@ -58,6 +58,87 @@ def test_prompt_output_schema_validation_rejects_invalid_creative_intent():
     assert exc.value.error.code == ErrorCode.prompt_output_invalid
 
 
+@pytest.mark.parametrize(
+    "bad_output",
+    [
+        {},
+        {"script": ""},
+        {"script": "   "},
+        {"items": []},
+        {"items": [{"title": "t", "publish_content": "p"}]},
+        # Structured JSON content (items/object) with no usable script = a failed
+        # reply; the raw JSON string must NOT silently become the "script".
+        {"content": '{"items": [{"title": "只有标题"}]}'},
+        {"content": "{}"},
+        "plain string is not an object",
+    ],
+)
+def test_script_output_schema_validation_rejects_empty_script(bad_output):
+    # case_agent_script.output (provider_seed CaseAgentScriptGenerate template).
+    repository = Repository()
+    registry = PromptRegistry(repository)
+    with pytest.raises(NodeExecutionError) as exc:
+        registry.validate_output(
+            prompt_version_id="prompt_case_agent_script_v1",
+            output=bad_output,
+        )
+    assert exc.value.error.code == ErrorCode.prompt_output_invalid
+
+
+@pytest.mark.parametrize(
+    "good_output",
+    [
+        {"script": "完整的口播脚本文本。"},
+        {"items": [{"script": "第一条脚本。"}]},
+        {"items": [{"content": "第一条脚本。"}]},
+        {"content": '{"script": "嵌在 content 里的脚本。"}'},
+        {"content": '{"items": [{"script": "嵌套 items 脚本。"}]}'},
+        # Plain-prose content: the model ignored the JSON contract and wrote the
+        # script as text; the trimmed text IS the script (tolerant for real LLMs).
+        {"content": "数字人主播从头到尾念出来的口播台词。"},
+        {"draft": "草稿脚本。"},
+    ],
+)
+def test_script_output_schema_validation_accepts_usable_script(good_output):
+    repository = Repository()
+    registry = PromptRegistry(repository)
+    # Must not raise.
+    registry.validate_output(
+        prompt_version_id="prompt_case_agent_script_v1",
+        output=good_output,
+    )
+
+
+def test_script_variant_output_schema_validation_uses_prompt_script_output():
+    # prompt.script.output schema id (the migrated per-variant templates resolve to
+    # these). Reuse the same non-empty-script contract.
+    repository = Repository()
+    registry = PromptRegistry(repository)
+    with pytest.raises(NodeExecutionError) as exc:
+        registry.validate_output(
+            prompt_version_id="prompt_script_hard_ad_fresh_generate_v1",
+            output={"items": [{"title": "no script here"}]},
+        )
+    assert exc.value.error.code == ErrorCode.prompt_output_invalid
+    # And the valid shape passes.
+    registry.validate_output(
+        prompt_version_id="prompt_script_hard_ad_fresh_generate_v1",
+        output={"items": [{"script": "脚本。"}]},
+    )
+
+
+def test_ai_cover_prompt_resolves_through_registry_binding():
+    # Spec §10.1: the AI cover prompt must be reachable via a node binding, not only
+    # by a hardcoded version id. The default seed now binds PublishCover.ai_cover.
+    repository = Repository()
+    registry = PromptRegistry(repository)
+    binding, version = registry.resolve_published_version(node_id="PublishCover.ai_cover")
+    assert binding.node_id == "PublishCover.ai_cover"
+    assert binding.prompt_template_id == "prompt_cover_ai_cover"
+    assert version.id == "prompt_cover_ai_cover_v1"
+    assert version.status == "published"
+
+
 def test_prompt_publish_and_rollback_api_flow():
     client = TestClient(app)
     login = client.post(

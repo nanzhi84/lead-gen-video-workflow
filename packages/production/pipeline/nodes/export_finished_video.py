@@ -14,6 +14,7 @@ import tempfile
 from pathlib import Path
 
 from packages.ai.gateway import ProviderCall
+from packages.ai.prompts.registry import PromptRegistry
 from packages.core.contracts import (
     Artifact,
     ArtifactKind,
@@ -34,6 +35,12 @@ from packages.production.pipeline._node_context import NodeContext
 from packages.production.pipeline._run_state import degradation_notice
 
 COVER_PROMPT_VERSION_ID = "prompt_cover_ai_cover_v1"
+# Spec §10.1: the AI-cover prompt must resolve through the Prompt Registry binding
+# (PublishCover.ai_cover), not be looked up by a hardcoded version id. We still
+# tolerate a missing binding (degraded environments / bare test adapters) by
+# falling back to the canonical seeded version so the cover never hard-fails on
+# prompt resolution alone.
+AI_COVER_NODE_ID = "PublishCover.ai_cover"
 
 
 def run(ctx: NodeContext) -> NodeOutput:
@@ -195,13 +202,38 @@ def _frame_cover(ctx: NodeContext, final: Artifact) -> Artifact:
     )
 
 
+def _resolve_cover_prompt_version_id(ctx: NodeContext) -> str | None:
+    """Resolve the AI-cover prompt version through the registry binding (Spec §10.1).
+
+    Returns the bound, published version id when ``PublishCover.ai_cover`` is bound;
+    otherwise falls back to the canonical seeded version id if that version exists,
+    else ``None`` (no usable prompt -> caller renders with the in-code default).
+
+    Resolution is driven off the repository's bindings (via PromptRegistry) so the
+    node no longer looks the version up by a hardcoded id, satisfying the
+    no-hardcoded-prod-prompt rule regardless of how the runtime adapter is wired."""
+    registry = getattr(ctx.adapter, "prompt_registry", None) or PromptRegistry(ctx.repository)
+    try:
+        _binding, version = registry.resolve_published_version(
+            node_id=AI_COVER_NODE_ID,
+            case_id=ctx.run.case_id,
+        )
+        return version.id
+    except NodeExecutionError:
+        pass
+    if COVER_PROMPT_VERSION_ID in ctx.repository.prompt_versions:
+        return COVER_PROMPT_VERSION_ID
+    return None
+
+
 def _generate_ai_cover(ctx: NodeContext, profile_id: str) -> tuple[Artifact | None, str | None]:
     """Generate the AI cover via the gateway. Returns ``(None, None)`` on any
     provider failure so the caller can fall back to the frame cover."""
     state = ctx.state
     run = ctx.run
     node_run = ctx.node_run
-    version = ctx.repository.prompt_versions.get(COVER_PROMPT_VERSION_ID)
+    version_id = _resolve_cover_prompt_version_id(ctx)
+    version = ctx.repository.prompt_versions.get(version_id) if version_id is not None else None
     prompt = build_cover_prompt(
         CoverPromptInputs(
             title=state.request.title or "",
@@ -217,7 +249,7 @@ def _generate_ai_cover(ctx: NodeContext, profile_id: str) -> tuple[Artifact | No
             node_run_id=node_run.id,
             provider_profile_id=profile_id,
             capability_id="image.generate",
-            prompt_version_id=COVER_PROMPT_VERSION_ID if version is not None else None,
+            prompt_version_id=version.id if version is not None else None,
             input={"prompt": prompt},
             idempotency_key=f"cover-{run.id}",
         )

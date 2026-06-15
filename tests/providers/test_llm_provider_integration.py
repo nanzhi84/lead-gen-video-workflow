@@ -71,6 +71,69 @@ def test_case_agent_generate_with_memory_uses_real_llm_profile():
         assert prompt_invocations[-1].provider_invocation_id
 
 
+class _InvalidThenValidLLMProvider:
+    """Returns a malformed-but-non-empty script reply, then a valid one.
+
+    Exercises the no-silent-degrade retry: the first reply has no usable script
+    (output_invalid -> retry), the second carries a real script."""
+
+    provider_id = "fake.llm"
+
+    def __init__(self, invalid_replies: int) -> None:
+        self.calls: list[ProviderCall] = []
+        self._invalid_left = invalid_replies
+
+    def invoke(self, call: ProviderCall) -> ProviderResult:
+        self.calls.append(call)
+        if self._invalid_left > 0:
+            self._invalid_left -= 1
+            # Non-empty JSON-ish content but no usable script field.
+            return ProviderResult(output={"content": '{"items": [{"title": "只有标题"}]}'})
+        return ProviderResult(output={"script": "重试后生成的可用脚本。"})
+
+
+def test_script_generation_retries_on_output_invalid_then_succeeds():
+    with TestClient(create_app()) as client:
+        _login_admin(client)
+        repository = client.app.state.repository
+        provider = _InvalidThenValidLLMProvider(invalid_replies=1)
+        client.app.state.provider_gateway.register(provider)
+        profile = _llm_profile()
+        repository.provider_profiles[profile.id] = profile
+
+        response = client.post(
+            "/api/cases/case_demo/scripts/generate-with-memory",
+            json={"brief": "Generate a script.", "memory_ids": []},
+        )
+
+        assert response.status_code == 202, response.text
+        assert response.json()["script"] == "重试后生成的可用脚本。"
+        # One invalid + one valid = exactly two provider calls.
+        assert len(provider.calls) == 2
+
+
+def test_script_generation_hard_fails_with_prompt_output_invalid_after_exhaustion():
+    with TestClient(create_app()) as client:
+        _login_admin(client)
+        repository = client.app.state.repository
+        # Always invalid: never yields a usable script -> hard_fail after retries.
+        provider = _InvalidThenValidLLMProvider(invalid_replies=99)
+        client.app.state.provider_gateway.register(provider)
+        profile = _llm_profile()
+        repository.provider_profiles[profile.id] = profile
+
+        response = client.post(
+            "/api/cases/case_demo/scripts/generate-with-memory",
+            json={"brief": "Generate a script.", "memory_ids": []},
+        )
+
+        assert response.status_code >= 400, response.text
+        body = response.json()
+        assert body.get("error", {}).get("code") == "prompt.output_invalid", body
+        # 1 initial + 2 retries = 3 bounded attempts, no infinite loop.
+        assert len(provider.calls) == 3
+
+
 def test_creative_intent_prefers_real_llm_profile_over_sandbox():
     with TestClient(create_app()) as client:
         _login_admin(client)

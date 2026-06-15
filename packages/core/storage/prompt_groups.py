@@ -6,7 +6,13 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from packages.core.contracts import PromptSchemaRef, PromptTemplate, PromptVersion, utcnow
+from packages.core.contracts import (
+    PromptBinding,
+    PromptSchemaRef,
+    PromptTemplate,
+    PromptVersion,
+    utcnow,
+)
 
 
 @dataclass(frozen=True)
@@ -26,6 +32,19 @@ LEGACY_PROMPT_VARIABLE_HINTS: dict[str, tuple[str, ...]] = {
     "prompt_creative_intent": ("script",),
     "prompt_case_agent_script": ("brief", "memories"),
     "prompt_vlm_annotation": ("asset_id", "asset_kind"),
+}
+
+# Default node bindings for seeded prompt-group templates that have a runtime
+# consumer in THIS codebase. Spec §10.1: production prompts must resolve through
+# the registry (via a binding), not be looked up/hardcoded in node code. Only seed
+# a binding for a template a node actually renders today, so we never imply
+# coverage that does not exist:
+#   - ai_cover_prompt (PublishCover.ai_cover) -> ExportFinishedVideo AI cover node.
+# The migrate_real_prompts script seeds the richer per-variant bindings
+# (CaseAgentScriptGenerate.{persona}.{operation}, MediaAssetAnnotation.broll.*)
+# against a live DB; this default seed only covers the in-memory runtime path.
+SEEDED_TEMPLATE_NODE_BINDINGS: dict[str, str] = {
+    "prompt_cover_ai_cover": "PublishCover.ai_cover",
 }
 
 
@@ -61,6 +80,17 @@ def seed_prompt_groups(repository: Any) -> None:
         )
         repository.prompt_templates[template.id] = template
         repository.prompt_versions[version.id] = version
+        node_id = SEEDED_TEMPLATE_NODE_BINDINGS.get(seed.template_id)
+        if node_id is not None:
+            binding_id = f"prompt_binding_{seed.template_id}"
+            if binding_id not in repository.prompt_bindings:
+                repository.prompt_bindings[binding_id] = PromptBinding(
+                    id=binding_id,
+                    prompt_template_id=seed.template_id,
+                    prompt_version_id=seed.version_id,
+                    node_id=node_id,
+                    priority=1,
+                )
 
 
 @lru_cache(maxsize=1)

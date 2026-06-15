@@ -71,7 +71,19 @@ def test_sqlalchemy_outbox_replay_and_dispatcher_are_stable_and_idempotent() -> 
     hub = InProcessFanoutHub()
     subscriber = hub.subscribe(run_id)
     dispatcher = SqlAlchemyOutboxDispatcher(session_factory=session_factory, hub=hub)
-    anyio.run(dispatcher.dispatch_once)
+
+    # Drain the full pending backlog, not just one batch. Sibling integration tests
+    # run with the dispatcher disabled and leave pending outbox rows; dispatch_once
+    # claims globally ORDER BY created_at LIMIT batch_size, so on a re-run against a
+    # non-rebootstrapped DB this test's freshly-timestamped rows can fall outside a
+    # single 100-row window (head-of-line blocking). Looping until dispatch_once()
+    # returns 0 guarantees our events publish regardless of backlog. Mirrors
+    # tests/temporal/test_temporal_runtime.py.
+    async def _drain() -> None:
+        while await dispatcher.dispatch_once():
+            pass
+
+    anyio.run(_drain)
 
     assert [hub.get_nowait(subscriber)["event_id"], hub.get_nowait(subscriber)["event_id"]] == [
         "evt_sql_a",

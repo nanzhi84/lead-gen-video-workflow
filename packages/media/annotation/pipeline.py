@@ -46,6 +46,7 @@ from packages.core.contracts import (
 from . import _assemble as assemble
 from . import vlm as vlm_module
 from . import windows as window_planner
+from ._material import runs_speech_and_face
 from .errors import (
     AnnotationV4Error,
     RuntimeVLMError,
@@ -168,7 +169,10 @@ def run_annotation_v4(
         clips/quality_report/usage_windows (never a degraded annotation), still a
         valid V4 schema.
     """
-    is_portrait = _is_portrait(material_type)
+    # The unified ``video`` bucket and dedicated ``portrait`` both run the full
+    # sensor suite (VAD speech islands + multi-face) so each clip can be gated for
+    # lip-sync usability; dedicated b-roll skips speech/face sensing.
+    run_speech_and_face = runs_speech_and_face(material_type)
 
     # -- (1) sensor layer (deterministic) --
     try:
@@ -178,7 +182,7 @@ def run_annotation_v4(
         shot_cuts = []
 
     speech_islands: list[dict[str, float]] = []
-    if is_portrait:
+    if run_speech_and_face:
         try:
             raw_islands = (deps.detect_speech_islands(video_path)) or []
             speech_islands = [_island_to_dict(i) for i in raw_islands]
@@ -196,7 +200,7 @@ def run_annotation_v4(
     windows = window_planner.plan_windows(
         duration=duration,
         shot_cuts=shot_cuts,
-        speech_islands=speech_islands if is_portrait else None,
+        speech_islands=speech_islands if run_speech_and_face else None,
         window_min_sec=cfg.window_min_sec,
         window_max_sec=cfg.window_max_sec,
         vad_adhesion_range=cfg.vad_adhesion_range,
@@ -225,7 +229,7 @@ def run_annotation_v4(
                 full_asr_text=full_asr_text,
                 deps=deps,
                 cfg=cfg,
-                is_portrait=is_portrait,
+                annotate_faces=run_speech_and_face,
             )
             all_clips.extend(window_clips)
     except WindowFailed as wf:
@@ -291,7 +295,7 @@ def _analyze_window_with_retry(
     full_asr_text: str,
     deps: V4Deps,
     cfg: V4Config,
-    is_portrait: bool = False,
+    annotate_faces: bool = False,
 ) -> list[ClipV4]:
     """Retry one window, routing by failure type; exhausting any cap raises WindowFailed.
 
@@ -299,7 +303,8 @@ def _analyze_window_with_retry(
     first use and on SemanticError; SchemaError changes the prompt only;
     RuntimeVLMError backs off with the same frames/prompt.
 
-    Portrait only: after a successful parse, the deterministic multi-face sensor
+    When ``annotate_faces`` (portrait + unified video): after a successful parse, the
+    deterministic multi-face sensor
     runs over this window's still-alive frame paths and sets each clip's
     ``semantics.face_count_max`` (authoritative CV source for the multi_face
     blocker in report.py), exactly as OLD ``_annotate_face_counts`` did. The
@@ -350,7 +355,7 @@ def _analyze_window_with_retry(
                         min_confidence=cfg.min_confidence,
                     )
                 )
-                if is_portrait:
+                if annotate_faces:
                     _annotate_face_counts(clips, frames, deps)
                 return clips
             except SchemaError as exc:
@@ -541,11 +546,6 @@ def _safe_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
-
-
-def _is_portrait(material_type: str) -> bool:
-    mt = str(material_type or "").strip().lower()
-    return any(tok in mt for tok in ("portrait", "口播", "talk"))
 
 
 def _schema_retry_hint() -> str:

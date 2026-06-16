@@ -1,19 +1,31 @@
 # packages/publishing
 
-发布领域的持久化层（spec §13）：把发布物（package/batch/item/attempt/record）落库，按状态机推进，并产出 §9.5 漏斗事件。本包**只有仓储 + 行映射**，不含平台 adapter、文案/封面生成或真机驱动——那些逻辑在别处（如 `apps/api/services/publishing.py` 的内存 sandbox 服务）。
+发布与分发领域（spec §13，隔离边界）：把发布物（package/batch/item/attempt/record）落库并按状态机推进，同时承载平台适配、文案/封面生成、账号匹配，以及小V猫真机 connector。**不是只有仓储。**
+
+## 职责
+- 持久化：`sqlalchemy_repository.py` 的 `SqlAlchemyPublishingRepository` —— package/batch/item/attempt 的 CRUD、`submit_batch` 状态机、§9.5 漏斗事件落库。
+- 平台适配：`platform_adapter.py` 的 `PublishPlatformAdapter` 端口 + `SandboxPublishAdapter` / `XiaoVmaoPublishAdapter`，经 `select_adapter()` / `resolve_adapter_id()` 选择实现。
+- 真机驱动：`connectors/xiaovmao_cdp.py` —— 小V猫 CDP **进程外**真机 connector（M6c，代码自标 UNVERIFIED）。
+- 文案/封面：`copy_node.py`（§28.3 generate-copy：`generate_publish_copy`/`derive_publish_copy` + `LlmChatPort` + 确定性 fallback）、`cover_node.py`（generate-cover / preview-cover-frame：`generate_publish_cover`/`preview_cover_frame` + `AiCoverPort`）。
+- 账号：`account_matching.py` —— 账号组过滤、账号匹配、`normalize_scheduled_at`/`normalize_publish_tags`。
 
 ## 关键文件
-- `sqlalchemy_repository.py` — `SqlAlchemyPublishingRepository`：package/batch/item/attempt 的 CRUD + `submit_batch` 状态机 + 漏斗事件落库（本包唯一入口，见 `__init__.py` 仅导出此类）。
-- `sqlalchemy_mappers.py` — Row → contract VM 映射（package/item/batch/attempt/record/artifact）。
+- `sqlalchemy_repository.py` / `sqlalchemy_mappers.py` —— 仓储 + Row→contract 映射。
+- `platform_adapter.py` —— adapter 端口与 Sandbox/小V猫 实现、`select_adapter`。
+- `connectors/xiaovmao_cdp.py` —— 小V猫真机 CDP 驱动（进程外、UNVERIFIED）。
+- `copy_node.py` / `cover_node.py` —— 文案 / 封面生成（LLM/AI 端口 + fallback）。
+- `account_matching.py` —— 账号匹配与发布参数校验。
 
-## 流程
-- `create_package`（来自 finished video 或 upload artifact，二选一分支）→ `create_batch`（package × platform_targets 笛卡尔积建 item）→ `submit_batch`（逐 item 建 attempt）→ `attempt_detail` 查回。
-- `submit_batch` 全程经 `assert_transition`（`publish_batch` / `publish_item` / `publish_attempt`，来自 `packages.core.contracts.state_machines`），非随意改状态。`dry_run` 走 `review_ready` / `manual_review_ready` 分支而非 `published`。
-
-## 约定与坑
-- 本包不做平台选择：attempt 的 `adapter_id` 硬编码为 `"sandbox.publish"`，无环境开关、无真机路径。
-- 漏斗事件（`publish_started` / `published`，带 `dedupe_key`）在 submit 事务 commit **之后** best-effort 落库（`persist_funnel_event_rows`，来自 `packages.core.observability`）；否则 SQL 后端 `true_yield_rate` 结构性为 0。run/job/case 经 package 的 source finished video 回溯解析。
+## 约定与要求
+- 状态流转一律经 `assert_transition`（`publish_batch`/`publish_item`/`publish_attempt`，来自 `packages.core.contracts.state_machines`）；`dry_run` 走 review_ready / manual_review_ready 分支而非 published。
+- 平台逻辑必须放在 adapter 之后，经 `select_adapter()`/`resolve_adapter_id()` 选择；新增平台加 adapter，别在仓储里写平台分支。
+- 文案/封面生成走 `LlmChatPort`/`AiCoverPort`，缺 provider 时用确定性 fallback，不静默失败。
+- 漏斗事件（`publish_started`/`published`，带 `dedupe_key`）在 submit 事务 commit **之后** best-effort 落库（`persist_funnel_event_rows`，来自 `packages.core.observability`），否则 SQL 后端 `true_yield_rate` 结构性为 0。
 
 ## 测试
-- `tests/integration/test_sqlalchemy_publishing.py`（仓储 + 状态机 + 映射）
-- `tests/api/test_publishing_funnel.py`、`tests/api/test_publish_batches_case_filter.py`（漏斗事件 / case 过滤，经 API 层）
+- `pytest tests/publishing`（`test_platform_adapter.py` / `test_copy_node.py` / `test_account_matching.py`）
+- `pytest tests/integration/test_sqlalchemy_publishing.py`、`tests/api/test_publishing_funnel.py`
+
+## 注意 / 坑
+- `connectors/xiaovmao_cdp.py` 是 UNVERIFIED 真机驱动（进程外、依赖 CDP），勿当作已验证的生产路径。
+- 改发布相关 contract 后须重生成 openapi.json + schema.d.ts。

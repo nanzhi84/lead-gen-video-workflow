@@ -1,31 +1,25 @@
 # packages/ops
 
-Ops / 可观测 / 治理域的持久化门面 + provider 余额轮询，支撑 Ops 控制台（spec §9 / §1.6，降级与成本必须显式上报而非隐藏）。本包是 CRUD + 简单聚合层，重计算（漏斗 taxonomy、true-yield 公式）都在 `packages.core.observability`，本包只调用/再导出。
+Ops / 成本 / 成品率 / 治理域：既有 §9/§26 的**指标计算**（成本、成品率、预算、告警规则、失败分类），也有持久化门面与 provider 余额轮询。支撑 Ops 控制台（spec §9 / §1.6：降级与成本必须显式上报，不得隐藏）。
 
 ## 职责
-- 仓储门面：`SqlAlchemyOpsRepository`（`sqlalchemy_repository.py`）聚合 dashboard / provider usage / cost rollups / yield funnel / budgets / alerts / QC / approval / audit / billing reconcile。
-- 成品率：`yield_funnel()` 读 §9.5 `YieldFunnelEventRow`，调 core 的 `compute_true_yield_rate`（run-scoped：去重 run，达 `published` 且未 `qc_failed`/`manual_rejected`）。
-- 成本：`provider_usage()` 把 `ProviderInvocationRow.estimated_cost` 累加为 CNY；`provider_usage_metrics.py` 用 SQL 聚合 provider 成功率/成本。
-- budget / alert：仅 list / upsert / patch / patch_status —— 本包**不**做阈值判定或告警规则求值（那是 production / API 层职责）。
-- QC / approval：写库时顺带 stage 对应的 run-linked funnel 事件（`qc_*` / `manual_*`，best-effort 持久化）。
-- Provider 余额：`balance/` 各家 poller 拉真实余额，graceful degrade（unconfigured/unsupported/unauthorized/error），绝不编造数字、绝不抛异常。
+- 指标计算（纯函数，均在 `__init__.py` 导出）：`cost_metrics.py`（§9.4/§26.2 `compute_cost_metrics`）、`yield_rates.py`（§9.5/§26.3 `compute_yield_rates`，基于 `yield_funnel_events`）、`budget_evaluation.py`（§9.8 `evaluate_budget`/`period_start`）、`alert_rules.py`（§9.2/§9.8 `evaluate_rules` + `ALERT_METRIC_CATALOG`）、`failure_taxonomy.py`（§9.6 `classify_error_code`/`classify_funnel_event`，薄再导出）。
+- 持久化门面：`sqlalchemy_repository.py` 的 `SqlAlchemyOpsRepository` 聚合 dashboard / cost rollups / yield funnel / budgets / alerts / QC / approval / audit / billing reconcile；`sqlalchemy_mappers.py` 做 Row→contract；`provider_usage_metrics.py` 用 SQL 聚合 provider 成功率/成本。
+- Provider 余额：`balance/`（`port.py` PORT、`registry.py` `build_pollers`/`query_balance`、`service.py` `refresh_balances` + 可选后台 `BalancePollerService`、`base.py` 共享助手、`providers/` 各家插件）拉真实余额，失败 graceful degrade（unconfigured/unsupported/unauthorized/error），绝不编造、绝不抛。
 
-## 关键文件 / 子目录
-- `sqlalchemy_repository.py` — 仓储门面，router `apps/api/routers/ops.py` 经 `apps/api/services/ops.py` 调它
-- `sqlalchemy_mappers.py` — ORM Row -> contract 的纯转换函数
-- `provider_usage_metrics.py` — SQL 聚合 provider 成功率/成本
-- `funnel.py` — 再导出 `packages.core.observability.funnel` 的写助手（兼容老 import 路径）
-- `balance/port.py` `registry.py` `service.py` `base.py` `providers/` — 余额 poller PORT / 分发(build_pollers,query_balance) / 聚合+可选后台轮询 / 共享助手 / 各家插件
-- `__init__.py` — 出口（`SqlAlchemyOpsRepository` + funnel helpers）
+## 关键文件
+- 计算：`cost_metrics.py` / `yield_rates.py` / `budget_evaluation.py` / `alert_rules.py` / `failure_taxonomy.py`。
+- 持久化：`sqlalchemy_repository.py` / `sqlalchemy_mappers.py` / `provider_usage_metrics.py`。
+- 余额：`balance/`。
 
 ## 约定与要求
-- contract-first：输入输出一律 `packages.core.contracts` 类型，money 累加用 `Money.amount`、返回 CNY `Money`。
-- §3.2 依赖规则：`production` / `core` 不得 import `ops`；漏斗与 true-yield 实现都在 `packages.core.observability`，本包只调用/再导出，勿在此重写。
-- 余额 poller 失败映射为状态字段不抛异常；后台轮询默认 OFF（`settings.balance.poller_enabled`），无 key / 测试环境不外呼。
+- contract-first：I/O 走 `packages.core.contracts` 类型，money 用 `Money`（CNY）。
+- §3.2 依赖方向：`production` / `core` **不得** import `ops`。漏斗 taxonomy 与 `compute_true_yield_rate`/`record_funnel_event` 的实现在 `packages.core.observability.funnel`（ops `__init__.py` 再导出复用），ops 在其上做 §9/§26 指标计算——别在 ops 重写漏斗底座。
+- 余额 poller 失败映射为状态字段、不抛异常；后台轮询默认 OFF（`settings.balance.poller_enabled`），无 key / 测试环境不外呼。
 
 ## 测试
-- `pytest tests/ops` + `pytest tests/observability`（漏斗 / outbox / metrics）。
+- `pytest tests/ops tests/observability`（指标计算 / 漏斗 / outbox / metrics）。
 
 ## 注意 / 坑
-- `reconcile_billing` 当前只写审计并返回 `status="queued"`，未真正落对账结果——是占位，勿当成已完成对账。
-- 改 Ops API contract 后须重新生成 openapi.json + schema.d.ts（`scripts/export_openapi.py`）。
+- `reconcile_billing` 当前只写审计并返回 `status="queued"`，是占位，勿当成已完成对账。
+- 改 Ops contract 后须重新生成 openapi.json + schema.d.ts（`scripts/export_openapi.py`）。

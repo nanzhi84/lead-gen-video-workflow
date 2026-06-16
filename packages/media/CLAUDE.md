@@ -5,7 +5,7 @@
 ## 职责
 - 素材库 CRUD 与用量：`SqlAlchemyMediaRepository` 管 portrait/b-roll/BGM 素材、标注、音色（voice）持久化，含 `replace_asset_source_artifact`、`material_usage_ranking`、标注读写 `get_or_create_annotation`/`patch_annotation`/`rerun_annotation`。
 - V4 标注：传感器（PySceneDetect/Silero VAD/OpenCV）出客观信号，VLM 只判语义；产出 `AnnotationV4`。
-- 视频原语：ffmpeg/ffprobe 子进程做 probe、抽帧（`extract_thumbnails`）、stabilize、`trim_to_valid_segments`、`probe_stream_types`、`sha256_file`。
+- 视频原语（`video/ffmpeg.py`）：ffmpeg/ffprobe 子进程做 `probe_media`、抽帧（`extract_thumbnails`/`extract_frame_at_time`）、`stabilize_video`、`compress_video_to_budget`、`normalize_for_upload`、`trim_to_valid_segments`、`probe_stream_types`。
 - 纯转换：`audio/forced_alignment.py`（MiniMax TTS 字幕→ASR 形状）、`audio/silence.py`（silencedetect→停顿窗）；封面 prompt 组装与音色 preview/clone/design 桥接。
 
 ## 关键文件 / 子目录
@@ -14,6 +14,7 @@
 - `annotation/pipeline.py` — 纯编排 `run_annotation_v4`，依赖经 `V4Deps` 注入
 - `annotation/runner.py` — 标注 wiring 层：接 `ProviderGateway` 跑付费 VLM，否则降级
 - `annotation/sensors/` — 确定性传感器（shots/faces/cv_quality/frames/motion/voice_activity）
+- `annotation/bgm.py` — BGM/音频资产标注：客观特征（librosa 特征 / loudnorm LUFS，`extract_audio_features`/`measure_loudness_lufs`）+ LLM 语义 mood/scene（`annotate_bgm`）
 - `annotation/assets/face_detection_yunet_2023mar.onnx` — YuNet 人脸模型权重
 - `audio/forced_alignment.py`、`audio/silence.py`、`cover.py`、`voice_provider_bridge.py`、`assets.py`（object-store 落盘助手 `store_file`）
 

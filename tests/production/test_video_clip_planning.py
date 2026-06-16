@@ -20,6 +20,7 @@ from packages.core.contracts import (
     ClipV4,
     DigitalHumanVideoRequest,
     MediaAssetRecord,
+    MediaInfo,
     NodeRun,
     NodeStatus,
     RunStatus,
@@ -77,13 +78,49 @@ def _cover_clip(segment_id, start, end, keywords):
     )
 
 
-def _inject_video_asset(repo: Repository, asset_id: str, clips, *, case_id="case_demo") -> None:
-    asset = MediaAssetRecord(id=asset_id, case_id=case_id, title="mixed", kind="video", usable=True)
+def _inject_video_asset(
+    repo: Repository,
+    asset_id: str,
+    clips,
+    *,
+    case_id="case_demo",
+    kind="video",
+    annotation_material_type: str | None = None,
+) -> None:
+    duration = max((float(clip.end) for clip in clips), default=0.0)
+    source = repo.create_artifact(
+        kind=ArtifactKind.uploaded_file,
+        payload_schema="UploadedFileArtifact.v1",
+        payload={"filename": f"{asset_id}.mp4", "object_uri": f"memory://{asset_id}"},
+        case_id=case_id,
+        uri=f"memory://{asset_id}",
+        media_info=MediaInfo(
+            media_type="video",
+            codec="h264",
+            format="mp4",
+            mime_type="video/mp4",
+            duration_sec=duration,
+            width=320,
+            height=568,
+            fps=30,
+        ),
+    )
+    asset = MediaAssetRecord(
+        id=asset_id,
+        case_id=case_id,
+        title="mixed",
+        kind=kind,
+        source_artifact_id=source.id,
+        usable=True,
+    )
     repo.media_assets[asset_id] = asset
     annotation_case_id = case_id or "case_demo"
     annotation = AnnotationV4(
         meta=AnnotationMetaV4(
-            asset_id=asset_id, case_id=annotation_case_id, material_type="video", duration=20.0
+            asset_id=asset_id,
+            case_id=annotation_case_id,
+            material_type=annotation_material_type or kind,
+            duration=duration,
         ),
         clips=clips,
     )
@@ -158,6 +195,41 @@ def test_material_pack_splits_one_video_into_portrait_and_broll(tmp_path, monkey
 
     # Honest diagnostics for the unified bucket.
     assert payload["diagnostics"]["portrait_from_video"] >= 1
+    assert payload["diagnostics"]["video_no_lipsync"] is False
+
+
+def test_material_pack_legacy_portrait_kind_uses_clip_level_unified_path(tmp_path, monkeypatch):
+    object_store = LocalObjectStore(tmp_path / "objects")
+    monkeypatch.setattr("packages.core.storage.object_store._OBJECT_STORE", object_store)
+    adapter = _adapter(object_store)
+    adapter.repository.media_assets.clear()
+    adapter.repository.annotations.clear()
+    _inject_video_asset(
+        adapter.repository,
+        "legacy_portrait",
+        [
+            _talk_clip("talk", 1.25, 7.5),  # A-roll
+            _cover_clip("cover", 7.5, 12.0, ["打磨", "工艺"]),  # B-roll, same asset
+        ],
+        kind="portrait",
+        annotation_material_type="portrait",
+    )
+
+    output = nodes.material_pack_planning.run(_ctx(adapter, _request(), "MaterialPackPlanning"))
+    payload = next(a.payload for a in output.artifacts if a.kind == ArtifactKind.plan_material_pack)
+
+    portrait = payload["portrait_candidates"]
+    assert len(portrait) == 1
+    talk = portrait[0]
+    assert talk["asset_id"] == "legacy_portrait"
+    assert talk["metadata"]["clip_id"] == "talk"
+    assert talk["metadata"]["source_start"] == 1.25
+    assert talk["metadata"]["source_end"] == 7.5
+
+    broll_clip_ids = {(c["metadata"] or {}).get("clip_id") for c in payload["broll_candidates"]}
+    assert "cover" in broll_clip_ids
+    assert "talk" not in broll_clip_ids
+    assert payload["diagnostics"]["portrait_from_video"] == 1
     assert payload["diagnostics"]["video_no_lipsync"] is False
 
 

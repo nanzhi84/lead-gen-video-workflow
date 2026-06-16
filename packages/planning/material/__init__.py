@@ -19,7 +19,6 @@ from packages.planning.material.portrait_pack import (
     SimpleCandidate,
     clip_is_lip_sync_usable,
     rank_portrait_clip_candidates,
-    score_portrait_candidate,
     score_simple_candidate,
 )
 
@@ -39,6 +38,5 @@ __all__ = [
     "PortraitClipCandidate",
     "clip_is_lip_sync_usable",
     "rank_portrait_clip_candidates",
-    "score_portrait_candidate",
     "score_simple_candidate",
 ]

@@ -9,7 +9,7 @@ nodes consume — no seeded/placeholder timeline:
     ``boundary_score``) the boundary builder needs, while keeping the real aligned
     timing from the NarrationAlignment artifact;
   - portrait source-window candidates: each usable portrait material candidate's
-    real source span ``[0, source_duration]`` (ranked by the material pack);
+    clip source span ``[source_start, source_end]`` (ranked by the material pack);
   - audio pauses: detected by running ffmpeg ``silencedetect`` on the produced TTS
     audio. With real TTS this finds real 气口 and cuts snap into silences; with the
     sandbox 440Hz tone it finds (near) none, so the planner falls back to
@@ -56,8 +56,8 @@ def run(ctx: NodeContext) -> NodeOutput:
             "Portrait main track cannot cover the full audio.",
         )
 
-    # Build planner candidates from the ranked material pack. Each candidate is the
-    # real source span [0, source_duration]; the planner enforces coverage/capacity.
+    # Build planner candidates from the ranked material pack. Each candidate is a
+    # clip-level source span; the planner enforces coverage/capacity.
     # Recency context (weighted recency + opening guard, §6.6/§31/§32.10) is attached
     # so the already-ported scoring (is_recent_portrait_candidate / opening penalty /
     # exact-vs-similar split) fires on the real production path instead of dead-defaulting.
@@ -113,7 +113,9 @@ def run(ctx: NodeContext) -> NodeOutput:
         if isinstance(c.get("recent_usage"), dict) and c["recent_usage"].get("is_recently_used")
     }
     segments = [
-        _segment_payload(index, seg, recent_template_ids=recent_template_ids, total=len(plan.segments))
+        _segment_payload(
+            index, seg, recent_template_ids=recent_template_ids, total=len(plan.segments)
+        )
         for index, seg in enumerate(plan.segments)
     ]
     total_duration = round(plan.total_frames / TIMELINE_FPS, 3)
@@ -217,42 +219,38 @@ def _plan_with_escalation(
 
 
 def _portrait_window_candidates(ctx: NodeContext, items: list[dict], ledger) -> list[dict]:
-    """One source-window candidate per ranked material-pack portrait candidate.
+    """One clip source-window candidate per ranked material-pack portrait candidate.
 
-    Legacy ``portrait`` assets yield the whole-asset span ``[0, source_duration]``.
-    Unified ``video`` candidates carry a clip window in ``metadata``
-    (``clip_id`` / ``source_start`` / ``source_end``): the candidate's source span
-    is exactly that clip, so the boundary planner draws lip-sync source frames only
-    from the talking-head segment of a mixed video (``_assigned_start = start +
-    offset`` is absolute source time, which PortraitTrackBuild cuts verbatim).
+    MaterialPackPlanning now emits portrait candidates only from annotated lip-sync
+    clips, so a candidate without ``clip_id`` / ``source_start`` / ``source_end`` is
+    invalid and is skipped instead of becoming a legacy whole-asset window.
 
-    ``template_id`` stays the asset id so the planned segment maps back to the
-    source artifact for the render node; ``window_id`` is per-clip so several clips
-    of one video compete as distinct windows. ``recent_usage`` is built from the
-    case's recent portrait ledger so a recently-used source is demoted.
+    ``template_id`` stays the asset id so the planned segment maps back to the source
+    artifact for the render node; ``window_id`` is per-clip so several clips of one
+    asset compete as distinct windows. ``recent_usage`` is built from the case's
+    recent portrait ledger so a recently-used source is demoted.
     """
     candidates: list[dict] = []
     for rank, item in enumerate(items):
         asset_id = item.get("asset_id")
         if not asset_id:
             continue
+        meta = item.get("metadata") or {}
+        clip_id = meta.get("clip_id")
+        if clip_id is None or meta.get("source_start") is None or meta.get("source_end") is None:
+            continue
         source = ctx.source_artifact_for_asset(asset_id)
         source_duration = (
-            float(source.media_info.duration_sec or 0)
-            if source and source.media_info
-            else 0.0
+            float(source.media_info.duration_sec or 0) if source and source.media_info else 0.0
         )
         if source_duration <= 0.08:
             continue
-        meta = item.get("metadata") or {}
-        clip_id = meta.get("clip_id")
-        if clip_id is not None and meta.get("source_end") is not None:
+        try:
             win_start = max(0.0, float(meta.get("source_start") or 0.0))
             win_end = min(round(source_duration, 3), float(meta.get("source_end")))
-            window_id = f"{asset_id}:{clip_id}"
-        else:
-            win_start, win_end = 0.0, round(source_duration, 3)
-            window_id = asset_id
+        except (TypeError, ValueError):
+            continue
+        window_id = f"{asset_id}:{clip_id}"
         if win_end - win_start <= 0.08:
             continue
         recent_usage = build_portrait_recency_context_from_ledger(

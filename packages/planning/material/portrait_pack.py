@@ -1,10 +1,9 @@
-"""Real portrait / bgm / font candidate scoring (replaces the score=1 seed).
+"""Real portrait-clip / bgm / font candidate scoring (replaces the score=1 seed).
 
-Portrait does not need keyword matching against the script — it is the main
-talking-head track — so its real score reflects how well the asset can cover the
-narration (source duration vs. required duration), its annotated lip-sync
-suitability, and a recency demotion so a portrait used in the last run is
-demoted below a fresh one. bgm/font score on availability + recency. All pure.
+Portrait candidates are clip-level talking-head windows, scored on how well the
+clip can cover the narration, VLM confidence, and a recency demotion so a source
+used in the last run is demoted below a fresh one. bgm/font score on availability
+and recency. All pure.
 """
 
 from __future__ import annotations
@@ -40,46 +39,9 @@ def _coverage_ratio(source_duration: float, required_duration: float) -> float:
     return min(1.0, max(0.0, source_duration) / required_duration)
 
 
-def _lipsync_suitability(annotation: AnnotationV4 | None) -> float:
-    if annotation is None:
-        return 0.5
-    raw = annotation.quality_report.get("lip_sync_suitability_score")
-    try:
-        return min(1.0, max(0.0, float(raw) / 100.0))
-    except (TypeError, ValueError):
-        return 0.5
-
-
-def score_portrait_candidate(
-    *,
-    asset_id: str,
-    source_duration: float,
-    required_duration: float,
-    annotation: AnnotationV4 | None = None,
-    ledger_entries: Sequence[SelectionLedgerEntry] = (),
-    recency_cfg: RecencyConfig | None = None,
-) -> SimpleCandidate:
-    """Score one portrait asset on coverage + lip-sync suitability - recency."""
-    coverage = _coverage_ratio(source_duration, required_duration)
-    lipsync = _lipsync_suitability(annotation)
-    base = _BASE_AVAILABLE + coverage * _COVERAGE_WEIGHT + lipsync * _LIPSYNC_WEIGHT
-    penalty = recency_penalty_for(ledger_entries, asset_id=asset_id, cfg=recency_cfg)
-    final = max(0.0, base - penalty * _RECENCY_WEIGHT)
-    reason = f"coverage {coverage:.0%}, lip-sync {lipsync:.0%}"
-    if penalty > 0:
-        reason += "; recently used (demoted)"
-    return SimpleCandidate(
-        asset_id=asset_id,
-        score=round(final, 3),
-        base_score=round(base, 3),
-        recency_penalty=round(penalty, 3),
-        reason=reason,
-    )
-
-
 @dataclass(frozen=True)
 class PortraitClipCandidate:
-    """One lip-sync-usable clip window inside a (unified ``video``) asset.
+    """One lip-sync-usable clip window inside a unified visual asset.
 
     ``source_start``/``source_end`` are the clip's span in the source asset's own
     timeline (seconds) — the portrait track build cuts exactly that range. Unlike

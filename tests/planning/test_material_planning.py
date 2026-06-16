@@ -26,7 +26,7 @@ from packages.planning.material import (
     extract_keywords,
     plan_insertions,
     rank_broll_candidates,
-    score_portrait_candidate,
+    rank_portrait_clip_candidates,
 )
 from packages.planning.material.broll_pack import BrollCandidate
 from packages.planning.material.keywords import ScriptSegment
@@ -262,13 +262,21 @@ def test_recency_demotes_clip_picked_in_previous_run():
     assert run2[0].asset_id != winner.asset_id  # fresh clip now ranks first
 
 
-def test_portrait_recency_demotes_recently_used_portrait():
-    fresh = score_portrait_candidate(
-        asset_id="p_fresh", source_duration=15.0, required_duration=10.0
-    )
-    used = score_portrait_candidate(
-        asset_id="p_used",
-        source_duration=15.0,
+def test_portrait_clip_recency_demotes_recently_used_portrait():
+    annotations = {
+        "p_fresh": _annotation(
+            "p_fresh",
+            [_clip("fresh_talk", 0.0, 15.0, ["口播"], role=UsageRole.main, lip_sync=True)],
+            duration=15.0,
+        ),
+        "p_used": _annotation(
+            "p_used",
+            [_clip("used_talk", 0.0, 15.0, ["口播"], role=UsageRole.main, lip_sync=True)],
+            duration=15.0,
+        ),
+    }
+    candidates = rank_portrait_clip_candidates(
+        annotations=annotations,
         required_duration=10.0,
         ledger_entries=[
             SelectionLedgerEntry(
@@ -280,8 +288,13 @@ def test_portrait_recency_demotes_recently_used_portrait():
             )
         ],
     )
-    assert used.recency_penalty > 0.0
-    assert used.score < fresh.score
+    by_asset = {candidate.asset_id: candidate for candidate in candidates}
+    assert by_asset["p_used"].clip_id == "used_talk"
+    assert by_asset["p_fresh"].clip_id == "fresh_talk"
+    assert by_asset["p_used"].source_start == 0.0
+    assert by_asset["p_used"].source_end == 15.0
+    assert by_asset["p_used"].recency_penalty > 0.0
+    assert by_asset["p_used"].score < by_asset["p_fresh"].score
 
 
 # --------------------------------------------------------------------------- (c)

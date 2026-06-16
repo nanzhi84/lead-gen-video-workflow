@@ -64,7 +64,13 @@ def _units(duration: float = 12.0) -> list[dict]:
     return units
 
 
-def _state(adapter: LocalRuntimeAdapter, *, candidate_ids: list[str], duration: float = 12.0) -> RunState:
+def _state(
+    adapter: LocalRuntimeAdapter,
+    *,
+    candidate_ids: list[str],
+    duration: float = 12.0,
+    with_clip_metadata: bool = True,
+) -> RunState:
     request = DigitalHumanVideoRequest(
         case_id="case_demo",
         script=SCRIPT,
@@ -72,7 +78,20 @@ def _state(adapter: LocalRuntimeAdapter, *, candidate_ids: list[str], duration: 
         portrait={"template_mode": "agent"},
         strictness={"strict_timestamps": False},
     )
-    material = {"portrait_candidates": [{"asset_id": cid, "score": 1.0} for cid in candidate_ids]}
+    material = {
+        "portrait_candidates": [
+            {
+                "asset_id": cid,
+                "score": 1.0,
+                "metadata": (
+                    {"clip_id": f"{cid}_talk", "source_start": 0.0, "source_end": 15.0}
+                    if with_clip_metadata
+                    else {}
+                ),
+            }
+            for cid in candidate_ids
+        ]
+    }
     narration = {"source": "estimated", "units": _units(duration), "strict": False}
     material_artifact = Artifact(
         id="art_material",
@@ -157,7 +176,12 @@ def test_boundaries_land_on_detected_pauses(monkeypatch, tmp_path):
     # Real silences sitting right at each sentence end -> the planner snaps cuts into
     # the pause windows (semantic_audio_pause boundary source).
     pauses = [
-        {"start": u["end"] - 0.02, "end": u["end"] + 0.16, "duration": 0.18, "center": u["end"] + 0.07}
+        {
+            "start": u["end"] - 0.02,
+            "end": u["end"] + 0.16,
+            "duration": 0.18,
+            "center": u["end"] + 0.07,
+        }
         for u in units[:-1]
     ]
     seen: dict[str, object] = {}
@@ -205,7 +229,9 @@ def test_plan_is_frame_contiguous_and_covers_full_audio(monkeypatch, tmp_path):
         lambda *a, **k: [],
     )
     adapter = _adapter(object_store)
-    output = _run_node(adapter, _state(adapter, candidate_ids=["asset_portrait_demo"], duration=12.0))
+    output = _run_node(
+        adapter, _state(adapter, candidate_ids=["asset_portrait_demo"], duration=12.0)
+    )
 
     payload = _portrait_payload(output)
     segments = payload["segments"]
@@ -238,6 +264,25 @@ def test_insufficient_material_soft_degrades(monkeypatch, tmp_path):
     assert exc.value.error.code == ErrorCode.material_insufficient_portrait
 
 
+def test_portrait_candidate_without_clip_metadata_is_rejected(monkeypatch, tmp_path):
+    object_store = LocalObjectStore(tmp_path / "objects")
+    monkeypatch.setattr("packages.core.storage.object_store._OBJECT_STORE", object_store)
+    monkeypatch.setattr(
+        "packages.production.pipeline.nodes.portrait_planning.detect_silence_windows",
+        lambda *a, **k: [],
+    )
+    adapter = _adapter(object_store)
+    state = _state(
+        adapter,
+        candidate_ids=["asset_portrait_demo"],
+        duration=12.0,
+        with_clip_metadata=False,
+    )
+    with pytest.raises(NodeExecutionError) as exc:
+        _run_node(adapter, state)
+    assert exc.value.error.code == ErrorCode.material_insufficient_portrait
+
+
 def test_candidate_too_short_to_cover_returns_no_fabricated_plan(monkeypatch, tmp_path):
     # The only candidate (15s demo source) cannot cover a 40s timeline without
     # over-extension -> the planner returns no plan even after the escalation ladder
@@ -264,7 +309,9 @@ def test_escalation_ladder_diagnostics_on_success(monkeypatch, tmp_path):
         lambda *a, **k: [],
     )
     adapter = _adapter(object_store)
-    output = _run_node(adapter, _state(adapter, candidate_ids=["asset_portrait_demo"], duration=12.0))
+    output = _run_node(
+        adapter, _state(adapter, candidate_ids=["asset_portrait_demo"], duration=12.0)
+    )
     diag = _portrait_payload(output)["diagnostics"]
     assert diag["recovery_stage"] == "full_pool"
     assert diag["capacity_controlled_split"] is False
@@ -314,7 +361,9 @@ def test_capacity_controlled_split_retry_drives_recovery(monkeypatch, tmp_path):
 
     monkeypatch.setattr(pp, "plan_boundary_timeline", fake_plan)
     adapter = _adapter(object_store)
-    output = _run_node(adapter, _state(adapter, candidate_ids=["asset_portrait_demo"], duration=12.0))
+    output = _run_node(
+        adapter, _state(adapter, candidate_ids=["asset_portrait_demo"], duration=12.0)
+    )
 
     diag = _portrait_payload(output)["diagnostics"]
     assert diag["recovery_stage"] == "capacity_controlled_split"
@@ -350,10 +399,14 @@ def test_recency_context_demotes_recently_used_template_and_records_opening(monk
             )
         ]
     )
-    output = _run_node(adapter, _state(adapter, candidate_ids=["asset_portrait_demo"], duration=12.0))
+    output = _run_node(
+        adapter, _state(adapter, candidate_ids=["asset_portrait_demo"], duration=12.0)
+    )
     payload = _portrait_payload(output)
     # The only template is recently used -> diagnostics surface a non-zero recent count.
     assert payload["diagnostics"]["recently_used_segment_count"] >= 1
     # Opening segment recorded with the distinct slot_phase (drives the next-run guard).
     assert payload["segments"][0]["slot_phase"] == "portrait_opening"
-    assert all(seg["slot_phase"] in {"portrait_opening", "portrait_main"} for seg in payload["segments"])
+    assert all(
+        seg["slot_phase"] in {"portrait_opening", "portrait_main"} for seg in payload["segments"]
+    )

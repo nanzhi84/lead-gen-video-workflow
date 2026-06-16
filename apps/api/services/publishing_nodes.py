@@ -18,7 +18,6 @@ from packages.publishing import (
     generate_publish_cover,
     normalize_publish_tags,
     preview_cover_frame,
-    select_adapter,
 )
 from packages.publishing.cover_node import CoverArtifact
 
@@ -168,7 +167,3 @@ def build_publish_payload(
         manual_review=manual_review,
         simulate_failure=simulate_failure,
     )
-
-
-def resolve_publish_adapter(explicit: str | None = None):
-    return select_adapter(explicit)

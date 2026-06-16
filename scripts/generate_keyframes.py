@@ -34,14 +34,12 @@ bridged from ``--api-keys`` (default ``<repo>/.data/api_keys.json``).
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:

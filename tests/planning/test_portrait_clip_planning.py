@@ -123,3 +123,37 @@ def test_video_talking_head_clips_stay_out_of_broll_pool():
     clip_ids = {c.clip_id for c in broll}
     assert "talk" not in clip_ids
     assert "cover" in clip_ids
+
+
+def test_video_backup_lipsync_clip_stays_out_of_broll_pool():
+    annotation = _video_annotation(
+        "vid_mixed",
+        [
+            _clip(
+                "backup_talk",
+                0.0,
+                6.0,
+                role=UsageRole.backup,
+                lip_sync=True,
+                keywords=("打磨", "工艺"),
+            ),
+            _clip(
+                "cover",
+                6.0,
+                10.0,
+                role=UsageRole.cover,
+                lip_sync=False,
+                keywords=("打磨", "工艺"),
+            ),
+        ],
+    )
+    portrait = rank_portrait_clip_candidates(
+        annotations={"vid_mixed": annotation}, required_duration=0.0
+    )
+    assert {c.clip_id for c in portrait} == {"backup_talk"}
+
+    segments = [ScriptSegment(text="打磨工艺细节", start=0.0, end=4.0, keywords=("打磨", "工艺"))]
+    broll = rank_broll_candidates(annotations={"vid_mixed": annotation}, segments=segments)
+    clip_ids = {c.clip_id for c in broll}
+    assert "backup_talk" not in clip_ids
+    assert "cover" in clip_ids

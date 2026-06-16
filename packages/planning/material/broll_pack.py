@@ -14,8 +14,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from packages.core.contracts import AnnotationV4, SelectionLedgerEntry
+from packages.media.annotation._material import is_video
 from packages.planning.material.keywords import ScriptSegment
 from packages.planning.material.matching import BrollScene, best_match
+from packages.planning.material.portrait_pack import clip_is_lip_sync_usable
 from packages.planning.selection.recency import RecencyConfig, recency_penalty_for
 
 # Score weights (ported from the origin base_score formula, normalized to the
@@ -93,13 +95,14 @@ def _diversity_key(clip) -> str:
 def rank_broll_candidates(
     *,
     annotations: dict[str, AnnotationV4],
+    asset_kinds: dict[str, str] | None = None,
     segments: Sequence[ScriptSegment],
     ledger_entries: Sequence[SelectionLedgerEntry] = (),
     recency_cfg: RecencyConfig | None = None,
 ) -> list[BrollCandidate]:
     """Rank b-roll clips across annotated assets against the script beats.
 
-    ``annotations`` maps asset_id -> AnnotationV4 (only annotated b-roll assets).
+    ``annotations`` maps asset_id -> AnnotationV4 (annotated b-roll/video assets).
     ``ledger_entries`` are this case's recent b-roll selections (most-recent
     first); a previously-picked asset/cluster is demoted. Returns candidates
     sorted by final score descending. Empty when nothing clears the relevance
@@ -108,12 +111,15 @@ def rank_broll_candidates(
     seg_list = list(segments)
     candidates: list[BrollCandidate] = []
     for asset_id, annotation in annotations.items():
+        material_type = (asset_kinds or {}).get(asset_id) or annotation.meta.material_type
+        from_unified_video = is_video(material_type)
         for clip in annotation.clips:
-            # Skip non-cover roles: ``avoid`` (unusable) plus the talking-head roles
-            # ``main``/``hook`` (those are A-roll lip-sync clips from a unified video
-            # asset, not cutaway cover). Legacy b-roll clips are only cover/backup/avoid,
-            # so this is a no-op for them.
-            if clip.usage.role.value in {"avoid", "main", "hook"}:
+            # Legacy b-roll keeps the historical rule: only ``avoid`` is unusable.
+            # Unified video clips are split by lip-sync usability so a clip belongs
+            # to exactly one pool: A-roll if lip-sync-usable, otherwise B-roll.
+            if clip.usage.role.value == "avoid":
+                continue
+            if from_unified_video and clip_is_lip_sync_usable(clip):
                 continue
             scene = _scene_from_clip(asset_id, clip)
             best_segment, match = best_match(seg_list, scene)

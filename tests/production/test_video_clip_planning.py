@@ -65,20 +65,25 @@ def _cover_clip(segment_id, start, end, keywords):
         end=end,
         duration=end - start,
         semantics=ClipSemanticsV4(scene_type="工艺", narrative_role="process_proof"),
-        usage=ClipUsageV4(role=UsageRole.cover, recommended_for_lip_sync=False, voiceover_only=True),
+        usage=ClipUsageV4(
+            role=UsageRole.cover, recommended_for_lip_sync=False, voiceover_only=True
+        ),
         retrieval=ClipRetrievalV4(
-            summary=" ".join(keywords), keywords=list(keywords), retrieval_sentence=" ".join(keywords)
+            summary=" ".join(keywords),
+            keywords=list(keywords),
+            retrieval_sentence=" ".join(keywords),
         ),
         confidence=0.85,
     )
 
 
-def _inject_video_asset(repo: Repository, asset_id: str, clips) -> None:
-    asset = MediaAssetRecord(id=asset_id, case_id="case_demo", title="mixed", kind="video", usable=True)
+def _inject_video_asset(repo: Repository, asset_id: str, clips, *, case_id="case_demo") -> None:
+    asset = MediaAssetRecord(id=asset_id, case_id=case_id, title="mixed", kind="video", usable=True)
     repo.media_assets[asset_id] = asset
+    annotation_case_id = case_id or "case_demo"
     annotation = AnnotationV4(
         meta=AnnotationMetaV4(
-            asset_id=asset_id, case_id="case_demo", material_type="video", duration=20.0
+            asset_id=asset_id, case_id=annotation_case_id, material_type="video", duration=20.0
         ),
         clips=clips,
     )
@@ -166,7 +171,10 @@ def test_material_pack_video_without_talking_head_flags_no_lipsync(tmp_path, mon
     _inject_video_asset(
         adapter.repository,
         "vid_scenery",
-        [_cover_clip("c1", 0.0, 5.0, ["打磨", "工艺"]), _cover_clip("c2", 5.0, 9.0, ["补漆", "效果"])],
+        [
+            _cover_clip("c1", 0.0, 5.0, ["打磨", "工艺"]),
+            _cover_clip("c2", 5.0, 9.0, ["补漆", "效果"]),
+        ],
     )
 
     output = nodes.material_pack_planning.run(_ctx(adapter, _request(), "MaterialPackPlanning"))
@@ -177,6 +185,31 @@ def test_material_pack_video_without_talking_head_flags_no_lipsync(tmp_path, mon
     assert payload["diagnostics"]["portrait_missing"] is True
     # The cover clips still serve as b-roll — honest partial usefulness.
     assert payload["broll_candidates"]
+
+
+def test_material_pack_global_video_does_not_enter_case_scoped_broll(tmp_path, monkeypatch):
+    object_store = LocalObjectStore(tmp_path / "objects")
+    monkeypatch.setattr("packages.core.storage.object_store._OBJECT_STORE", object_store)
+    adapter = _adapter(object_store)
+    adapter.repository.media_assets.clear()
+    adapter.repository.annotations.clear()
+    _inject_video_asset(
+        adapter.repository,
+        "vid_global",
+        [_cover_clip("cover", 0.0, 5.0, ["打磨", "工艺"])],
+        case_id=None,
+    )
+
+    output = nodes.material_pack_planning.run(
+        _ctx(
+            adapter,
+            _request(broll={"enabled": True, "case_id": "case_demo"}),
+            "MaterialPackPlanning",
+        )
+    )
+    payload = next(a.payload for a in output.artifacts if a.kind == ArtifactKind.plan_material_pack)
+
+    assert payload["broll_candidates"] == []
 
 
 def test_portrait_plan_cuts_only_the_talking_head_clip_window(tmp_path, monkeypatch):

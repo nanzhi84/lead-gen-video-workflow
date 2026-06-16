@@ -30,11 +30,7 @@ def run(ctx: NodeContext) -> NodeOutput:
     assets = list(repo.media_assets.values())
 
     def _eligible(asset, kind: str) -> bool:
-        return (
-            asset.usable
-            and asset.kind == kind
-            and asset.case_id in {None, request.case_id}
-        )
+        return asset.usable and asset.kind == kind and asset.case_id in {None, request.case_id}
 
     def _portrait_template_allowed(asset) -> bool:
         # template_mode pins WHICH source(s) supply the talking-head track. ``specific``
@@ -48,13 +44,20 @@ def run(ctx: NodeContext) -> NodeOutput:
         )
 
     portrait_assets = [
-        asset for asset in assets if _eligible(asset, "portrait") and _portrait_template_allowed(asset)
+        asset
+        for asset in assets
+        if _eligible(asset, "portrait") and _portrait_template_allowed(asset)
     ]
     # Unified video bucket: every usable video asset feeds the b-roll pool with its
     # cover clips; the template-allowed subset additionally supplies lip-sync clips
     # to the portrait pool.
     video_assets = [asset for asset in assets if _eligible(asset, "video")]
     video_portrait_assets = [asset for asset in video_assets if _portrait_template_allowed(asset)]
+    video_broll_assets = [
+        asset
+        for asset in video_assets
+        if request.broll.case_id is None or asset.case_id == request.broll.case_id
+    ]
     broll_assets = [
         asset
         for asset in assets
@@ -70,9 +73,7 @@ def run(ctx: NodeContext) -> NodeOutput:
     for asset in portrait_assets:
         source = ctx.source_artifact_for_asset(asset.id)
         source_duration = (
-            float(source.media_info.duration_sec or 0)
-            if source and source.media_info
-            else 0.0
+            float(source.media_info.duration_sec or 0) if source and source.media_info else 0.0
         )
         annotation = repo.annotation_v4_for_asset(asset.id)
         scored = score_portrait_candidate(
@@ -87,7 +88,10 @@ def run(ctx: NodeContext) -> NodeOutput:
                 asset_id=asset.id,
                 score=scored.score,
                 reason=scored.reason,
-                metadata={"base_score": scored.base_score, "recency_penalty": scored.recency_penalty},
+                metadata={
+                    "base_score": scored.base_score,
+                    "recency_penalty": scored.recency_penalty,
+                },
             )
         )
     # Clip-level lip-sync candidates from the unified video bucket: one candidate per
@@ -131,12 +135,14 @@ def run(ctx: NodeContext) -> NodeOutput:
     broll_ledger = repo.recent_selections(case_id=request.case_id, medium="broll")
     broll_annotations = {
         asset.id: annotation
-        for asset in (*broll_assets, *video_assets)
+        for asset in (*broll_assets, *video_broll_assets)
         if (annotation := repo.annotation_v4_for_asset(asset.id)) is not None
     }
+    broll_asset_kinds = {asset.id: asset.kind for asset in (*broll_assets, *video_broll_assets)}
     broll_candidates: list[MaterialCandidate] = []
     for candidate in rank_broll_candidates(
         annotations=broll_annotations,
+        asset_kinds=broll_asset_kinds,
         segments=segments,
         ledger_entries=broll_ledger,
     ):
@@ -204,7 +210,9 @@ def run(ctx: NodeContext) -> NodeOutput:
         reservations=reservation_ids,
     ).model_dump(mode="json")
     return NodeOutput(
-        artifacts=[ctx.artifact(ArtifactKind.plan_material_pack, payload, "MaterialPackPlanArtifact.v1")]
+        artifacts=[
+            ctx.artifact(ArtifactKind.plan_material_pack, payload, "MaterialPackPlanArtifact.v1")
+        ]
     )
 
 
@@ -260,7 +268,10 @@ def _simple_candidates(assets, medium_label, ledger_entries) -> list[MaterialCan
                 asset_id=scored.asset_id,
                 score=scored.score,
                 reason=scored.reason,
-                metadata={"base_score": scored.base_score, "recency_penalty": scored.recency_penalty},
+                metadata={
+                    "base_score": scored.base_score,
+                    "recency_penalty": scored.recency_penalty,
+                },
             )
         )
     candidates.sort(key=lambda c: (-c.score, c.asset_id))

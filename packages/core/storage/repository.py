@@ -371,12 +371,12 @@ class Repository:
         self, entries: Iterable[SelectionLedgerEntry]
     ) -> list[SelectionLedgerEntry]:
         existing = {
-            (entry.case_id, entry.run_id, entry.medium, entry.asset_id, entry.slot_phase)
+            (entry.case_id, entry.run_id, entry.medium, entry.asset_id, entry.clip_id, entry.slot_phase)
             for entry in self.selection_ledger.values()
         }
         recorded: list[SelectionLedgerEntry] = []
         for entry in entries:
-            key = (entry.case_id, entry.run_id, entry.medium, entry.asset_id, entry.slot_phase)
+            key = (entry.case_id, entry.run_id, entry.medium, entry.asset_id, entry.clip_id, entry.slot_phase)
             if key in existing:
                 continue
             self.selection_ledger[entry.id] = entry

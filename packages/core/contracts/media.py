@@ -116,6 +116,7 @@ class SelectionLedgerEntry(ContractModel):
     run_id: str
     medium: SelectionMedium
     asset_id: str
+    clip_id: str | None = None
     slot_phase: str
     diversity_key: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
@@ -167,6 +168,7 @@ class SelectionReservationRecord(ContractModel):
 
 class MaterialUsageRankingItem(ContractModel):
     asset_id: str
+    clip_id: str | None = None
     medium: SelectionMedium
     asset: MediaAssetRecord | None = None
     task_use_count: int = 0
@@ -347,7 +349,9 @@ class AnnotationEditorVm(ContractModel):
                 return value
         return value
 
-    @field_serializer("canonical", when_used="always", return_type="AnnotationV4 | dict[str, JsonValue]")
+    @field_serializer(
+        "canonical", when_used="always", return_type="AnnotationV4 | dict[str, JsonValue]"
+    )
     def _serialize_canonical(self, value: Any) -> Any:
         # Serialize both union arms to a plain JSON dict. This keeps the wire shape
         # identical to the legacy bare-dict contract and avoids the smart-union

@@ -4659,6 +4659,8 @@ export interface components {
         MaterialUsageRankingItem: {
             /** Asset Id */
             asset_id: string;
+            /** Clip Id */
+            clip_id?: string | null;
             /**
              * Medium
              * @enum {string}

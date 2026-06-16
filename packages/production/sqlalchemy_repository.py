@@ -1458,6 +1458,7 @@ class SqlAlchemyProductionRepository:
             run_id=entry.run_id,
             medium=entry.medium,
             asset_id=entry.asset_id,
+            clip_id=entry.clip_id,
             slot_phase=entry.slot_phase,
             diversity_key=entry.diversity_key,
             created_at=entry.created_at,

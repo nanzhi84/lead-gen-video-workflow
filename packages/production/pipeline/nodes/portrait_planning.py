@@ -295,6 +295,7 @@ def _segment_payload(index: int, seg, *, recent_template_ids: set[str], total: i
     end_sec = round(seg.timeline_end_frame / TIMELINE_FPS, 3)
     source_start = round(seg.source_start_frame / TIMELINE_FPS, 3)
     source_end = round(seg.source_end_frame / TIMELINE_FPS, 3)
+    _, separator, clip_id = str(seg.window_id or "").partition(":")
     # Opening guard: the first portrait segment is the run's opening; recorded distinctly
     # as ``portrait_opening`` so the next run's recency context can apply the opening
     # penalty (no-consecutive-opening-reuse). The planner phase label may already say
@@ -304,6 +305,7 @@ def _segment_payload(index: int, seg, *, recent_template_ids: set[str], total: i
     return {
         "segment_id": f"portrait_{index + 1}",
         "asset_id": seg.template_id or None,
+        "clip_id": clip_id if separator and clip_id else None,
         "start_sec": start_sec,
         "end_sec": end_sec,
         "source_start": source_start,

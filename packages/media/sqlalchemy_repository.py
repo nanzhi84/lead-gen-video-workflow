@@ -223,6 +223,7 @@ class SqlAlchemyMediaRepository:
                     run_id=row.run_id,
                     medium=row.medium,
                     asset_id=row.asset_id,
+                    clip_id=row.clip_id,
                     slot_phase=row.slot_phase,
                     diversity_key=row.diversity_key,
                     created_at=row.created_at,

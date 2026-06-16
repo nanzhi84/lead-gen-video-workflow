@@ -7,6 +7,8 @@ placeholder timeline — and soft-degrades honestly when material is insufficien
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from packages.ai.gateway import ProviderGateway
@@ -410,3 +412,31 @@ def test_recency_context_demotes_recently_used_template_and_records_opening(monk
     assert all(
         seg["slot_phase"] in {"portrait_opening", "portrait_main"} for seg in payload["segments"]
     )
+
+
+def test_segment_payload_derives_clip_id_from_window_id():
+    segment = SimpleNamespace(
+        template_id="asset_portrait_demo",
+        window_id="asset_portrait_demo:talk:take_1",
+        timeline_start_frame=0,
+        timeline_end_frame=90,
+        source_start_frame=30,
+        source_end_frame=120,
+        role="main",
+        phase="body",
+        source_mode="lipsynced",
+        boundary_source="semantic",
+        boundary_reason="beat",
+        unit_ids=["unit_1"],
+    )
+
+    payload = nodes.portrait_planning._segment_payload(
+        1,
+        segment,
+        recent_template_ids=set(),
+        total=2,
+    )
+
+    assert payload["asset_id"] == "asset_portrait_demo"
+    assert payload["clip_id"] == "talk:take_1"
+    assert payload["slot_phase"] == "portrait_main"

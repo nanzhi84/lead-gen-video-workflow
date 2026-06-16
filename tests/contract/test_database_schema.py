@@ -76,7 +76,9 @@ def test_contract_columns_for_core_boundaries_exist():
     assert "code_hash" in tables["registration_codes"].columns.keys()
     assert "secret_ref" in tables["secrets"].columns.keys()
     assert "encrypted_value" not in tables["secrets"].columns.keys()
-    assert {"payload_schema", "schema_version", "payload"} <= set(tables["artifacts"].columns.keys())
+    assert {"payload_schema", "schema_version", "payload"} <= set(
+        tables["artifacts"].columns.keys()
+    )
     assert {"input_manifest_hash", "output_artifact_ids", "provider_invocation_ids"} <= set(
         tables["node_runs"].columns.keys()
     )
@@ -96,6 +98,7 @@ def test_contract_columns_for_core_boundaries_exist():
         "run_id",
         "medium",
         "asset_id",
+        "clip_id",
         "slot_phase",
         "diversity_key",
         "created_at",
@@ -135,8 +138,12 @@ def test_contract_columns_for_core_boundaries_exist():
     assert {"requested_by", "retry_of_run_id", "experiment_assignment_id"} <= set(
         tables["workflow_runs"].columns.keys()
     )
-    assert {"attempt", "skipped_reason", "degradation_reason"} <= set(tables["node_runs"].columns.keys())
-    assert {"variables_schema_ref", "output_schema_ref"} <= set(tables["prompt_templates"].columns.keys())
+    assert {"attempt", "skipped_reason", "degradation_reason"} <= set(
+        tables["node_runs"].columns.keys()
+    )
+    assert {"variables_schema_ref", "output_schema_ref"} <= set(
+        tables["prompt_templates"].columns.keys()
+    )
     assert {
         "topic",
         "aggregate_type",
@@ -150,9 +157,7 @@ def test_contract_columns_for_core_boundaries_exist():
         "created_at",
         "published_at",
         "last_error",
-    } <= set(
-        tables["outbox_events"].columns.keys()
-    )
+    } <= set(tables["outbox_events"].columns.keys())
     assert {
         "job_id",
         "run_id",
@@ -197,17 +202,12 @@ def test_artifacts_run_id_indexes_exist():
 
 
 def test_alembic_artifacts_run_index_revision_exists():
-    migration = Path(
-        "packages/core/storage/alembic/versions/0004_artifacts_run_index.py"
-    )
+    migration = Path("packages/core/storage/alembic/versions/0004_artifacts_run_index.py")
     assert migration.exists()
     text = migration.read_text(encoding="utf-8")
     assert 'down_revision = "0003_selection_ledger"' in text
     assert 'op.create_index("idx_artifacts_run", "artifacts", ["run_id"])' in text
-    assert (
-        'op.create_index("idx_artifacts_run_kind", "artifacts", ["run_id", "kind"])'
-        in text
-    )
+    assert 'op.create_index("idx_artifacts_run_kind", "artifacts", ["run_id", "kind"])' in text
 
 
 def test_alembic_initial_revision_exists():
@@ -216,3 +216,12 @@ def test_alembic_initial_revision_exists():
     text = migration.read_text(encoding="utf-8")
     assert "CREATE EXTENSION IF NOT EXISTS vector" in text
     assert "Base.metadata.create_all" in text
+
+
+def test_alembic_selection_ledger_clip_revision_exists():
+    migration = Path("packages/core/storage/alembic/versions/0012_selection_ledger_clip_id.py")
+    assert migration.exists()
+    text = migration.read_text(encoding="utf-8")
+    assert 'revision = "0012_selection_ledger_clip_id"' in text
+    assert 'down_revision = "0011_finished_video_lipsync"' in text
+    assert '"clip_id"' in text

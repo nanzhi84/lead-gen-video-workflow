@@ -425,6 +425,11 @@ export const api = {
         "/api/media/assets/batch-stabilize",
         { method: "POST", body: payload, idempotencyKey: createIdempotencyKey("media_stabilize") },
       ),
+    delete: (assetId: string) =>
+      fetchJson<JsonResponse<operations["delete_media_asset_api_media_assets__asset_id__delete"]>>(
+        `/api/media/assets/${enc(assetId)}`,
+        { method: "DELETE", idempotencyKey: createIdempotencyKey("media_delete") },
+      ),
     autoMatchReplace: (payload: JsonRequest<operations["auto_match_replace_api_media_assets_auto_match_replace_post"]>) =>
       fetchJson<JsonResponse<operations["auto_match_replace_api_media_assets_auto_match_replace_post"]>>(
         "/api/media/assets/auto-match-replace",
@@ -466,6 +471,11 @@ export const api = {
       fetchJson<JsonResponse<operations["rerun_annotation_api_annotations__asset_id__rerun_post"]>>(
         `/api/annotations/${enc(assetId)}/rerun`,
         { method: "POST", body: payload, idempotencyKey: createIdempotencyKey("annotation_rerun") },
+      ),
+    batch: (payload: JsonRequest<operations["batch_annotation_api_annotations_batch_post"]>) =>
+      fetchJson<JsonResponse<operations["batch_annotation_api_annotations_batch_post"]>>(
+        "/api/annotations/batch",
+        { method: "POST", body: payload, idempotencyKey: createIdempotencyKey("annotation_batch") },
       ),
   },
   jobs: {

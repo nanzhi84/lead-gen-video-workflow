@@ -92,6 +92,30 @@ def test_parse_valid_response_yields_clips():
     assert clip.segment_id.startswith("w0.000_4.000_seg")
 
 
+def test_parse_coerces_non_string_semantics_fields():
+    # The VLM occasionally returns a bool/number for a string-typed semantics field
+    # (e.g. ``retake_cue: false`` = "no retake"). The parser must coerce it instead of
+    # failing the whole window's schema validation (which previously marked the whole
+    # asset annotation_failed). bool/None -> "", numbers -> their string form.
+    seg = _segment(start=0.0, end=4.0, role="main", lip_sync=True)
+    seg["semantics"] = {
+        "subject_type": "person",
+        "scene_type": "studio",
+        "retake_cue": False,
+        "process_stage": 3,
+    }
+    clips = parse_window_response(
+        json.dumps({"segments": [seg]}),
+        material_type="video",
+        window_start=0.0,
+        window_end=4.0,
+        duration=4.0,
+    )
+    assert len(clips) == 1
+    assert clips[0].semantics.retake_cue == ""
+    assert clips[0].semantics.process_stage == "3"
+
+
 def test_parse_strips_markdown_fence():
     raw = "```json\n" + _full_window_response(0.0, 4.0) + "\n```"
     clips = parse_window_response(

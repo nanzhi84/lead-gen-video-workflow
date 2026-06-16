@@ -25,7 +25,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from packages.core.contracts import ClipV4, UsageRole
+from packages.core.contracts import ClipSemanticsV4, ClipV4, UsageRole
 
 from .errors import SchemaError, SemanticError
 from ._material import material_class
@@ -157,6 +157,30 @@ def _extract_json_object(raw: str) -> str:
     return text
 
 
+# String-typed ClipSemanticsV4 fields (derived from the contract, not hardcoded, so it
+# can't drift). The VLM occasionally returns a bool/number for one of these (e.g.
+# ``retake_cue: false`` meaning "no retake"), which is a benign type quirk — coercing
+# it to a string keeps one segment's quirk from failing the whole window's schema
+# validation (and the whole asset's annotation). Bool/None -> "" (the "absent" default),
+# numbers -> their string form.
+_SEMANTIC_STR_FIELDS = frozenset(
+    name for name, field in ClipSemanticsV4.model_fields.items() if field.annotation is str
+)
+
+
+def _coerce_semantics_strings(payload: dict) -> None:
+    semantics = payload.get("semantics")
+    if not isinstance(semantics, dict):
+        return
+    for name in _SEMANTIC_STR_FIELDS:
+        if name not in semantics:
+            continue
+        value = semantics[name]
+        if isinstance(value, str):
+            continue
+        semantics[name] = "" if value is None or isinstance(value, bool) else str(value)
+
+
 def parse_window_response(
     raw: str,
     *,
@@ -221,6 +245,7 @@ def parse_window_response(
         payload["start"] = f_start
         payload["end"] = f_end
         payload["duration"] = round(f_end - f_start, 3)
+        _coerce_semantics_strings(payload)
         try:
             clip = ClipV4(**payload)
         except (ValidationError, ValueError, TypeError) as exc:

@@ -13443,6 +13443,17 @@
             "type": "string",
             "title": "Asset Id"
           },
+          "clip_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clip Id"
+          },
           "medium": {
             "type": "string",
             "enum": [
@@ -22073,6 +22084,7 @@
         "enum": [
           "portrait",
           "broll",
+          "video",
           "voice_reference",
           "bgm",
           "font",

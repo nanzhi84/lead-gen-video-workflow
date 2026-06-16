@@ -23,9 +23,9 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from packages.core.contracts import ArtifactKind
-from packages.core.storage.database import ArtifactRow, MediaAssetRow
+from packages.core.storage.database import AnnotationRow, ArtifactRow, MediaAssetRow
 from packages.core.storage.object_store import ObjectStore
-from packages.core.storage.repository import new_id
+from packages.core.storage.repository import demo_portrait_annotation_v4, new_id
 from packages.media.assets import store_file
 from packages.media.video.ffmpeg import probe_media
 from packages.production.pipeline._ffmpeg import generate_seed_audio, generate_seed_video
@@ -93,5 +93,25 @@ def seed_media_assets(session: Session, object_store: ObjectStore) -> int:
         asset_row.annotation_status = "annotated"
         asset_row.usable = True
         seeded += 1
+
+    # Back the annotated demo portrait with a real V4 annotation so clip-level
+    # material selection yields an A-roll candidate (the production pipeline requires
+    # an annotation — no whole-asset fallback). Idempotent: skipped if one exists.
+    portrait_row = session.get(MediaAssetRow, "asset_portrait_demo")
+    if portrait_row is not None and (
+        session.query(AnnotationRow).filter_by(asset_id="asset_portrait_demo").first() is None
+    ):
+        session.add(
+            AnnotationRow(
+                id=new_id("ann"),
+                asset_id="asset_portrait_demo",
+                etag=new_id("etag"),
+                canonical_schema="AnnotationV4.v1",
+                canonical=demo_portrait_annotation_v4(portrait_row.case_id).model_dump(mode="json"),
+                projection_schema="MediaAnnotationProjection.v1",
+                projection={},
+                editable_paths=["/labels", "/usable", "/title"],
+            )
+        )
     session.commit()
     return seeded

@@ -15,7 +15,7 @@ from packages.core.contracts.artifacts import MaterialCandidate, MaterialPackArt
 from packages.planning.material import (
     extract_keywords,
     rank_broll_candidates,
-    score_portrait_candidate,
+    rank_portrait_clip_candidates,
     score_simple_candidate,
     segment_script,
 )
@@ -28,28 +28,37 @@ def run(ctx: NodeContext) -> NodeOutput:
     repo = ctx.repository
     assets = list(repo.media_assets.values())
 
+    visual_material_kinds = {"video", "portrait", "broll"}
+
     def _eligible(asset, kind: str) -> bool:
+        return asset.usable and asset.kind == kind and asset.case_id in {None, request.case_id}
+
+    def _eligible_visual(asset) -> bool:
         return (
             asset.usable
-            and asset.kind == kind
+            and asset.kind in visual_material_kinds
             and asset.case_id in {None, request.case_id}
         )
 
-    portrait_assets = [
-        asset
-        for asset in assets
-        if _eligible(asset, "portrait")
-        and (
+    def _portrait_template_allowed(asset) -> bool:
+        # template_mode pins WHICH source(s) supply the talking-head track. ``specific``
+        # / ``sequence`` restrict to the named asset ids; ``agent`` lets any usable
+        # source compete. Applies to every visual asset contributing lip-sync clips.
+        return (
             request.portrait.template_mode == "agent"
             or asset.id == request.portrait.specific_template_id
             or asset.id in request.portrait.template_sequence_ids
         )
-    ]
-    broll_assets = [
+
+    # Unified visual bucket: legacy ``portrait`` / ``broll`` rows are accepted until
+    # the DB kind migration lands, but every visual asset is split per clip into
+    # A-roll (lip-sync-usable) vs B-roll (cover/backup) through one ranking path.
+    visual_assets = [asset for asset in assets if _eligible_visual(asset)]
+    portrait_visual_assets = [asset for asset in visual_assets if _portrait_template_allowed(asset)]
+    broll_visual_assets = [
         asset
-        for asset in assets
-        if _eligible(asset, "broll")
-        and (request.broll.case_id is None or asset.case_id == request.broll.case_id)
+        for asset in visual_assets
+        if request.broll.case_id is None or asset.case_id == request.broll.case_id
     ]
     bgm_assets = [asset for asset in assets if _eligible(asset, "bgm")]
     font_assets = [asset for asset in assets if _eligible(asset, "font")]
@@ -57,30 +66,40 @@ def run(ctx: NodeContext) -> NodeOutput:
     # --- portrait (coverage is enforced later; here: lip-sync + recency) ------
     portrait_ledger = repo.recent_selections(case_id=request.case_id, medium="portrait")
     portrait_candidates: list[MaterialCandidate] = []
-    for asset in portrait_assets:
-        source = ctx.source_artifact_for_asset(asset.id)
-        source_duration = (
-            float(source.media_info.duration_sec or 0)
-            if source and source.media_info
-            else 0.0
-        )
-        annotation = repo.annotation_v4_for_asset(asset.id)
-        scored = score_portrait_candidate(
-            asset_id=asset.id,
-            source_duration=source_duration,
-            required_duration=source_duration,  # coverage gate lives in PortraitPlanning
-            annotation=annotation,
-            ledger_entries=portrait_ledger,
-        )
+    # Clip-level lip-sync candidates from the unified visual bucket: one candidate per
+    # usable talking-head clip, carrying its source window so PortraitPlanning cuts the
+    # exact clip span. Coverage/capacity is still gated downstream.
+    portrait_annotations = {
+        asset.id: annotation
+        for asset in portrait_visual_assets
+        if (annotation := repo.annotation_v4_for_asset(asset.id)) is not None
+    }
+    for clip_candidate in rank_portrait_clip_candidates(
+        annotations=portrait_annotations,
+        required_duration=0.0,
+        ledger_entries=portrait_ledger,
+    ):
         portrait_candidates.append(
             MaterialCandidate(
-                asset_id=asset.id,
-                score=scored.score,
-                reason=scored.reason,
-                metadata={"base_score": scored.base_score, "recency_penalty": scored.recency_penalty},
+                asset_id=clip_candidate.asset_id,
+                score=clip_candidate.score,
+                reason=clip_candidate.reason,
+                metadata={
+                    "base_score": clip_candidate.base_score,
+                    "recency_penalty": clip_candidate.recency_penalty,
+                    "clip_id": clip_candidate.clip_id,
+                    "source_start": clip_candidate.source_start,
+                    "source_end": clip_candidate.source_end,
+                    "duration": clip_candidate.duration,
+                },
             )
         )
-    portrait_candidates.sort(key=lambda c: (-c.score, c.asset_id))
+    portrait_candidates.sort(
+        key=lambda c: (-c.score, c.asset_id, str((c.metadata or {}).get("clip_id") or ""))
+    )
+    _portrait_from_video_count = sum(
+        1 for c in portrait_candidates if (c.metadata or {}).get("clip_id")
+    )
 
     # --- b-roll (real annotation matching; no annotation -> no candidate) -----
     keywords = extract_keywords(request.script)
@@ -88,12 +107,14 @@ def run(ctx: NodeContext) -> NodeOutput:
     broll_ledger = repo.recent_selections(case_id=request.case_id, medium="broll")
     broll_annotations = {
         asset.id: annotation
-        for asset in broll_assets
+        for asset in broll_visual_assets
         if (annotation := repo.annotation_v4_for_asset(asset.id)) is not None
     }
+    broll_asset_kinds = {asset.id: "video" for asset in broll_visual_assets}
     broll_candidates: list[MaterialCandidate] = []
     for candidate in rank_broll_candidates(
         annotations=broll_annotations,
+        asset_kinds=broll_asset_kinds,
         segments=segments,
         ledger_entries=broll_ledger,
     ):
@@ -148,14 +169,23 @@ def run(ctx: NodeContext) -> NodeOutput:
             "portrait_missing": not portrait_candidates,
             "broll_missing": request.broll.enabled and not broll_candidates,
             "broll_unannotated": request.broll.enabled
-            and bool(broll_assets)
+            and bool(broll_visual_assets)
             and not broll_annotations,
             "bgm_missing": request.bgm.enabled and not bgm_candidates,
+            # Unified video bucket visibility: how many portrait candidates came from
+            # per-clip lip-sync windows, and the honest "operator uploaded visual
+            # material but it has no talking-head clip" signal (an A-roll-insufficiency
+            # early warning; PortraitPlanning still enforces the hard coverage gate
+            # downstream). Key names stay stable for downstream consumers.
+            "portrait_from_video": _portrait_from_video_count,
+            "video_no_lipsync": bool(portrait_visual_assets) and _portrait_from_video_count == 0,
         },
         reservations=reservation_ids,
     ).model_dump(mode="json")
     return NodeOutput(
-        artifacts=[ctx.artifact(ArtifactKind.plan_material_pack, payload, "MaterialPackPlanArtifact.v1")]
+        artifacts=[
+            ctx.artifact(ArtifactKind.plan_material_pack, payload, "MaterialPackPlanArtifact.v1")
+        ]
     )
 
 
@@ -211,7 +241,10 @@ def _simple_candidates(assets, medium_label, ledger_entries) -> list[MaterialCan
                 asset_id=scored.asset_id,
                 score=scored.score,
                 reason=scored.reason,
-                metadata={"base_score": scored.base_score, "recency_penalty": scored.recency_penalty},
+                metadata={
+                    "base_score": scored.base_score,
+                    "recency_penalty": scored.recency_penalty,
+                },
             )
         )
     candidates.sort(key=lambda c: (-c.score, c.asset_id))

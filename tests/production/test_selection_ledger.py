@@ -91,12 +91,14 @@ def test_finalize_success_records_selected_assets_once(monkeypatch: pytest.Monke
                         {
                             "overlay_id": "broll_1",
                             "asset_id": "asset_broll_demo",
+                            "clip_id": "cover_a",
                             "timeline_start": 0,
                             "timeline_end": 2,
                         },
                         {
                             "overlay_id": "broll_2",
                             "asset_id": "asset_broll_demo",
+                            "clip_id": "cover_b",
                             "timeline_start": 3,
                             "timeline_end": 5,
                         },
@@ -130,6 +132,15 @@ def test_finalize_success_records_selected_assets_once(monkeypatch: pytest.Monke
     ]
     assert {entry.run_id for entry in entries} == {run.id}
     assert {entry.case_id for entry in entries} == {"case_demo"}
+    assert {
+        (entry.medium, entry.slot_phase, entry.asset_id, entry.clip_id) for entry in entries
+    } == {
+        ("bgm", "bgm", "asset_bgm_demo", None),
+        ("broll", "broll_1", "asset_broll_demo", "cover_a"),
+        ("broll", "broll_2", "asset_broll_demo", "cover_b"),
+        ("font", "font", "asset_font_demo", None),
+        ("portrait", "portrait_main", "asset_portrait_demo", None),
+    }
 
 
 def test_finalize_records_opening_segment_distinctly_and_commits_reservation(
@@ -179,11 +190,80 @@ def test_finalize_records_opening_segment_distinctly_and_commits_reservation(
     # The opening segment is recorded distinctly so the next run's opening guard sees it.
     assert {e.slot_phase for e in portrait_entries} == {"portrait_main", "portrait_opening"}
     # The shipped pick is committed; the other shortlist member is released.
-    reservations = {
-        (r.asset_id): r.status for r in repository.selection_reservations.values()
-    }
+    reservations = {(r.asset_id): r.status for r in repository.selection_reservations.values()}
     assert reservations["asset_portrait_demo"] == "committed"
     assert reservations["asset_portrait_alt"] == "released"
+
+
+def test_finalize_records_same_portrait_asset_per_clip_and_broll_clip_id(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    repository = Repository()
+    workflow = _workflow(repository)
+    run = _run()
+    node_run = _node_run(run.id)
+    repository.runs[run.id] = run
+    repository.node_runs[run.id] = [node_run]
+    state = RunState(
+        request=DigitalHumanVideoRequest(
+            case_id="case_demo",
+            script="hello",
+            voice={"voice_id": "voice_sandbox"},
+        ),
+        artifacts={
+            ArtifactKind.plan_portrait: _artifact(
+                ArtifactKind.plan_portrait,
+                {
+                    "segments": [
+                        {
+                            "asset_id": "asset_portrait_demo",
+                            "clip_id": "talk_a",
+                            "slot_phase": "portrait_main",
+                        },
+                        {
+                            "asset_id": "asset_portrait_demo",
+                            "clip_id": "talk_b",
+                            "slot_phase": "portrait_main",
+                        },
+                    ],
+                },
+            ),
+            ArtifactKind.plan_broll: _artifact(
+                ArtifactKind.plan_broll,
+                {
+                    "enabled": True,
+                    "segments": [],
+                    "overlays": [
+                        {
+                            "overlay_id": "broll_1",
+                            "asset_id": "asset_broll_demo",
+                            "clip_id": "cover_a",
+                            "timeline_start": 0,
+                            "timeline_end": 2,
+                        },
+                    ],
+                },
+            ),
+        },
+    )
+    monkeypatch.setattr(digital_human, "get_object_store", lambda: NoopDeleteStore())
+
+    workflow._finalize_run_report(run, node_run, state)
+
+    portrait_entries = sorted(
+        (entry for entry in repository.selection_ledger.values() if entry.medium == "portrait"),
+        key=lambda entry: entry.clip_id or "",
+    )
+    assert [(entry.asset_id, entry.clip_id, entry.slot_phase) for entry in portrait_entries] == [
+        ("asset_portrait_demo", "talk_a", "portrait_main"),
+        ("asset_portrait_demo", "talk_b", "portrait_main"),
+    ]
+    broll_entries = [
+        entry for entry in repository.selection_ledger.values() if entry.medium == "broll"
+    ]
+    assert [(entry.asset_id, entry.clip_id, entry.slot_phase) for entry in broll_entries] == [
+        ("asset_broll_demo", "cover_a", "broll_1")
+    ]
 
 
 def test_usage_ranking_aggregates_distinct_runs_and_recent_score():
@@ -248,3 +328,126 @@ def test_usage_ranking_aggregates_distinct_runs_and_recent_score():
     assert report.items[1].task_use_count == 1
     assert report.items[1].segment_use_count == 1
     assert report.items[1].recent_score == 0.5
+
+
+def test_usage_ranking_groups_same_asset_by_clip_id():
+    repository = Repository()
+    old = utcnow() - timedelta(days=2)
+    recent = utcnow()
+    repository.record_selection_ledger_entries(
+        [
+            SelectionLedgerEntry(
+                case_id="case_demo",
+                run_id="run_old",
+                medium="broll",
+                asset_id="asset_broll_demo",
+                clip_id="cover_a",
+                slot_phase="broll_1",
+                created_at=old,
+            ),
+            SelectionLedgerEntry(
+                case_id="case_demo",
+                run_id="run_recent",
+                medium="broll",
+                asset_id="asset_broll_demo",
+                clip_id="cover_a",
+                slot_phase="broll_1",
+                created_at=recent,
+            ),
+            SelectionLedgerEntry(
+                case_id="case_demo",
+                run_id="run_recent",
+                medium="broll",
+                asset_id="asset_broll_demo",
+                clip_id="cover_b",
+                slot_phase="broll_2",
+                created_at=recent,
+            ),
+        ]
+    )
+
+    report = repository.material_usage_ranking(kind="broll", case_id="case_demo", top_n=10)
+
+    assert {(item.asset_id, item.clip_id) for item in report.items} == {
+        ("asset_broll_demo", "cover_a"),
+        ("asset_broll_demo", "cover_b"),
+    }
+    by_clip = {item.clip_id: item for item in report.items}
+    assert by_clip["cover_a"].task_use_count == 2
+    assert by_clip["cover_a"].segment_use_count == 2
+    assert by_clip["cover_a"].last_used_at == recent
+    assert by_clip["cover_b"].task_use_count == 1
+    assert by_clip["cover_b"].segment_use_count == 1
+
+
+def test_usage_ranking_keeps_portrait_and_broll_independent_for_same_clip():
+    repository = Repository()
+    repository.record_selection_ledger_entries(
+        [
+            SelectionLedgerEntry(
+                case_id="case_demo",
+                run_id="run_1",
+                medium="portrait",
+                asset_id="asset_video_demo",
+                clip_id="shared_clip",
+                slot_phase="portrait_main",
+            ),
+            SelectionLedgerEntry(
+                case_id="case_demo",
+                run_id="run_1",
+                medium="broll",
+                asset_id="asset_video_demo",
+                clip_id="shared_clip",
+                slot_phase="broll_1",
+            ),
+        ]
+    )
+
+    portrait = repository.material_usage_ranking(kind="portrait", case_id="case_demo", top_n=10)
+    broll = repository.material_usage_ranking(kind="broll", case_id="case_demo", top_n=10)
+
+    assert [(item.medium, item.asset_id, item.clip_id) for item in portrait.items] == [
+        ("portrait", "asset_video_demo", "shared_clip")
+    ]
+    assert [(item.medium, item.asset_id, item.clip_id) for item in broll.items] == [
+        ("broll", "asset_video_demo", "shared_clip")
+    ]
+
+
+def test_usage_ranking_keeps_bgm_and_font_asset_grained_with_no_clip_id():
+    repository = Repository()
+    repository.record_selection_ledger_entries(
+        [
+            SelectionLedgerEntry(
+                case_id="case_demo",
+                run_id="run_1",
+                medium="bgm",
+                asset_id="asset_bgm_demo",
+                slot_phase="bgm",
+            ),
+            SelectionLedgerEntry(
+                case_id="case_demo",
+                run_id="run_2",
+                medium="bgm",
+                asset_id="asset_bgm_demo",
+                slot_phase="bgm",
+            ),
+            SelectionLedgerEntry(
+                case_id="case_demo",
+                run_id="run_2",
+                medium="font",
+                asset_id="asset_font_demo",
+                slot_phase="font",
+            ),
+        ]
+    )
+
+    bgm = repository.material_usage_ranking(kind="bgm", case_id="case_demo", top_n=10)
+    font = repository.material_usage_ranking(kind="font", case_id="case_demo", top_n=10)
+
+    assert [(item.asset_id, item.clip_id, item.task_use_count) for item in bgm.items] == [
+        ("asset_bgm_demo", None, 2)
+    ]
+    assert [(item.asset_id, item.clip_id, item.task_use_count) for item in font.items] == [
+        ("asset_font_demo", None, 1)
+    ]

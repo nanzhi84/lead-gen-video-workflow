@@ -198,6 +198,7 @@ class PortraitPlanArtifact(ContractModel):
 class BrollOverlay(ContractModel):
     overlay_id: str
     asset_id: str
+    clip_id: str | None = None
     timeline_start: float
     timeline_end: float
     source_start: float

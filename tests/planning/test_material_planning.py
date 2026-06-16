@@ -26,20 +26,30 @@ from packages.planning.material import (
     extract_keywords,
     plan_insertions,
     rank_broll_candidates,
-    score_portrait_candidate,
+    rank_portrait_clip_candidates,
 )
 from packages.planning.material.broll_pack import BrollCandidate
 from packages.planning.material.keywords import ScriptSegment
 
 
-def _clip(segment_id, start, end, keywords, *, scene_type="场景", role=UsageRole.cover, narrative_role="片段"):
+def _clip(
+    segment_id,
+    start,
+    end,
+    keywords,
+    *,
+    scene_type="场景",
+    role=UsageRole.cover,
+    narrative_role="片段",
+    lip_sync=False,
+):
     return ClipV4(
         segment_id=segment_id,
         start=start,
         end=end,
         duration=end - start,
         semantics=ClipSemanticsV4(scene_type=scene_type, narrative_role=narrative_role),
-        usage=ClipUsageV4(role=role),
+        usage=ClipUsageV4(role=role, recommended_for_lip_sync=lip_sync),
         retrieval=ClipRetrievalV4(
             summary=" ".join(keywords),
             keywords=list(keywords),
@@ -79,8 +89,12 @@ def _narration_segments(units):
 
 def _units():
     return [
-        NarrationUnit(unit_id="u1", text="先讲解打磨工艺的细节。", start=0.0, end=4.0, confidence=1.0),
-        NarrationUnit(unit_id="u2", text="再展示补漆效果对比。", start=4.0, end=8.0, confidence=1.0),
+        NarrationUnit(
+            unit_id="u1", text="先讲解打磨工艺的细节。", start=0.0, end=4.0, confidence=1.0
+        ),
+        NarrationUnit(
+            unit_id="u2", text="再展示补漆效果对比。", start=4.0, end=8.0, confidence=1.0
+        ),
     ]
 
 
@@ -95,7 +109,16 @@ def test_real_matching_picks_keyword_relevant_clip_with_distinct_scores():
         ),
         "asset_unrelated": _annotation(
             "asset_unrelated",
-            [_clip("unrel_1", 0.0, 4.0, ["美食", "餐厅", "菜品"], scene_type="餐饮", narrative_role="餐厅环境")],
+            [
+                _clip(
+                    "unrel_1",
+                    0.0,
+                    4.0,
+                    ["美食", "餐厅", "菜品"],
+                    scene_type="餐饮",
+                    narrative_role="餐厅环境",
+                )
+            ],
         ),
     }
     candidates = rank_broll_candidates(annotations=annotations, segments=segments)
@@ -169,17 +192,28 @@ def test_broll_candidate_and_insert_carry_diversity_key_for_recency():
 def test_broll_insert_never_spills_past_a_short_narration_beat():
     # A timeline whose middle beat [4.0, 4.8] is shorter than _MIN_INSERT_SECONDS.
     units = [
-        NarrationUnit(unit_id="u1", text="先讲解打磨工艺的细节。", start=0.0, end=4.0, confidence=1.0),
+        NarrationUnit(
+            unit_id="u1", text="先讲解打磨工艺的细节。", start=0.0, end=4.0, confidence=1.0
+        ),
         NarrationUnit(unit_id="u2", text="补漆。", start=4.0, end=4.8, confidence=1.0),
-        NarrationUnit(unit_id="u3", text="再展示补漆效果对比的整体呈现。", start=4.8, end=8.0, confidence=1.0),
+        NarrationUnit(
+            unit_id="u3", text="再展示补漆效果对比的整体呈现。", start=4.8, end=8.0, confidence=1.0
+        ),
     ]
     # A candidate matched to the short 0.8s beat. A real per-clause TTS unit is
     # frequently sub-1.5s, so this path is hit in practice.
     short_beat = ScriptSegment(text="补漆。", start=4.0, end=4.8, keywords=("补漆",))
     candidate = BrollCandidate(
-        asset_id="asset_a", clip_id="a1", score=50.0, base_score=50.0,
-        recency_penalty=0.0, matched_keywords=("补漆",), scene_name="补漆",
-        source_start=0.0, source_end=4.0, best_segment=short_beat,
+        asset_id="asset_a",
+        clip_id="a1",
+        score=50.0,
+        base_score=50.0,
+        recency_penalty=0.0,
+        matched_keywords=("补漆",),
+        scene_name="补漆",
+        source_start=0.0,
+        source_end=4.0,
+        best_segment=short_beat,
     )
     insertions = plan_insertions(candidates=[candidate], units=units, max_inserts=2)
 
@@ -201,7 +235,9 @@ def test_recency_demotes_clip_picked_in_previous_run():
     segments = _narration_segments(units)
     annotations = {
         "asset_a": _annotation("asset_a", [_clip("a1", 0.0, 4.0, ["补漆", "效果"])]),
-        "asset_b": _annotation("asset_b", [_clip("b1", 0.0, 4.0, ["补漆", "效果"], scene_type="场景B")]),
+        "asset_b": _annotation(
+            "asset_b", [_clip("b1", 0.0, 4.0, ["补漆", "效果"], scene_type="场景B")]
+        ),
     }
 
     # Run 1: no ledger history -> tie broken deterministically by id (asset_a).
@@ -220,21 +256,27 @@ def test_recency_demotes_clip_picked_in_previous_run():
             slot_phase="broll_1",
         )
     ]
-    run2 = rank_broll_candidates(
-        annotations=annotations, segments=segments, ledger_entries=ledger
-    )
+    run2 = rank_broll_candidates(annotations=annotations, segments=segments, ledger_entries=ledger)
     run2_by_asset = {c.asset_id: c for c in run2}
     assert run2_by_asset[winner.asset_id].recency_penalty > 0.0
     assert run2[0].asset_id != winner.asset_id  # fresh clip now ranks first
 
 
-def test_portrait_recency_demotes_recently_used_portrait():
-    fresh = score_portrait_candidate(
-        asset_id="p_fresh", source_duration=15.0, required_duration=10.0
-    )
-    used = score_portrait_candidate(
-        asset_id="p_used",
-        source_duration=15.0,
+def test_portrait_clip_recency_demotes_recently_used_portrait():
+    annotations = {
+        "p_fresh": _annotation(
+            "p_fresh",
+            [_clip("fresh_talk", 0.0, 15.0, ["口播"], role=UsageRole.main, lip_sync=True)],
+            duration=15.0,
+        ),
+        "p_used": _annotation(
+            "p_used",
+            [_clip("used_talk", 0.0, 15.0, ["口播"], role=UsageRole.main, lip_sync=True)],
+            duration=15.0,
+        ),
+    }
+    candidates = rank_portrait_clip_candidates(
+        annotations=annotations,
         required_duration=10.0,
         ledger_entries=[
             SelectionLedgerEntry(
@@ -246,8 +288,13 @@ def test_portrait_recency_demotes_recently_used_portrait():
             )
         ],
     )
-    assert used.recency_penalty > 0.0
-    assert used.score < fresh.score
+    by_asset = {candidate.asset_id: candidate for candidate in candidates}
+    assert by_asset["p_used"].clip_id == "used_talk"
+    assert by_asset["p_fresh"].clip_id == "fresh_talk"
+    assert by_asset["p_used"].source_start == 0.0
+    assert by_asset["p_used"].source_end == 15.0
+    assert by_asset["p_used"].recency_penalty > 0.0
+    assert by_asset["p_used"].score < by_asset["p_fresh"].score
 
 
 # --------------------------------------------------------------------------- (c)
@@ -265,7 +312,16 @@ def test_unrelated_annotation_yields_no_candidate_not_a_fake_pick():
     annotations = {
         "asset_x": _annotation(
             "asset_x",
-            [_clip("x1", 0.0, 4.0, ["航天", "火箭", "卫星"], scene_type="科技", narrative_role="发射现场")],
+            [
+                _clip(
+                    "x1",
+                    0.0,
+                    4.0,
+                    ["航天", "火箭", "卫星"],
+                    scene_type="科技",
+                    narrative_role="发射现场",
+                )
+            ],
         )
     }
     candidates = rank_broll_candidates(annotations=annotations, segments=segments)
@@ -282,3 +338,25 @@ def test_avoid_role_clip_is_never_offered():
     }
     candidates = rank_broll_candidates(annotations=annotations, segments=segments)
     assert candidates == []
+
+
+def test_legacy_broll_main_role_clip_is_still_offered():
+    units = _units()
+    segments = _narration_segments(units)
+    annotations = {
+        "asset_a": _annotation(
+            "asset_a",
+            [
+                _clip(
+                    "a1",
+                    0.0,
+                    4.0,
+                    ["补漆", "效果"],
+                    role=UsageRole.main,
+                    lip_sync=True,
+                )
+            ],
+        )
+    }
+    candidates = rank_broll_candidates(annotations=annotations, segments=segments)
+    assert [c.clip_id for c in candidates] == ["a1"]

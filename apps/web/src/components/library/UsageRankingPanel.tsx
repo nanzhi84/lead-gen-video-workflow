@@ -4,11 +4,13 @@ import { formatRelativeTime, shortId } from "../../lib/format";
 import { EmptyState, ErrorState, LoadingState } from "../ui/State";
 
 export function UsageRankingPanel({
+  title = "使用排行",
   report,
   isLoading,
   error,
   onItemClick,
 }: {
+  title?: string;
   report?: MaterialUsageRankingReport;
   isLoading: boolean;
   error: unknown;
@@ -21,7 +23,7 @@ export function UsageRankingPanel({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <BarChart3 className="h-4 w-4 text-accent" />
-          <h3 className="text-sm font-semibold text-text-primary">使用排行</h3>
+          <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
         </div>
         <span className="badge bg-white/70 text-text-secondary">{items.length} 条</span>
       </div>
@@ -39,9 +41,22 @@ export function UsageRankingPanel({
                 </span>
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
                   <div className="flex min-w-0 items-center justify-between gap-2">
-                    <p className="min-w-0 truncate text-sm font-semibold text-text-primary" title={item.asset?.title ?? item.asset_id}>
-                      {title}
-                    </p>
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <p
+                        className="min-w-0 truncate text-sm font-semibold text-text-primary"
+                        title={item.clip_id ? `${title} · clip ${item.clip_id}` : item.asset?.title ?? item.asset_id}
+                      >
+                        {title}
+                      </p>
+                      {item.clip_id ? (
+                        <span
+                          className="max-w-[8rem] shrink-0 truncate rounded-md bg-surface-hover px-1.5 py-0.5 font-mono text-[11px] text-text-secondary"
+                          title={`clip ${item.clip_id}`}
+                        >
+                          clip {item.clip_id}
+                        </span>
+                      ) : null}
+                    </div>
                     <span className="badge shrink-0 bg-accent/10 text-accent">{item.task_use_count} 次</span>
                   </div>
                   <p className="min-w-0 truncate font-mono text-xs text-text-tertiary">{shortId(item.asset_id, 14)}</p>
@@ -54,7 +69,7 @@ export function UsageRankingPanel({
             const className = "flex w-full min-w-0 items-start gap-3 rounded-xl border border-border/60 bg-white/65 p-3 text-left";
             return onItemClick ? (
               <button
-                key={item.asset_id}
+                key={`${item.asset_id}:${item.clip_id ?? "asset"}`}
                 type="button"
                 className={`${className} transition-all hover:-translate-y-0.5 hover:border-accent/30 hover:bg-white/85`}
                 onClick={() => onItemClick(item.asset_id)}
@@ -63,7 +78,7 @@ export function UsageRankingPanel({
                 {inner}
               </button>
             ) : (
-              <div key={item.asset_id} className={className}>
+              <div key={`${item.asset_id}:${item.clip_id ?? "asset"}`} className={className}>
                 {inner}
               </div>
             );

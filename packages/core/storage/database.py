@@ -262,6 +262,7 @@ class SelectionLedgerRow(Base):
     run_id: Mapped[str] = mapped_column(String, nullable=False)
     medium: Mapped[str] = mapped_column(String, nullable=False)
     asset_id: Mapped[str] = mapped_column(String, nullable=False)
+    clip_id: Mapped[str | None] = mapped_column(String)
     slot_phase: Mapped[str] = mapped_column(String, nullable=False)
     diversity_key: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(
@@ -269,7 +270,15 @@ class SelectionLedgerRow(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("case_id", "run_id", "medium", "asset_id", "slot_phase"),
+        UniqueConstraint(
+            "case_id",
+            "run_id",
+            "medium",
+            "asset_id",
+            "clip_id",
+            "slot_phase",
+            postgresql_nulls_not_distinct=True,
+        ),
     )
 
 

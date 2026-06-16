@@ -32,18 +32,19 @@ def material_usage_ranking_from_entries(
         )
     }
 
-    by_asset: dict[str, list[SelectionLedgerEntry]] = {}
+    by_asset_clip: dict[tuple[str, str | None], list[SelectionLedgerEntry]] = {}
     for entry in entries:
-        by_asset.setdefault(entry.asset_id, []).append(entry)
+        by_asset_clip.setdefault((entry.asset_id, entry.clip_id), []).append(entry)
 
     items: list[MaterialUsageRankingItem] = []
-    for asset_id, asset_entries in by_asset.items():
+    for (asset_id, clip_id), asset_entries in by_asset_clip.items():
         run_ids = {entry.run_id for entry in asset_entries}
         last_used_at = max(entry.created_at for entry in asset_entries)
         recent_score = round(sum(run_weights[run_id] for run_id in run_ids), 6)
         items.append(
             MaterialUsageRankingItem(
                 asset_id=asset_id,
+                clip_id=clip_id,
                 medium=kind,
                 asset=assets.get(asset_id),
                 task_use_count=len(run_ids),
@@ -60,6 +61,7 @@ def material_usage_ranking_from_entries(
             -item.segment_use_count,
             -(item.last_used_at.timestamp() if item.last_used_at else 0),
             item.asset_id,
+            item.clip_id or "",
         )
     )
     bounded_top_n = max(1, min(top_n, 100))

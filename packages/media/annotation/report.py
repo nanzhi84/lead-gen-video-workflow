@@ -17,6 +17,7 @@ from collections.abc import Sequence
 from enum import Enum
 from typing import Any
 
+from ._material import is_video
 from ._util import is_explicit_false, overlap_duration, to_float
 
 # Event types affecting b-roll stability (motion_guard + blur/freeze).
@@ -364,6 +365,15 @@ def build_quality_report(
         if _enum_str(d.get("event_type")) != "manual_note"
     ]
 
+    if is_video(material_type):
+        # Unified video bucket: clips are a mix of lip-sync portrait + cover b-roll,
+        # so emit BOTH whole-clip reports merged (their keys are disjoint) as
+        # diagnostics. Per-clip selection uses per-clip signals, not these
+        # asset-level aggregates, so mixing portrait/b-roll clips here is harmless.
+        return {
+            **_build_portrait_report(duration_f, clip_dicts, event_dicts),
+            **_build_broll_report(duration_f, clip_dicts, event_dicts),
+        }
     if _is_portrait(material_type):
         return _build_portrait_report(duration_f, clip_dicts, event_dicts)
     if _is_broll(material_type):

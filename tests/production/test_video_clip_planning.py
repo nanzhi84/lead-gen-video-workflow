@@ -1,0 +1,336 @@
+"""P3 acceptance: a single unified ``video`` asset is split per-clip into the
+A-roll (lip-sync portrait) and B-roll (cover) pools, and the planned portrait
+track cuts the exact talking-head clip window — proving the end-to-end clip-level
+material flow the unification is for.
+"""
+
+from __future__ import annotations
+
+from packages.ai.gateway import ProviderGateway
+from packages.ai.prompts import PromptRegistry
+from packages.core.contracts import (
+    AnnotationEditorVm,
+    AnnotationMetaV4,
+    AnnotationV4,
+    Artifact,
+    ArtifactKind,
+    ClipRetrievalV4,
+    ClipSemanticsV4,
+    ClipUsageV4,
+    ClipV4,
+    DigitalHumanVideoRequest,
+    MediaAssetRecord,
+    MediaInfo,
+    NodeRun,
+    NodeStatus,
+    RunStatus,
+    UsageRole,
+    WorkflowRun,
+)
+from packages.core.storage.object_store import LocalObjectStore
+from packages.core.storage.repository import Repository
+from packages.production.pipeline import nodes
+from packages.production.pipeline._node_context import NodeContext
+from packages.production.pipeline._run_state import RunState
+from packages.production.pipeline.digital_human import LocalRuntimeAdapter
+
+SCRIPT = "先讲解打磨工艺的细节非常重要。再展示补漆效果对比清晰可见。"
+
+
+def _adapter(object_store: LocalObjectStore) -> LocalRuntimeAdapter:
+    repo = Repository()
+    return LocalRuntimeAdapter(
+        repo,
+        provider_gateway=ProviderGateway(repo, object_store=object_store),
+        prompt_registry=PromptRegistry(repo),
+    )
+
+
+def _talk_clip(segment_id, start, end):
+    return ClipV4(
+        segment_id=segment_id,
+        start=start,
+        end=end,
+        duration=end - start,
+        semantics=ClipSemanticsV4(subject_type="person", face_count_max=1),
+        usage=ClipUsageV4(role=UsageRole.main, recommended_for_lip_sync=True),
+        retrieval=ClipRetrievalV4(summary="口播", keywords=["口播"], retrieval_sentence="口播"),
+        confidence=0.9,
+    )
+
+
+def _cover_clip(segment_id, start, end, keywords):
+    return ClipV4(
+        segment_id=segment_id,
+        start=start,
+        end=end,
+        duration=end - start,
+        semantics=ClipSemanticsV4(scene_type="工艺", narrative_role="process_proof"),
+        usage=ClipUsageV4(
+            role=UsageRole.cover, recommended_for_lip_sync=False, voiceover_only=True
+        ),
+        retrieval=ClipRetrievalV4(
+            summary=" ".join(keywords),
+            keywords=list(keywords),
+            retrieval_sentence=" ".join(keywords),
+        ),
+        confidence=0.85,
+    )
+
+
+def _inject_video_asset(
+    repo: Repository,
+    asset_id: str,
+    clips,
+    *,
+    case_id="case_demo",
+    kind="video",
+    annotation_material_type: str | None = None,
+) -> None:
+    duration = max((float(clip.end) for clip in clips), default=0.0)
+    source = repo.create_artifact(
+        kind=ArtifactKind.uploaded_file,
+        payload_schema="UploadedFileArtifact.v1",
+        payload={"filename": f"{asset_id}.mp4", "object_uri": f"memory://{asset_id}"},
+        case_id=case_id,
+        uri=f"memory://{asset_id}",
+        media_info=MediaInfo(
+            media_type="video",
+            codec="h264",
+            format="mp4",
+            mime_type="video/mp4",
+            duration_sec=duration,
+            width=320,
+            height=568,
+            fps=30,
+        ),
+    )
+    asset = MediaAssetRecord(
+        id=asset_id,
+        case_id=case_id,
+        title="mixed",
+        kind=kind,
+        source_artifact_id=source.id,
+        usable=True,
+    )
+    repo.media_assets[asset_id] = asset
+    annotation_case_id = case_id or "case_demo"
+    annotation = AnnotationV4(
+        meta=AnnotationMetaV4(
+            asset_id=asset_id,
+            case_id=annotation_case_id,
+            material_type=annotation_material_type or kind,
+            duration=duration,
+        ),
+        clips=clips,
+    )
+    repo.annotations[asset_id] = AnnotationEditorVm(
+        asset=asset, etag="etag1", canonical=annotation, projection={}
+    )
+
+
+def _request(**overrides):
+    base = dict(
+        case_id="case_demo",
+        script=SCRIPT,
+        voice={"voice_id": "voice_sandbox"},
+        portrait={"template_mode": "agent"},
+        broll={"enabled": True},
+        strictness={"strict_timestamps": False},
+    )
+    base.update(overrides)
+    return DigitalHumanVideoRequest(**base)
+
+
+def _ctx(adapter, request, node_id):
+    state = RunState(request=request, artifacts={})
+    run = WorkflowRun(
+        id="run_1",
+        job_id="job_1",
+        case_id="case_demo",
+        workflow_template_id="digital_human_v2",
+        workflow_version="v1",
+        status=RunStatus.running,
+    )
+    node_run = NodeRun(
+        id="nr_1",
+        run_id="run_1",
+        node_id=node_id,
+        node_version="v1",
+        status=NodeStatus.running,
+        input_manifest_hash="sha256:test",
+    )
+    return NodeContext(adapter=adapter, run=run, node_run=node_run, state=state)
+
+
+def test_material_pack_splits_one_video_into_portrait_and_broll(tmp_path, monkeypatch):
+    object_store = LocalObjectStore(tmp_path / "objects")
+    monkeypatch.setattr("packages.core.storage.object_store._OBJECT_STORE", object_store)
+    adapter = _adapter(object_store)
+    # Isolate from the adapter's seeded demo assets so the pools reflect only our video.
+    adapter.repository.media_assets.clear()
+    adapter.repository.annotations.clear()
+    _inject_video_asset(
+        adapter.repository,
+        "vid_mixed",
+        [
+            _talk_clip("talk", 2.0, 9.0),  # A-roll
+            _cover_clip("cover", 9.0, 14.0, ["打磨", "工艺"]),  # B-roll, matches script
+        ],
+    )
+
+    output = nodes.material_pack_planning.run(_ctx(adapter, _request(), "MaterialPackPlanning"))
+    payload = next(a.payload for a in output.artifacts if a.kind == ArtifactKind.plan_material_pack)
+
+    # Portrait pool: the talking-head clip is a candidate carrying its exact source window.
+    portrait = payload["portrait_candidates"]
+    talk = next(c for c in portrait if (c["metadata"] or {}).get("clip_id") == "talk")
+    assert talk["metadata"]["source_start"] == 2.0
+    assert talk["metadata"]["source_end"] == 9.0
+
+    # B-roll pool: the cover clip is offered; the talking-head clip never leaks in.
+    broll_clip_ids = {(c["metadata"] or {}).get("clip_id") for c in payload["broll_candidates"]}
+    assert "cover" in broll_clip_ids
+    assert "talk" not in broll_clip_ids
+
+    # Honest diagnostics for the unified bucket.
+    assert payload["diagnostics"]["portrait_from_video"] >= 1
+    assert payload["diagnostics"]["video_no_lipsync"] is False
+
+
+def test_material_pack_legacy_portrait_kind_uses_clip_level_unified_path(tmp_path, monkeypatch):
+    object_store = LocalObjectStore(tmp_path / "objects")
+    monkeypatch.setattr("packages.core.storage.object_store._OBJECT_STORE", object_store)
+    adapter = _adapter(object_store)
+    adapter.repository.media_assets.clear()
+    adapter.repository.annotations.clear()
+    _inject_video_asset(
+        adapter.repository,
+        "legacy_portrait",
+        [
+            _talk_clip("talk", 1.25, 7.5),  # A-roll
+            _cover_clip("cover", 7.5, 12.0, ["打磨", "工艺"]),  # B-roll, same asset
+        ],
+        kind="portrait",
+        annotation_material_type="portrait",
+    )
+
+    output = nodes.material_pack_planning.run(_ctx(adapter, _request(), "MaterialPackPlanning"))
+    payload = next(a.payload for a in output.artifacts if a.kind == ArtifactKind.plan_material_pack)
+
+    portrait = payload["portrait_candidates"]
+    assert len(portrait) == 1
+    talk = portrait[0]
+    assert talk["asset_id"] == "legacy_portrait"
+    assert talk["metadata"]["clip_id"] == "talk"
+    assert talk["metadata"]["source_start"] == 1.25
+    assert talk["metadata"]["source_end"] == 7.5
+
+    broll_clip_ids = {(c["metadata"] or {}).get("clip_id") for c in payload["broll_candidates"]}
+    assert "cover" in broll_clip_ids
+    assert "talk" not in broll_clip_ids
+    assert payload["diagnostics"]["portrait_from_video"] == 1
+    assert payload["diagnostics"]["video_no_lipsync"] is False
+
+
+def test_material_pack_video_without_talking_head_flags_no_lipsync(tmp_path, monkeypatch):
+    object_store = LocalObjectStore(tmp_path / "objects")
+    monkeypatch.setattr("packages.core.storage.object_store._OBJECT_STORE", object_store)
+    adapter = _adapter(object_store)
+    adapter.repository.media_assets.clear()
+    adapter.repository.annotations.clear()
+    # A video with ONLY cover clips -> no A-roll candidate, but b-roll still works.
+    _inject_video_asset(
+        adapter.repository,
+        "vid_scenery",
+        [
+            _cover_clip("c1", 0.0, 5.0, ["打磨", "工艺"]),
+            _cover_clip("c2", 5.0, 9.0, ["补漆", "效果"]),
+        ],
+    )
+
+    output = nodes.material_pack_planning.run(_ctx(adapter, _request(), "MaterialPackPlanning"))
+    payload = next(a.payload for a in output.artifacts if a.kind == ArtifactKind.plan_material_pack)
+
+    assert payload["diagnostics"]["portrait_from_video"] == 0
+    assert payload["diagnostics"]["video_no_lipsync"] is True
+    assert payload["diagnostics"]["portrait_missing"] is True
+    # The cover clips still serve as b-roll — honest partial usefulness.
+    assert payload["broll_candidates"]
+
+
+def test_material_pack_global_video_does_not_enter_case_scoped_broll(tmp_path, monkeypatch):
+    object_store = LocalObjectStore(tmp_path / "objects")
+    monkeypatch.setattr("packages.core.storage.object_store._OBJECT_STORE", object_store)
+    adapter = _adapter(object_store)
+    adapter.repository.media_assets.clear()
+    adapter.repository.annotations.clear()
+    _inject_video_asset(
+        adapter.repository,
+        "vid_global",
+        [_cover_clip("cover", 0.0, 5.0, ["打磨", "工艺"])],
+        case_id=None,
+    )
+
+    output = nodes.material_pack_planning.run(
+        _ctx(
+            adapter,
+            _request(broll={"enabled": True, "case_id": "case_demo"}),
+            "MaterialPackPlanning",
+        )
+    )
+    payload = next(a.payload for a in output.artifacts if a.kind == ArtifactKind.plan_material_pack)
+
+    assert payload["broll_candidates"] == []
+
+
+def test_portrait_plan_cuts_only_the_talking_head_clip_window(tmp_path, monkeypatch):
+    object_store = LocalObjectStore(tmp_path / "objects")
+    monkeypatch.setattr("packages.core.storage.object_store._OBJECT_STORE", object_store)
+    monkeypatch.setattr(
+        "packages.production.pipeline.nodes.portrait_planning.detect_silence_windows",
+        lambda *a, **k: [],
+    )
+    adapter = _adapter(object_store)
+    # The seeded demo portrait asset has a real ~15s source; pin a [3,12] clip window.
+    win_start, win_end = 3.0, 12.0
+    material = {
+        "portrait_candidates": [
+            {
+                "asset_id": "asset_portrait_demo",
+                "score": 5.0,
+                "metadata": {"clip_id": "talk", "source_start": win_start, "source_end": win_end},
+            }
+        ]
+    }
+    units = [
+        {"unit_id": "u1", "text": "先讲解打磨工艺。", "start": 0.0, "end": 4.0, "confidence": 0.9},
+        {"unit_id": "u2", "text": "再展示补漆效果。", "start": 4.0, "end": 8.0, "confidence": 0.9},
+    ]
+    ctx = _ctx(adapter, _request(), "PortraitPlanning")
+    ctx.state.artifacts[ArtifactKind.plan_material_pack] = Artifact(
+        id="art_mp",
+        case_id="case_demo",
+        run_id="run_1",
+        node_run_id="nr_mp",
+        kind=ArtifactKind.plan_material_pack,
+        payload=material,
+        payload_schema="MaterialPackArtifact.v1",
+    )
+    ctx.state.artifacts[ArtifactKind.narration_units] = Artifact(
+        id="art_nu",
+        case_id="case_demo",
+        run_id="run_1",
+        node_run_id="nr_nu",
+        kind=ArtifactKind.narration_units,
+        payload={"source": "estimated", "units": units, "strict": False},
+        payload_schema="NarrationUnitsArtifact.v1",
+    )
+
+    output = nodes.portrait_planning.run(ctx)
+    payload = next(a.payload for a in output.artifacts if a.kind == ArtifactKind.plan_portrait)
+    assert payload["segments"]
+    # Every planned source slice is drawn from INSIDE the pinned clip window.
+    for seg in payload["segments"]:
+        assert seg["source_start"] >= win_start - 0.05
+        assert seg["source_end"] <= win_end + 0.05

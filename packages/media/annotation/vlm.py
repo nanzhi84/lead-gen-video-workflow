@@ -28,6 +28,7 @@ from pydantic import ValidationError
 from packages.core.contracts import ClipV4, UsageRole
 
 from .errors import SchemaError, SemanticError
+from ._material import material_class
 
 # Semantic-check thresholds (parser defaults).
 _MIN_CONFIDENCE = 0.3
@@ -36,11 +37,6 @@ _COVERAGE_GAP_TOL = 0.75  # tolerance (sec) for a gap in window coverage
 
 # Legal role tokens (kept faithful to origin; cover is the b-roll voiceover role).
 _LEGAL_ROLES = {role.value for role in UsageRole}
-
-
-def _is_portrait(material_type: str) -> bool:
-    mt = str(material_type or "").strip().lower()
-    return any(tok in mt for tok in ("portrait", "口播", "talk"))
 
 
 # ---------------------------------------------------------------------------
@@ -59,12 +55,15 @@ def build_window_prompt(
 ) -> str:
     """Build the VLM annotation prompt for a single window.
 
-    portrait / b-roll share this function; only "which semantic fields to fill"
-    differs. The prompt and emitted JSON contract stay faithful to the origin.
+    portrait / b-roll / video share this function; only "which semantic fields to
+    fill" differs. For the unified ``video`` bucket the VLM is asked to judge EACH
+    segment independently as talking-head vs cutaway and fill the matching side, so
+    one mixed clip yields both lip-sync-usable and cover-usable segments. The prompt
+    and emitted JSON contract stay faithful to the origin.
     """
-    portrait = _is_portrait(material_type)
+    cls = material_class(material_type)
 
-    if portrait:
+    if cls == "portrait":
         semantics_guide = (
             "口播专属语义字段(填到 segment.semantics):\n"
             "  subject_type / scene_type / gaze_to_camera(是否直视镜头) / "
@@ -74,6 +73,23 @@ def build_window_prompt(
             "retake_cue(重拍/笑场提示)"
         )
         role_hint = "role 取值: hook(开场钩子)/main(正片口播)/backup(备用)/avoid(不建议)"
+    elif cls == "video":
+        semantics_guide = (
+            "这是【混合视频】:同一条素材里可能既有口播(人对着镜头说话)也有空镜/B-roll(转场画面/产品/场景)。\n"
+            "请【逐段独立判断】每个 segment 属于哪一类,并只填该类语义字段、其余留默认:\n"
+            "  · 口播段(人正对镜头讲话): subject_type / scene_type / gaze_to_camera / "
+            "mouth_visible / mouth_moving / gesture_type / body_orientation / emotion_state / "
+            "speaker_intent / speech_action_alignment / retake_cue;\n"
+            "  · 空镜/B-roll段(无人讲话/转场/产品/环境): subject_type / scene_type / action / "
+            "narrative_role(process_proof/detail_showcase/result_showcase/environment_establish) / "
+            "contains_face / process_stage"
+        )
+        role_hint = (
+            "role 取值: 口播段用 hook(开场钩子)/main(正片口播)/backup(备用);"
+            "空镜段用 cover(盖旁白的空镜)/backup;都不可用时用 avoid。\n"
+            "usage 要与判断一致:口播段 recommended_for_lip_sync=true(画面是单人正脸正对镜头说话时);"
+            "空镜段 recommended_for_lip_sync=false 且通常 voiceover_only=true、role=cover。"
+        )
     else:
         semantics_guide = (
             "B-roll 专属语义字段(填到 segment.semantics):\n"

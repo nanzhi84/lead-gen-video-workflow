@@ -74,9 +74,7 @@ def run(ctx: NodeContext) -> NodeOutput:
         for asset_id in dict.fromkeys(candidate_asset_ids)
         if (annotation := ctx.repository.annotation_v4_for_asset(asset_id)) is not None
     }
-    ledger_entries = ctx.repository.recent_selections(
-        case_id=state.request.case_id, medium="broll"
-    )
+    ledger_entries = ctx.repository.recent_selections(case_id=state.request.case_id, medium="broll")
     candidates = rank_broll_candidates(
         annotations=annotations,
         segments=segments,
@@ -114,6 +112,7 @@ def run(ctx: NodeContext) -> NodeOutput:
     segments_payload = [
         {
             "asset_id": ins.asset_id,
+            "clip_id": ins.clip_id,
             "start_sec": ins.timeline_start,
             "end_sec": ins.timeline_end,
             "source_start": ins.source_start,
@@ -130,6 +129,7 @@ def run(ctx: NodeContext) -> NodeOutput:
         BrollOverlay(
             overlay_id=f"broll_{index + 1}",
             asset_id=ins.asset_id,
+            clip_id=ins.clip_id,
             timeline_start=ins.timeline_start,
             timeline_end=ins.timeline_end,
             source_start=ins.source_start,

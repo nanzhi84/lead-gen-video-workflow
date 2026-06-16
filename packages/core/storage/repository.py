@@ -12,8 +12,14 @@ from packages.core.storage.provider_seed import seed_real_provider_configuration
 from packages.core.storage.selection_ledger import material_usage_ranking_from_entries
 from packages.core.contracts import (
     AnnotationEditorVm,
+    AnnotationMetaV4,
     AnnotationV4,
     Artifact,
+    ClipRetrievalV4,
+    ClipSemanticsV4,
+    ClipUsageV4,
+    ClipV4,
+    UsageRole,
     ArtifactKind,
     ArtifactRef,
     AuthUser,
@@ -85,6 +91,40 @@ TModel = TypeVar("TModel", bound=BaseModel)
 
 def new_id(prefix: str) -> str:
     return f"{prefix}_{uuid4().hex[:12]}"
+
+
+def demo_portrait_annotation_v4(case_id: str = "case_demo") -> AnnotationV4:
+    """Annotation backing the seeded ``asset_portrait_demo`` (15s talking-head source).
+
+    The demo portrait asset ships marked ``annotated``; clip-level material selection
+    requires a real annotation (there is no whole-asset fallback for an unannotated
+    source), so back it with one whole-source talking-head clip that clears the
+    lip-sync gate. Shared by the in-memory seed and the SQL ``seed_media_assets`` so
+    both backends stay in sync.
+    """
+    return AnnotationV4(
+        meta=AnnotationMetaV4(
+            asset_id="asset_portrait_demo",
+            case_id=case_id,
+            material_type="portrait",
+            duration=15.0,
+        ),
+        clips=[
+            ClipV4(
+                segment_id="seg_portrait_main",
+                start=0.0,
+                end=15.0,
+                duration=15.0,
+                semantics=ClipSemanticsV4(subject_type="person", face_count_max=1),
+                usage=ClipUsageV4(role=UsageRole.main, recommended_for_lip_sync=True),
+                retrieval=ClipRetrievalV4(
+                    summary="口播主轨", keywords=["口播"], retrieval_sentence="口播主轨"
+                ),
+                confidence=0.9,
+            )
+        ],
+        quality_report={"lip_sync_suitability_score": 80, "usable_ratio": 0.9},
+    )
 
 
 class Repository:
@@ -204,6 +244,17 @@ class Repository:
                 annotation_status="annotated",
                 usable=True,
             )
+        # The demo portrait asset is marked annotated, so back it with a real V4
+        # annotation: one whole-source talking-head clip that clears the lip-sync
+        # gate, so clip-level material selection yields an A-roll candidate (the
+        # production pipeline requires an annotation — there is no whole-asset
+        # fallback for an unannotated source).
+        self.annotations["asset_portrait_demo"] = AnnotationEditorVm(
+            asset=self.media_assets["asset_portrait_demo"],
+            etag="seed-portrait-demo",
+            canonical=demo_portrait_annotation_v4(case.id),
+            projection={},
+        )
         self.voices["voice_sandbox"] = VoiceProfile(
             id="voice_sandbox",
             display_name="Sandbox Mandarin Voice",
@@ -371,12 +422,12 @@ class Repository:
         self, entries: Iterable[SelectionLedgerEntry]
     ) -> list[SelectionLedgerEntry]:
         existing = {
-            (entry.case_id, entry.run_id, entry.medium, entry.asset_id, entry.slot_phase)
+            (entry.case_id, entry.run_id, entry.medium, entry.asset_id, entry.clip_id, entry.slot_phase)
             for entry in self.selection_ledger.values()
         }
         recorded: list[SelectionLedgerEntry] = []
         for entry in entries:
-            key = (entry.case_id, entry.run_id, entry.medium, entry.asset_id, entry.slot_phase)
+            key = (entry.case_id, entry.run_id, entry.medium, entry.asset_id, entry.clip_id, entry.slot_phase)
             if key in existing:
                 continue
             self.selection_ledger[entry.id] = entry

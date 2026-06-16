@@ -4659,6 +4659,8 @@ export interface components {
         MaterialUsageRankingItem: {
             /** Asset Id */
             asset_id: string;
+            /** Clip Id */
+            clip_id?: string | null;
             /**
              * Medium
              * @enum {string}
@@ -7841,7 +7843,7 @@ export interface components {
          * UploadKind
          * @enum {string}
          */
-        UploadKind: "portrait" | "broll" | "voice_reference" | "bgm" | "font" | "cover_template" | "publish_video";
+        UploadKind: "portrait" | "broll" | "video" | "voice_reference" | "bgm" | "font" | "cover_template" | "publish_video";
         /** UploadSession */
         UploadSession: {
             /** Id */

@@ -1,7 +1,7 @@
-import { ArrowLeft, ArrowRight, CheckCircle2, Film, FolderUp, Loader2, Video, Wand2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, FolderUp, Loader2, Video, Wand2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type MediaAssetRecord, type UploadKind } from "../../api/client";
+import { api, type MediaAssetRecord } from "../../api/client";
 import { AnnotationEditorModal } from "../../components/annotation/AnnotationEditorModal";
 import { TemplateBatchActionBar } from "../../components/library/TemplateBatchActionBar";
 import { TemplateAssetCard } from "../../components/library/TemplateAssetCard";
@@ -11,8 +11,6 @@ import { UploadPlaceholderCard } from "../../components/library/UploadPlaceholde
 import { VideoPreviewModal } from "../../components/library/VideoPreviewModal";
 import { UsageRankingPanel } from "../../components/library/UsageRankingPanel";
 import {
-  templateKindLabels,
-  type TemplateKind,
   type UploadPlaceholder,
   readPreviewUrlMeta,
 } from "../../components/library/libraryModel";
@@ -34,7 +32,6 @@ export function TemplatesTab() {
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const [caseSearch, setCaseSearch] = useState("");
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
-  const [kind, setKind] = useState<TemplateKind>("portrait");
   const [assetLimit, setAssetLimit] = useState(50);
   const [assetSearch, setAssetSearch] = useState("");
   const [sceneFilter, setSceneFilter] = useState("all");
@@ -69,7 +66,14 @@ export function TemplatesTab() {
   // renders after the user picks a case.
   useEffect(() => {
     setAssetLimit(50);
-  }, [kind, selectedCaseId]);
+  }, [selectedCaseId]);
+
+  const videoQuery = useQuery({
+    queryKey: ["library", "media", selectedCaseId, "video", assetLimit],
+    queryFn: () => api.mediaAssets.list({ limit: assetLimit, case_id: selectedCaseId, kind: "video" }),
+    enabled: Boolean(selectedCaseId),
+    refetchInterval: pageVisible ? 10_000 : false,
+  });
 
   const portraitQuery = useQuery({
     queryKey: ["library", "media", selectedCaseId, "portrait", assetLimit],
@@ -85,26 +89,52 @@ export function TemplatesTab() {
     refetchInterval: pageVisible ? 10_000 : false,
   });
 
-  const usageQuery = useQuery({
-    queryKey: ["library", "usage-ranking", selectedCaseId, kind],
-    queryFn: () => api.mediaAssets.usageRanking(kind, { case_id: selectedCaseId, top_n: 20 }),
+  const portraitUsageQuery = useQuery({
+    queryKey: ["library", "usage-ranking", selectedCaseId, "portrait"],
+    queryFn: () => api.mediaAssets.usageRanking("portrait", { case_id: selectedCaseId, top_n: 20 }),
     enabled: Boolean(selectedCaseId),
     refetchInterval: pageVisible ? 10_000 : false,
   });
 
-  const activeQuery = kind === "portrait" ? portraitQuery : brollQuery;
-  const activeItems = activeQuery.data?.items ?? [];
-  const hasMoreAssets = Boolean(activeQuery.data && activeItems.length >= assetLimit);
+  const brollUsageQuery = useQuery({
+    queryKey: ["library", "usage-ranking", selectedCaseId, "broll"],
+    queryFn: () => api.mediaAssets.usageRanking("broll", { case_id: selectedCaseId, top_n: 20 }),
+    enabled: Boolean(selectedCaseId),
+    refetchInterval: pageVisible ? 10_000 : false,
+  });
+
+  const activeItems = useMemo(() => {
+    const merged = [...(videoQuery.data?.items ?? []), ...(portraitQuery.data?.items ?? []), ...(brollQuery.data?.items ?? [])];
+    const byId = new Map<string, { card: (typeof merged)[number]; index: number }>();
+    merged.forEach((card, index) => {
+      if (!byId.has(card.asset.id)) byId.set(card.asset.id, { card, index });
+    });
+    return Array.from(byId.values())
+      .sort((left, right) => {
+        const leftTime = Date.parse(left.card.asset.created_at ?? "");
+        const rightTime = Date.parse(right.card.asset.created_at ?? "");
+        if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) return rightTime - leftTime;
+        if (Number.isFinite(leftTime) !== Number.isFinite(rightTime)) return Number.isFinite(rightTime) ? 1 : -1;
+        const titleCompare = left.card.asset.title.localeCompare(right.card.asset.title, "zh-Hans-CN");
+        return titleCompare || left.index - right.index;
+      })
+      .map((entry) => entry.card);
+  }, [videoQuery.data, portraitQuery.data, brollQuery.data]);
+  const assetQueries = [videoQuery, portraitQuery, brollQuery];
+  const hasMoreAssets = assetQueries.some((query) => Boolean(query.data && query.data.items.length >= assetLimit));
+  const isAssetsLoading = assetQueries.some((query) => query.isLoading);
+  const isAssetsFetching = assetQueries.some((query) => query.isFetching);
+  const assetError = assetQueries.find((query) => query.error)?.error;
   const selectedCase = cases.find((item) => item.id === selectedCaseId) ?? null;
   const usageByAssetId = useMemo(
-    () => new Map((usageQuery.data?.items ?? []).map((item) => [item.asset_id, item])),
-    [usageQuery.data],
+    () => new Map([...(portraitUsageQuery.data?.items ?? []), ...(brollUsageQuery.data?.items ?? [])].map((item) => [item.asset_id, item])),
+    [portraitUsageQuery.data, brollUsageQuery.data],
   );
   const previewCard = useMemo(() => {
     if (!previewAssetId) return null;
-    const pool = [...(portraitQuery.data?.items ?? []), ...(brollQuery.data?.items ?? [])];
+    const pool = [...(videoQuery.data?.items ?? []), ...(portraitQuery.data?.items ?? []), ...(brollQuery.data?.items ?? [])];
     return pool.find((card) => card.asset.id === previewAssetId) ?? null;
-  }, [previewAssetId, portraitQuery.data, brollQuery.data]);
+  }, [previewAssetId, videoQuery.data, portraitQuery.data, brollQuery.data]);
   const scenes = useMemo(() => {
     const values = new Set<string>();
     activeItems.forEach((card) => card.asset.tags?.forEach((tag) => values.add(tag)));
@@ -126,7 +156,7 @@ export function TemplatesTab() {
     });
   }, [activeItems, assetSearch, sceneFilter, statusFilter]);
 
-  const visiblePlaceholders = placeholders.filter((item) => item.kind === kind);
+  const visiblePlaceholders = placeholders.filter((item) => item.kind === "video");
 
   const rerunMutation = useMutation({
     mutationFn: (assetId: string) => api.annotations.rerun(assetId, { force: false }),
@@ -212,7 +242,7 @@ export function TemplatesTab() {
   // hide it, scroll it into view, and flash a highlight ring.
   function jumpToAsset(assetId: string) {
     if (!activeItems.some((card) => card.asset.id === assetId)) {
-      toast.info("该素材不在当前列表", "可能属于另一个标签页或尚未加载。");
+      toast.info("该素材不在当前列表", "可能尚未加载或不属于当前案例。");
       return;
     }
     setAssetSearch("");
@@ -229,7 +259,7 @@ export function TemplatesTab() {
     mutationFn: async ({ assetId, file }: { assetId: string; file: File }) => {
       const result = await replaceUpload.uploadFile({
         file,
-        kind: kind as UploadKind,
+        kind: "video",
         caseId: selectedCaseId,
         metadata: { title: file.name, template_mode: "replace" },
       });
@@ -250,7 +280,7 @@ export function TemplatesTab() {
   async function autoReplaceUploads(uploadSessionIds: string[]) {
     const response = await api.mediaAssets.autoMatchReplace({
       case_id: selectedCaseId,
-      kind,
+      kind: "video",
       upload_session_ids: uploadSessionIds,
     });
     await queryClient.invalidateQueries({ queryKey: ["library", "media", selectedCaseId] });
@@ -399,7 +429,7 @@ export function TemplatesTab() {
             </button>
             <div>
               <h2 className="text-xl font-semibold text-text-primary">{selectedCase?.name ?? "素材库"}</h2>
-              <p className="mt-1 text-sm text-text-secondary">人像模板与 B-roll 共用上传与标注流程。</p>
+              <p className="mt-1 text-sm text-text-secondary">视频素材共用上传、标注与替换流程。</p>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -424,16 +454,12 @@ export function TemplatesTab() {
           </div>
         </div>
 
-        <div className="tabs">
-          {(["portrait", "broll"] as TemplateKind[]).map((item) => (
-            <button key={item} className={`tabLink ${kind === item ? "active" : ""}`} type="button" onClick={() => setKind(item)}>
-              {item === "portrait" ? <Video className="h-4 w-4" /> : <Film className="h-4 w-4" />}
-              <span>{templateKindLabels[item]}</span>
-              <span className="badge bg-white/70 text-text-secondary">
-                {item === "portrait" ? (portraitQuery.data?.items.length ?? 0) : (brollQuery.data?.items.length ?? 0)}
-              </span>
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="flex items-center gap-2 text-base font-semibold text-text-primary">
+            <Video className="h-4 w-4 text-accent" />
+            <span>视频素材</span>
+          </h3>
+          <span className="badge bg-white/70 text-text-secondary">{activeItems.length} 个</span>
         </div>
 
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_180px_190px]">
@@ -469,8 +495,8 @@ export function TemplatesTab() {
           />
         ) : null}
 
-        {activeQuery.isLoading ? <TemplateGridSkeleton /> : null}
-        {activeQuery.error ? <ErrorState error={activeQuery.error} /> : null}
+        {isAssetsLoading ? <TemplateGridSkeleton /> : null}
+        {assetError ? <ErrorState error={assetError} /> : null}
 
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {visiblePlaceholders.map((item) => (
@@ -502,21 +528,29 @@ export function TemplatesTab() {
           ))}
         </div>
         <InfiniteScrollSentinel
-          enabled={hasMoreAssets && !activeQuery.isFetching}
+          enabled={hasMoreAssets && !isAssetsFetching}
           onVisible={() => setAssetLimit((current) => current + 50)}
-          label={`继续加载${templateKindLabels[kind]}`}
+          label="继续加载视频素材"
         />
 
-        {!activeQuery.isLoading && visiblePlaceholders.length === 0 && filteredItems.length === 0 ? (
-          <EmptyState icon={Video} title={`暂无${templateKindLabels[kind]}`} detail="上传素材后会进入标注队列。" />
+        {!isAssetsLoading && visiblePlaceholders.length === 0 && filteredItems.length === 0 ? (
+          <EmptyState icon={Video} title="暂无视频素材" detail="上传素材后会进入标注队列。" />
         ) : null}
       </div>
 
-      <div className="xl:sticky xl:top-4 xl:self-start">
+      <div className="grid gap-4 xl:sticky xl:top-4 xl:self-start">
         <UsageRankingPanel
-          report={usageQuery.data}
-          isLoading={usageQuery.isLoading}
-          error={usageQuery.error}
+          title="A-roll（口播）"
+          report={portraitUsageQuery.data}
+          isLoading={portraitUsageQuery.isLoading}
+          error={portraitUsageQuery.error}
+          onItemClick={jumpToAsset}
+        />
+        <UsageRankingPanel
+          title="B-roll（空镜）"
+          report={brollUsageQuery.data}
+          isLoading={brollUsageQuery.isLoading}
+          error={brollUsageQuery.error}
           onItemClick={jumpToAsset}
         />
       </div>
@@ -525,7 +559,7 @@ export function TemplatesTab() {
         isOpen={uploadOpen}
         onClose={() => setUploadOpen(false)}
         caseId={selectedCaseId}
-        kind={kind}
+        kind="video"
         onPlaceholder={setPlaceholder}
         onSuccess={async (placeholderId) => {
           clearSuccessfulPlaceholder(placeholderId);

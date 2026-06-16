@@ -272,16 +272,6 @@ class SqlAlchemyMediaRepository:
             session.refresh(row)
             return media_asset_row_to_contract(row)
 
-    def artifact_uri_for_asset(self, asset_id: str) -> str | None:
-        with self.session_factory() as session:
-            asset = session.get(MediaAssetRow, asset_id)
-            if asset is None:
-                return None
-            if not asset.source_artifact_id:
-                return ""
-            artifact = session.get(ArtifactRow, asset.source_artifact_id)
-            return artifact.uri if artifact is not None else ""
-
     def media_source_for_asset(self, asset_id: str) -> tuple[str, MediaInfo | None] | None:
         # Returns the source artifact's (uri, media_info) so the preview endpoint can
         # surface content_type/playable. None => asset missing; ("", None) => asset

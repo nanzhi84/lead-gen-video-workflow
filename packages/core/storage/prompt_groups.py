@@ -21,7 +21,6 @@ class PromptGroupSeed:
     version_id: str
     name: str
     purpose: str
-    source_key: str
     variables_schema_id: str
     output_schema_id: str
     variable_hints: tuple[str, ...]
@@ -103,7 +102,6 @@ def _load_prompt_group_seeds() -> tuple[PromptGroupSeed, ...]:
             version_id=item["version_id"],
             name=item["name"],
             purpose=item["purpose"],
-            source_key=item["source_key"],
             variables_schema_id=item["variables_schema_id"],
             output_schema_id=item["output_schema_id"],
             variable_hints=tuple(item["variable_hints"]),

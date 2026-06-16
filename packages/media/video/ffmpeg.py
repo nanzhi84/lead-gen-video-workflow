@@ -518,15 +518,6 @@ def probe_stream_types(path: str | Path) -> set[str]:
     return {str(stream.get("codec_type")) for stream in payload.get("streams") or [] if stream.get("codec_type")}
 
 
-def detect_hdr(path: str | Path) -> bool:
-    """Return True when the video uses an HDR (BT.2020 / PQ / HLG) color space.
-
-    A thin wrapper over :func:`probe_media` so callers that only need the HDR
-    signal do not have to reach into ``MediaInfo``. Non-video inputs are False."""
-    info = probe_media(path)
-    return bool(info.is_hdr) if info.media_type == "video" else False
-
-
 @dataclass(frozen=True)
 class NormalizationResult:
     output_path: Path

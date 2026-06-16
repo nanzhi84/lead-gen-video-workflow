@@ -4,7 +4,6 @@ import pytest
 
 from packages.media.video.ffmpeg import (
     FfmpegCommandError,
-    detect_hdr,
     extract_thumbnails,
     normalize_for_upload,
     probe_media,
@@ -23,35 +22,6 @@ def _make_hdr(tmp_path):
     if not info.is_hdr:  # pragma: no cover - environment-dependent
         pytest.skip("ffmpeg did not tag the fixture as HDR; cannot exercise tonemap path")
     return video
-
-
-def test_probe_media_reports_sdr_video_as_not_hdr(tmp_path):
-    video = generate_test_video(tmp_path, duration_sec=1, width=320, height=568, fps=15)
-
-    info = probe_media(video)
-
-    assert info.media_type == "video"
-    assert info.is_hdr is False
-    assert detect_hdr(video) is False
-
-
-def test_probe_media_detects_bt2020_pq_hdr_source(tmp_path):
-    video = _make_hdr(tmp_path)
-
-    info = probe_media(video)
-
-    assert info.is_hdr is True
-    assert info.color_transfer == "smpte2084"
-    assert info.color_primaries == "bt2020"
-    assert detect_hdr(video) is True
-
-
-def test_detect_hdr_returns_false_for_audio(tmp_path):
-    from tests.fixtures.media import generate_test_audio
-
-    audio = generate_test_audio(tmp_path, duration_sec=1, sample_rate=16000)
-
-    assert detect_hdr(audio) is False
 
 
 def test_normalize_for_upload_tonemaps_hdr_to_bt709_1080p(tmp_path):

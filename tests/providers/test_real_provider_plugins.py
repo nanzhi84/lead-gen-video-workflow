@@ -1146,7 +1146,6 @@ def test_openai_image_generates_cover_from_b64_json(tmp_path):
 
 def test_openai_image_edits_from_template_reference(tmp_path):
     import base64
-    import json
 
     seen: dict = {}
 

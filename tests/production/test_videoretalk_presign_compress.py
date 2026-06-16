@@ -21,9 +21,8 @@ import json
 from datetime import timedelta
 
 import httpx
-import pytest
 
-from packages.ai.gateway.provider_gateway import ProviderCall, ProviderGateway, ProviderRuntimeError
+from packages.ai.gateway.provider_gateway import ProviderCall, ProviderGateway
 from packages.ai.providers.videoretalk import DashScopeVideoReTalkProvider
 from packages.core.contracts import (
     ArtifactKind,
@@ -223,7 +222,6 @@ def test_real_videoretalk_compresses_oversized_input_before_submit(
     submitted: dict = {}
     object_store = _PresigningObjectStore(tmp_path / "objects")
     secret_store = LocalSecretStore(tmp_path / "secrets")
-    repository, gateway = Repository(), None
     adapter, gateway = _adapter(
         object_store, secret_store, httpx.MockTransport(_dashscope_handler(result_video.read_bytes(), submitted))
     )

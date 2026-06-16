@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import shutil
 import struct
-from pathlib import Path
 
 import pytest
 

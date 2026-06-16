@@ -142,16 +142,6 @@ def score_is_active_eligible(score: PerformanceScore) -> bool:
     )
 
 
-def memory_meets_activation_threshold(memory: CaseMemory, *, force: bool = False) -> bool:
-    """§25.7: active requires sample_size + confidence thresholds unless forced."""
-    if force:
-        return True
-    return (
-        memory.confidence >= MEMORY_ACTIVATION_MIN_CONFIDENCE
-        and memory.sample_size >= MEMORY_ACTIVATION_MIN_SAMPLE_SIZE
-    )
-
-
 # ---------------------------------------------------------------------------
 # §25.5 Feature extraction
 # ---------------------------------------------------------------------------

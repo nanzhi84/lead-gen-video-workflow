@@ -14,7 +14,6 @@ import pytest
 openpyxl = pytest.importorskip("openpyxl")
 
 from apps.connectors.oceanengine import (
-    ImportArchive,
     default_archive,
     import_archive_tree,
     import_archived_xlsx,

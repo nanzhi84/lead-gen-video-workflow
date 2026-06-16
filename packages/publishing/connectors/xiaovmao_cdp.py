@@ -50,7 +50,6 @@ class XiaoVmaoUnavailableError(RuntimeError):
 
 @dataclass
 class Target:
-    target_id: str
     title: str
     target_type: str
     url: str
@@ -89,7 +88,6 @@ class XiaoVmaoDriver:
             return []
         return [
             Target(
-                target_id=item.get("id", ""),
                 title=item.get("title", ""),
                 target_type=item.get("type", ""),
                 url=item.get("url", ""),

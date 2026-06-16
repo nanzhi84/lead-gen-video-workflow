@@ -1,6 +1,6 @@
 """Operations, cost, yield, alert, and audit packages."""
 
-from .funnel import (
+from packages.core.observability.funnel import (
     FUNNEL_TAXONOMY,
     compute_true_yield_rate,
     node_stage,

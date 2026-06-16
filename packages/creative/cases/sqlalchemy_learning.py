@@ -295,10 +295,6 @@ class SqlAlchemyCaseLearningRepository:
         )
         return MemoryRecallResponse(case_id=case_id, mode=query.mode, memories=recalled)
 
-    def performance_scope_scores(self, *, case_id: str) -> dict[str, float]:
-        with self.session_factory() as session:
-            return self._performance_scope_scores(session, case_id)
-
     def _performance_scope_scores(self, session: Session, case_id: str) -> dict[str, float]:
         lookup: dict[str, float] = {}
         for row in session.scalars(

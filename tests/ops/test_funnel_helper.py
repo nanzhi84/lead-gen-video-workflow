@@ -17,9 +17,6 @@ from packages.core.observability import (
     record_funnel_event,
     workflow_stage,
 )
-# packages.ops must keep re-exporting the same names (ops -> core is allowed).
-from packages.ops import record_funnel_event as ops_record_funnel_event
-from packages.ops.funnel import FUNNEL_TAXONOMY as OPS_FUNNEL_TAXONOMY
 from packages.core.storage.repository import Repository
 
 
@@ -47,12 +44,6 @@ SPEC_9_5_TAXONOMY = frozenset(
 def test_taxonomy_is_exactly_the_spec_9_5_set():
     # FUNNEL_TAXONOMY must equal the §9.5 taxonomy verbatim — no more, no less.
     assert FUNNEL_TAXONOMY == SPEC_9_5_TAXONOMY
-
-
-def test_ops_reexport_matches_core_taxonomy():
-    # The ops re-export is identity-equal to the core taxonomy (single source).
-    assert OPS_FUNNEL_TAXONOMY == FUNNEL_TAXONOMY
-    assert ops_record_funnel_event is record_funnel_event
 
 
 def test_workflow_stage_maps_runstatus_to_spec_strings():

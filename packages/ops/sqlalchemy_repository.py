@@ -57,7 +57,6 @@ from packages.core.storage.database import (
 from packages.core.observability import compute_true_yield_rate, persist_funnel_event_rows
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
-from packages.ops.alert_rules import evaluate_rules
 from packages.ops.budget_evaluation import SpendRecord, evaluate_budget
 from packages.ops.cost_metrics import FunnelCounts, InvocationCost, compute_cost_metrics
 from packages.ops.failure_taxonomy import classify_error_code
@@ -614,52 +613,6 @@ class SqlAlchemyOpsRepository:
             session.commit()
             session.refresh(row)
             return alert_rule_row_to_contract(row)
-
-    def evaluate_alert_rules(
-        self,
-        *,
-        window_start: datetime | None = None,
-        window_end: datetime | None = None,
-    ) -> list[OpsAlertEvent]:
-        """§9.8 alert engine: build the current metric snapshot, evaluate every
-        enabled ops_alert_rule, and persist a deterministic OpsAlertEvent per fire."""
-
-        rules = self.list_alert_rules(limit=500)
-        if not rules:
-            return []
-        metrics = self._alert_metric_snapshot(window_start=window_start, window_end=window_end)
-        fired = evaluate_rules(rules, metrics)
-        if not fired:
-            return []
-        now = utcnow()
-        with self.session_factory() as session:
-            for event in fired:
-                row = session.get(OpsAlertEventRow, event.id)
-                if row is None:
-                    session.add(
-                        OpsAlertEventRow(
-                            id=event.id,
-                            code=event.code,
-                            rule_id=event.rule_id,
-                            status="open",
-                            message=event.message,
-                            severity=event.severity,
-                            triggered_at=event.triggered_at or now,
-                        )
-                    )
-                elif row.status == "resolved":
-                    row.status = "open"
-                    row.message = event.message
-                    row.severity = event.severity
-                    row.triggered_at = now
-                    row.resolved_at = None
-                    row.updated_at = now
-                else:
-                    row.message = event.message
-                    row.severity = event.severity
-                    row.updated_at = now
-            session.commit()
-        return fired
 
     def _alert_metric_snapshot(
         self,

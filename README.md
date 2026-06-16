@@ -76,7 +76,7 @@ packages/
   publishing/   发布仓储与平台适配、文案/封面生成
   ops/          成品率漏斗、余额/对账、预算/告警、Ops 仓储
   migrations/   遗留资产导入助手（**非** Alembic；DB 迁移在 packages/core/storage/alembic）
-tests/          按域组织的 pytest（约 120 文件）：api/core/creative/media/.../integration/temporal/golden/contract
+tests/          按域组织的 pytest（约 140 文件）：api/core/creative/media/.../integration/temporal/golden/contract
 scripts/        bootstrap_database · migrate · export_openapi · gc_objectstore · dev_up.sh · ci_gate.sh 等
 deploy/         Temporal 动态配置（无 k8s/terraform 清单）
 docs/           Spec、ROADMAP、milestones/、ops/、audit/
@@ -96,7 +96,7 @@ docs/           Spec、ROADMAP、milestones/、ops/、audit/
 
 ### 方式 A：一键开发（推荐）
 
-`scripts/dev_up.sh` 会幂等地拉起 infra（docker）+ API + worker + web：
+`scripts/dev_up.sh` 会幂等地拉起 infra（docker）、执行 DB 迁移与 seed，然后启动 API + worker + web：
 
 ```bash
 cp .env.example .env.local        # 按需改 .env.local（dev_up 读取它，或 CUTAGENT_ENV_FILE）
@@ -119,20 +119,37 @@ python -m pip install -e ".[dev]"
 # 2) 拉起基础设施（端口：Postgres 55432→5432 · Redis 6379 · MinIO 9000/9001 · Temporal 7233 · Temporal UI 8080）
 docker compose up -d postgres redis minio temporal temporal-ui
 
-# 3) 初始化数据库：alembic upgrade head + 种子用户/媒体（仅迁移用 scripts/migrate.py）
-python scripts/bootstrap_database.py
-
-# 4) 启动 API（默认/推荐 SQLAlchemy 后端；缺 DATABASE_URL 会显式失败）
+# 3) 配置 SQLAlchemy + Temporal + 共享 MinIO 对象存储
+#    这些变量必须在 bootstrap/API/worker 启动前设置：Temporal 模式禁止 node-local ephemeral。
 export CUTAGENT_STORAGE_BACKEND=sqlalchemy
 export CUTAGENT_DATABASE_URL=postgresql+psycopg://cutagent:cutagent@localhost:55432/cutagent
+export CUTAGENT_WORKFLOW_RUNTIME=temporal
+export CUTAGENT_TEMPORAL_ADDRESS=localhost:7233
+export CUTAGENT_TEMPORAL_NAMESPACE=default
+export CUTAGENT_TEMPORAL_TASK_QUEUE=cutagent-production
+export CUTAGENT_OBJECTSTORE_BACKEND=s3
+export CUTAGENT_OBJECTSTORE_ENDPOINT=http://127.0.0.1:9000
+export CUTAGENT_OBJECTSTORE_BUCKET=cutagent-local
+export CUTAGENT_OBJECTSTORE_ACCESS_KEY=minioadmin
+export CUTAGENT_OBJECTSTORE_SECRET_KEY=minioadmin
+export CUTAGENT_OBJECTSTORE_ADDRESSING_STYLE=path
+export CUTAGENT_EPHEMERAL_OBJECTSTORE_BACKEND=s3
+export CUTAGENT_EPHEMERAL_OBJECTSTORE_ENDPOINT=http://127.0.0.1:9000
+export CUTAGENT_EPHEMERAL_OBJECTSTORE_BUCKET=cutagent-ephemeral
+export CUTAGENT_EPHEMERAL_OBJECTSTORE_ACCESS_KEY=minioadmin
+export CUTAGENT_EPHEMERAL_OBJECTSTORE_SECRET_KEY=minioadmin
+export CUTAGENT_EPHEMERAL_OBJECTSTORE_ADDRESSING_STYLE=path
+
+# 4) 初始化数据库：alembic upgrade head + 种子用户/媒体（仅迁移用 scripts/migrate.py）
+python scripts/bootstrap_database.py
+
+# 5) 启动 API（默认/推荐 SQLAlchemy 后端；缺 DATABASE_URL 会显式失败）
 python -m uvicorn apps.api.main:app --reload --port 8000
 
-# 5) 启动 Temporal worker（独立进程，改代码需重启）
-export CUTAGENT_WORKFLOW_RUNTIME=temporal CUTAGENT_TEMPORAL_ADDRESS=localhost:7233 \
-       CUTAGENT_TEMPORAL_NAMESPACE=default CUTAGENT_TEMPORAL_TASK_QUEUE=cutagent-production
+# 6) 启动 Temporal worker（独立进程，改代码需重启；继承上面的 env）
 python -m apps.worker
 
-# 6) 启动前端
+# 7) 启动前端
 ( cd apps/web && npm run dev )    # Vite http://127.0.0.1:5173
 ```
 
@@ -160,11 +177,13 @@ python scripts/export_openapi.py                 # 写 apps/web/src/api/openapi.
 | `CUTAGENT_DATABASE_URL` | — | SQLAlchemy 后端必填 |
 | `CUTAGENT_WORKFLOW_RUNTIME` | `local` | 运行时：`local` \| `temporal` |
 | `CUTAGENT_OBJECTSTORE_BACKEND` | `local` | 对象存储：`local` \| `s3`（MinIO/S3/OSS） |
+| `CUTAGENT_EPHEMERAL_OBJECTSTORE_BACKEND` | `local` | scratch 对象存储：`local` \| `s3`；Temporal 模式必须指向共享 MinIO/S3 |
 | `CUTAGENT_ALLOW_SANDBOX_FALLBACK` | `false` | `1` 才允许无真实 provider 时静默回退 sandbox；默认**显式报错不降级** |
 | `CUTAGENT_REGISTRATION_OPEN` | `true` | 是否开放自助注册 |
 | `CUTAGENT_DISABLE_BACKGROUND_DISPATCHER` | — | `1` 关闭进程内 outbox 派发 |
 
 如需纯演示/测试用内存仓储，必须显式设置 `CUTAGENT_STORAGE_BACKEND=memory`；默认值是 `sqlalchemy`，因此默认启动需要 `CUTAGENT_DATABASE_URL`。
+Temporal runtime 下 durable 与 ephemeral 对象存储都应使用共享 MinIO/S3（且 bucket 不同），否则启动时会 fail-fast，避免跨 worker 读不到 ephemeral artifacts。
 
 > **Secret 不进 env**：provider API key 等敏感信息由 `SecretStore`/`ProviderProfile` 管理，`.env` 里只有基础设施连接参数。
 
@@ -181,8 +200,16 @@ export CUTAGENT_RUN_DB_TESTS=1 CUTAGENT_STORAGE_BACKEND=sqlalchemy
 export CUTAGENT_DATABASE_URL=postgresql+psycopg://cutagent:cutagent@localhost:55432/cutagent
 python -m pytest -q tests/integration
 
-# Temporal 测试（opt-in，需 Temporal + 共享 MinIO 对象存储）
-export CUTAGENT_RUN_TEMPORAL_TESTS=1 CUTAGENT_WORKFLOW_RUNTIME=temporal
+# Temporal 测试（opt-in，需 Temporal + 共享 MinIO 对象存储；docker compose 需已起）
+export CUTAGENT_RUN_TEMPORAL_TESTS=1 CUTAGENT_STORAGE_BACKEND=sqlalchemy
+export CUTAGENT_DATABASE_URL=postgresql+psycopg://cutagent:cutagent@localhost:55432/cutagent
+export CUTAGENT_WORKFLOW_RUNTIME=temporal CUTAGENT_TEMPORAL_ADDRESS=localhost:7233
+export CUTAGENT_OBJECTSTORE_BACKEND=s3 CUTAGENT_OBJECTSTORE_ENDPOINT=http://127.0.0.1:9000
+export CUTAGENT_OBJECTSTORE_BUCKET=cutagent-local CUTAGENT_OBJECTSTORE_ACCESS_KEY=minioadmin
+export CUTAGENT_OBJECTSTORE_SECRET_KEY=minioadmin CUTAGENT_OBJECTSTORE_ADDRESSING_STYLE=path
+export CUTAGENT_EPHEMERAL_OBJECTSTORE_BACKEND=s3 CUTAGENT_EPHEMERAL_OBJECTSTORE_ENDPOINT=http://127.0.0.1:9000
+export CUTAGENT_EPHEMERAL_OBJECTSTORE_BUCKET=cutagent-ephemeral CUTAGENT_EPHEMERAL_OBJECTSTORE_ACCESS_KEY=minioadmin
+export CUTAGENT_EPHEMERAL_OBJECTSTORE_SECRET_KEY=minioadmin CUTAGENT_EPHEMERAL_OBJECTSTORE_ADDRESSING_STYLE=path
 python -m pytest -q tests/temporal
 
 # 完整本地验收门禁（镜像 .github/workflows/ci.yml；需 docker compose 已起）

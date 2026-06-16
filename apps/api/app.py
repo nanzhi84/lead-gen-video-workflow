@@ -105,14 +105,17 @@ async def lifespan(app: FastAPI):
                 await dispatcher_task
             except asyncio.CancelledError:
                 pass
+        close_hub = getattr(app.state.event_hub, "close", None)
+        if close_hub is not None:
+            close_hub()
 
 
 def configure_app_state(app: FastAPI, *, session_factory=None) -> None:
     app.state.settings = build_settings()
     runtime_repository = Repository()
     app.state.repository = runtime_repository
-    app.state.event_hub = InProcessFanoutHub()
-    app.state.event_tokens = EventStreamTokenStore()
+    app.state.event_hub = InProcessFanoutHub(redis_url=app.state.settings.redis_url)
+    app.state.event_tokens = EventStreamTokenStore(redis_url=app.state.settings.redis_url)
     app.state.sqlalchemy_session_factory = session_factory
     if session_factory is None:
         app.state.outbox_dispatcher = OutboxDispatcher(

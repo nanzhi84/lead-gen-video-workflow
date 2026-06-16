@@ -15,7 +15,7 @@ Case 领域：自进化闭环算法、指标导入匹配、Case/学习的 DB 落
 - cookie auto-refresh（Playwright）刻意不实现：`refresh_status()` 恒返回 `auto_refresh_supported=False`，对应 `/api/creative/reference-extractor/refresh-cookies` 返回 410；运营手动粘贴 cookie。
 
 ## 测试
-- `pytest tests/creative`（参考抽取 `test_reference_extract.py` / `test_reference_cookies.py`）；自进化/指标匹配算法另由契约与集成测试覆盖。
+- `pytest tests/creative`（`test_reference_extract.py` / `test_reference_cookies.py` / `test_case_evolution_logic.py`，覆盖参考抽取、cookie、自进化纯逻辑与指标匹配）；SQLAlchemy 落库另见 `tests/integration/test_sqlalchemy_case_learning.py`。
 
 ## 注意 / 坑
 - 指标**匹配策略**（`match_metrics_rows`）在本包 `cases/metrics_import.py`；指标行的 DB 写入/落库在 `packages/production` 仓储，别混淆两者。

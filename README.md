@@ -122,7 +122,7 @@ docker compose up -d postgres redis minio temporal temporal-ui
 # 3) 初始化数据库：alembic upgrade head + 种子用户/媒体（仅迁移用 scripts/migrate.py）
 python scripts/bootstrap_database.py
 
-# 4) 启动 API（SQLAlchemy 后端；不设这两个变量则退回内存仓储，仅供演示）
+# 4) 启动 API（默认/推荐 SQLAlchemy 后端；缺 DATABASE_URL 会显式失败）
 export CUTAGENT_STORAGE_BACKEND=sqlalchemy
 export CUTAGENT_DATABASE_URL=postgresql+psycopg://cutagent:cutagent@localhost:55432/cutagent
 python -m uvicorn apps.api.main:app --reload --port 8000
@@ -163,6 +163,8 @@ python scripts/export_openapi.py                 # 写 apps/web/src/api/openapi.
 | `CUTAGENT_ALLOW_SANDBOX_FALLBACK` | `false` | `1` 才允许无真实 provider 时静默回退 sandbox；默认**显式报错不降级** |
 | `CUTAGENT_REGISTRATION_OPEN` | `true` | 是否开放自助注册 |
 | `CUTAGENT_DISABLE_BACKGROUND_DISPATCHER` | — | `1` 关闭进程内 outbox 派发 |
+
+如需纯演示/测试用内存仓储，必须显式设置 `CUTAGENT_STORAGE_BACKEND=memory`；默认值是 `sqlalchemy`，因此默认启动需要 `CUTAGENT_DATABASE_URL`。
 
 > **Secret 不进 env**：provider API key 等敏感信息由 `SecretStore`/`ProviderProfile` 管理，`.env` 里只有基础设施连接参数。
 

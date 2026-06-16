@@ -35,3 +35,4 @@ Thumbs.db
 .playwright-mcp/
 # stray UI screenshots
 /m6j-*.png
+.claude/settings.local.json

@@ -5774,6 +5774,132 @@
         }
       }
     },
+    "/api/publish/accounts/{account_id}/login": {
+      "post": {
+        "summary": "Begin Account Login",
+        "operationId": "begin_account_login_api_publish_accounts__account_id__login_post",
+        "parameters": [
+          {
+            "name": "account_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Account Id"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BeginLoginResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/publish/accounts/{account_id}/login/{login_id}": {
+      "get": {
+        "summary": "Poll Account Login",
+        "operationId": "poll_account_login_api_publish_accounts__account_id__login__login_id__get",
+        "parameters": [
+          {
+            "name": "account_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Account Id"
+            }
+          },
+          {
+            "name": "login_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Login Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/publish/accounts/{account_id}/session:validate": {
+      "post": {
+        "summary": "Validate Account Session",
+        "operationId": "validate_account_session_api_publish_accounts__account_id__session_validate_post",
+        "parameters": [
+          {
+            "name": "account_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Account Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidateSessionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/publish/packages": {
       "get": {
         "summary": "Publish Packages",
@@ -8755,6 +8881,52 @@
           "asset_ids"
         ],
         "title": "BatchStabilizeMediaAssetsRequest"
+      },
+      "BeginLoginResponse": {
+        "properties": {
+          "login_id": {
+            "type": "string",
+            "title": "Login Id"
+          },
+          "account_id": {
+            "type": "string",
+            "title": "Account Id"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "douyin",
+              "shipinhao",
+              "kuaishou",
+              "xiaohongshu"
+            ],
+            "title": "Platform"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "qr_image": {
+            "type": "string",
+            "title": "Qr Image"
+          },
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "login_id",
+          "account_id",
+          "platform",
+          "status",
+          "qr_image",
+          "request_id"
+        ],
+        "title": "BeginLoginResponse",
+        "description": "A started QR-login flow. ``qr_image`` is a login credential (data-url); the API\nmarks the response ``Cache-Control: no-store`` — never persist or log it."
       },
       "BgmOptions": {
         "properties": {
@@ -12149,6 +12321,7 @@
           "render.failed",
           "render.subtitle_failed",
           "publish.failed",
+          "publish.browser_unavailable",
           "import.failed",
           "reference.unreachable",
           "reference.unsupported_platform",
@@ -13215,6 +13388,56 @@
           "password"
         ],
         "title": "LoginRequest"
+      },
+      "LoginStatusResponse": {
+        "properties": {
+          "login_id": {
+            "type": "string",
+            "title": "Login Id"
+          },
+          "account_id": {
+            "type": "string",
+            "title": "Account Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "session_status": {
+            "type": "string",
+            "enum": [
+              "never_logged_in",
+              "active",
+              "expired"
+            ],
+            "title": "Session Status"
+          },
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "login_id",
+          "account_id",
+          "status",
+          "session_status",
+          "request_id"
+        ],
+        "title": "LoginStatusResponse"
       },
       "MaterialUsageRankingItem": {
         "properties": {
@@ -22576,6 +22799,52 @@
           "viewer"
         ],
         "title": "UserRole"
+      },
+      "ValidateSessionResponse": {
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "title": "Account Id"
+          },
+          "session_status": {
+            "type": "string",
+            "enum": [
+              "never_logged_in",
+              "active",
+              "expired"
+            ],
+            "title": "Session Status"
+          },
+          "has_session": {
+            "type": "boolean",
+            "title": "Has Session"
+          },
+          "last_validated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Validated At"
+          },
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "account_id",
+          "session_status",
+          "has_session",
+          "request_id"
+        ],
+        "title": "ValidateSessionResponse"
       },
       "ValidationError": {
         "properties": {

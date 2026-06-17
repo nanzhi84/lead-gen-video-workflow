@@ -46,6 +46,7 @@ PATH_VALUES = {
     "case_id": "case_demo",
     "client_id": "client_missing",
     "account_id": "pubacct_missing",
+    "login_id": "login_missing",
     "job_id": "job_missing",
     "run_id": "run_missing",
     "asset_id": "asset_broll_demo",

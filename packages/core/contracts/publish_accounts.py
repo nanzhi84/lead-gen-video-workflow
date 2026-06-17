@@ -99,3 +99,35 @@ class SetCasePublishTargetsRequest(ContractModel):
     """Replace the full set of accounts a Case publishes to (idempotent PUT)."""
 
     account_ids: list[str] = Field(default_factory=list)
+
+
+# --- QR login / session validation responses (PR3) ---
+
+
+class BeginLoginResponse(ContractModel):
+    """A started QR-login flow. ``qr_image`` is a login credential (data-url); the API
+    marks the response ``Cache-Control: no-store`` — never persist or log it."""
+
+    login_id: str
+    account_id: str
+    platform: PublishPlatform
+    status: str  # pending
+    qr_image: str
+    request_id: str
+
+
+class LoginStatusResponse(ContractModel):
+    login_id: str
+    account_id: str
+    status: str  # pending | active | failed
+    detail: str | None = None
+    session_status: PublishSessionStatus
+    request_id: str
+
+
+class ValidateSessionResponse(ContractModel):
+    account_id: str
+    session_status: PublishSessionStatus
+    has_session: bool
+    last_validated_at: datetime | None = None
+    request_id: str

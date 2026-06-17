@@ -24,6 +24,7 @@ from packages.media import SqlAlchemyMediaRepository
 from packages.ops import SqlAlchemyOpsRepository
 from packages.production import SqlAlchemyProductionRepository
 from packages.publishing import SqlAlchemyAccountsRepository, SqlAlchemyPublishingRepository
+from packages.publishing.browser import BrowserSessionDriver, PublishLoginRegistry
 
 REQUEST_ID_CONTEXT: ContextVar[str | None] = ContextVar("request_id", default=None)
 
@@ -105,6 +106,14 @@ def publishing_repository(request: Request) -> SqlAlchemyPublishingRepository | 
 
 def accounts_repository(request: Request) -> SqlAlchemyAccountsRepository | None:
     return request.app.state.sqlalchemy_accounts_repository
+
+
+def publish_login_registry(request: Request) -> PublishLoginRegistry:
+    return request.app.state.publish_login_registry
+
+
+def publish_browser_driver(request: Request) -> BrowserSessionDriver:
+    return request.app.state.publish_browser_driver
 
 
 def production_repository(request: Request) -> SqlAlchemyProductionRepository | None:

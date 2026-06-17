@@ -1813,6 +1813,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/publish/accounts/{account_id}/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Begin Account Login */
+        post: operations["begin_account_login_api_publish_accounts__account_id__login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/publish/accounts/{account_id}/login/{login_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Poll Account Login */
+        get: operations["poll_account_login_api_publish_accounts__account_id__login__login_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/publish/accounts/{account_id}/session:validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Validate Account Session */
+        post: operations["validate_account_session_api_publish_accounts__account_id__session_validate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/publish/packages": {
         parameters: {
             query?: never;
@@ -2771,6 +2822,28 @@ export interface components {
         BatchStabilizeMediaAssetsRequest: {
             /** Asset Ids */
             asset_ids: string[];
+        };
+        /**
+         * BeginLoginResponse
+         * @description A started QR-login flow. ``qr_image`` is a login credential (data-url); the API
+         *     marks the response ``Cache-Control: no-store`` — never persist or log it.
+         */
+        BeginLoginResponse: {
+            /** Login Id */
+            login_id: string;
+            /** Account Id */
+            account_id: string;
+            /**
+             * Platform
+             * @enum {string}
+             */
+            platform: "douyin" | "shipinhao" | "kuaishou" | "xiaohongshu";
+            /** Status */
+            status: string;
+            /** Qr Image */
+            qr_image: string;
+            /** Request Id */
+            request_id: string;
         };
         /** BgmOptions */
         BgmOptions: {
@@ -4190,7 +4263,7 @@ export interface components {
          * ErrorCode
          * @enum {string}
          */
-        ErrorCode: "validation.missing_case" | "validation.missing_voice" | "validation.missing_script" | "validation.invalid_options" | "validation.conflict" | "auth.unauthorized" | "auth.forbidden" | "auth.invalid_credentials" | "auth.registration_closed" | "auth.user_disabled" | "upload.invalid_state" | "upload.expired" | "upload.size_mismatch" | "upload.sha256_mismatch" | "upload.unsupported_type" | "upload.too_large" | "upload.normalization_failed" | "material.insufficient.portrait" | "material.insufficient.broll" | "material.annotation_failed" | "prompt.render_error" | "prompt.output_invalid" | "prompt.version_not_published" | "provider.unsupported_option" | "provider.quota_exceeded" | "provider.timeout" | "provider.remote_failed" | "provider.circuit_open" | "provider.auth_failed" | "provider.cost_unpriced" | "artifact.missing" | "artifact.integrity_failed" | "artifact.schema_mismatch" | "workflow.invalid_transition" | "workflow.cancelled" | "workflow.resume_not_allowed" | "workflow.worker_lost" | "render.invalid_timeline" | "render.failed" | "render.subtitle_failed" | "publish.failed" | "import.failed" | "reference.unreachable" | "reference.unsupported_platform" | "reference.asr_failed" | "reference.cookie_invalid" | "reference.cookie_missing" | "idempotency.conflict";
+        ErrorCode: "validation.missing_case" | "validation.missing_voice" | "validation.missing_script" | "validation.invalid_options" | "validation.conflict" | "auth.unauthorized" | "auth.forbidden" | "auth.invalid_credentials" | "auth.registration_closed" | "auth.user_disabled" | "upload.invalid_state" | "upload.expired" | "upload.size_mismatch" | "upload.sha256_mismatch" | "upload.unsupported_type" | "upload.too_large" | "upload.normalization_failed" | "material.insufficient.portrait" | "material.insufficient.broll" | "material.annotation_failed" | "prompt.render_error" | "prompt.output_invalid" | "prompt.version_not_published" | "provider.unsupported_option" | "provider.quota_exceeded" | "provider.timeout" | "provider.remote_failed" | "provider.circuit_open" | "provider.auth_failed" | "provider.cost_unpriced" | "artifact.missing" | "artifact.integrity_failed" | "artifact.schema_mismatch" | "workflow.invalid_transition" | "workflow.cancelled" | "workflow.resume_not_allowed" | "workflow.worker_lost" | "render.invalid_timeline" | "render.failed" | "render.subtitle_failed" | "publish.failed" | "publish.browser_unavailable" | "import.failed" | "reference.unreachable" | "reference.unsupported_platform" | "reference.asr_failed" | "reference.cookie_invalid" | "reference.cookie_missing" | "idempotency.conflict";
         /** EventStreamTokenResponse */
         EventStreamTokenResponse: {
             /** Stream Url */
@@ -4601,6 +4674,24 @@ export interface components {
             email?: string | null;
             /** Password */
             password: string;
+        };
+        /** LoginStatusResponse */
+        LoginStatusResponse: {
+            /** Login Id */
+            login_id: string;
+            /** Account Id */
+            account_id: string;
+            /** Status */
+            status: string;
+            /** Detail */
+            detail?: string | null;
+            /**
+             * Session Status
+             * @enum {string}
+             */
+            session_status: "never_logged_in" | "active" | "expired";
+            /** Request Id */
+            request_id: string;
         };
         /** MaterialUsageRankingItem */
         MaterialUsageRankingItem: {
@@ -8110,6 +8201,22 @@ export interface components {
          * @enum {string}
          */
         UserRole: "admin" | "operator" | "viewer";
+        /** ValidateSessionResponse */
+        ValidateSessionResponse: {
+            /** Account Id */
+            account_id: string;
+            /**
+             * Session Status
+             * @enum {string}
+             */
+            session_status: "never_logged_in" | "active" | "expired";
+            /** Has Session */
+            has_session: boolean;
+            /** Last Validated At */
+            last_validated_at?: string | null;
+            /** Request Id */
+            request_id: string;
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -12574,6 +12681,100 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PageResponse_CasePublishTarget_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    begin_account_login_api_publish_accounts__account_id__login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BeginLoginResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    poll_account_login_api_publish_accounts__account_id__login__login_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: string;
+                login_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginStatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    validate_account_session_api_publish_accounts__account_id__session_validate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidateSessionResponse"];
                 };
             };
             /** @description Validation Error */

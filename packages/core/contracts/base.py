@@ -62,6 +62,7 @@ class ErrorCode(str, Enum):
     render_failed = "render.failed"
     render_subtitle_failed = "render.subtitle_failed"
     publish_failed = "publish.failed"
+    publish_browser_unavailable = "publish.browser_unavailable"
     import_failed = "import.failed"
     reference_unreachable = "reference.unreachable"
     reference_unsupported_platform = "reference.unsupported_platform"

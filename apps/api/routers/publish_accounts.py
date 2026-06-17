@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 
 from apps.api.dependencies import require_role
 from apps.api.services import publish_accounts as service
+from apps.api.services import publish_login as login_service
 from packages.core import contracts as c
 
 router = APIRouter()
@@ -97,3 +98,41 @@ def set_case_targets(
 ) -> c.PageResponse[c.CasePublishTarget]:
     require_role(request, c.UserRole.operator)
     return service.set_case_targets(case_id, payload, request)
+
+
+# --- QR login + session validation (PR3) ---
+
+
+@router.post(
+    "/api/publish/accounts/{account_id}/login",
+    response_model=c.BeginLoginResponse,
+    status_code=201,
+)
+def begin_account_login(
+    account_id: str, request: Request, response: Response
+) -> c.BeginLoginResponse | JSONResponse:
+    require_role(request, c.UserRole.operator)
+    response.headers["Cache-Control"] = "no-store"  # the QR is a login credential
+    return login_service.begin_login(account_id, request)
+
+
+@router.get(
+    "/api/publish/accounts/{account_id}/login/{login_id}", response_model=c.LoginStatusResponse
+)
+def poll_account_login(
+    account_id: str, login_id: str, request: Request, response: Response
+) -> c.LoginStatusResponse | JSONResponse:
+    require_role(request, c.UserRole.operator)
+    response.headers["Cache-Control"] = "no-store"
+    return login_service.poll_login(account_id, login_id, request)
+
+
+@router.post(
+    "/api/publish/accounts/{account_id}/session:validate",
+    response_model=c.ValidateSessionResponse,
+)
+def validate_account_session(
+    account_id: str, request: Request
+) -> c.ValidateSessionResponse | JSONResponse:
+    require_role(request, c.UserRole.operator)
+    return login_service.validate_session(account_id, request)

@@ -78,6 +78,27 @@ def _cover_clip(segment_id, start, end, keywords):
     )
 
 
+def _presenter_cover_clip(segment_id, start, end, keywords):
+    # A presenter on camera but NOT lip-sync usable (cover role) — under the old
+    # "non-A-roll == B-roll" split this leaked into b-roll; it must be excluded.
+    return ClipV4(
+        segment_id=segment_id,
+        start=start,
+        end=end,
+        duration=end - start,
+        semantics=ClipSemanticsV4(
+            scene_type="luxury_store", subject_type="female_presenter", face_count_max=1
+        ),
+        usage=ClipUsageV4(role=UsageRole.cover, recommended_for_lip_sync=False, voiceover_only=True),
+        retrieval=ClipRetrievalV4(
+            summary=" ".join(keywords),
+            keywords=list(keywords),
+            retrieval_sentence=" ".join(keywords),
+        ),
+        confidence=0.85,
+    )
+
+
 def _inject_video_asset(
     repo: Repository,
     asset_id: str,
@@ -196,6 +217,34 @@ def test_material_pack_splits_one_video_into_portrait_and_broll(tmp_path, monkey
     # Honest diagnostics for the unified bucket.
     assert payload["diagnostics"]["portrait_from_video"] >= 1
     assert payload["diagnostics"]["video_no_lipsync"] is False
+
+
+def test_material_pack_excludes_presenter_clip_from_broll_and_reports_it(tmp_path, monkeypatch):
+    object_store = LocalObjectStore(tmp_path / "objects")
+    monkeypatch.setattr("packages.core.storage.object_store._OBJECT_STORE", object_store)
+    adapter = _adapter(object_store)
+    adapter.repository.media_assets.clear()
+    adapter.repository.annotations.clear()
+    _inject_video_asset(
+        adapter.repository,
+        "vid_template",
+        [
+            # presenter on camera, matches the script -> must NOT become b-roll
+            _presenter_cover_clip("presenter", 0.0, 6.0, ["打磨", "工艺"]),
+            # clean scene cover -> the only legitimate b-roll
+            _cover_clip("scenery", 6.0, 12.0, ["打磨", "工艺"]),
+        ],
+    )
+
+    output = nodes.material_pack_planning.run(_ctx(adapter, _request(), "MaterialPackPlanning"))
+    payload = next(a.payload for a in output.artifacts if a.kind == ArtifactKind.plan_material_pack)
+
+    broll_clip_ids = {(c["metadata"] or {}).get("clip_id") for c in payload["broll_candidates"]}
+    assert "presenter" not in broll_clip_ids
+    assert "scenery" in broll_clip_ids
+    # Honest visibility: the person clip excluded from b-roll is reported so a
+    # near-empty b-roll plan is not mistaken for an annotation error.
+    assert payload["diagnostics"]["broll_person_excluded"] == 1
 
 
 def test_material_pack_legacy_portrait_kind_uses_clip_level_unified_path(tmp_path, monkeypatch):

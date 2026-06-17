@@ -13,6 +13,8 @@ from __future__ import annotations
 from packages.core.contracts import ArtifactKind
 from packages.core.contracts.artifacts import MaterialCandidate, MaterialPackArtifact
 from packages.planning.material import (
+    clip_is_lip_sync_usable,
+    clip_shows_person,
     extract_keywords,
     rank_broll_candidates,
     rank_portrait_clip_candidates,
@@ -111,6 +113,18 @@ def run(ctx: NodeContext) -> NodeOutput:
         if (annotation := repo.annotation_v4_for_asset(asset.id)) is not None
     }
     broll_asset_kinds = {asset.id: "video" for asset in broll_visual_assets}
+    # Person-centric clips (presenter / talking-head / 出镜人物) that are not
+    # lip-sync usable are kept OUT of the b-roll pool — they belong to neither A-roll
+    # nor clean cover. Count them so a sparse/empty b-roll plan reads as "person
+    # clips were filtered", not as an annotation error.
+    broll_person_excluded = sum(
+        1
+        for annotation in broll_annotations.values()
+        for clip in annotation.clips
+        if clip.usage.role.value != "avoid"
+        and not clip_is_lip_sync_usable(clip)
+        and clip_shows_person(clip)
+    )
     broll_candidates: list[MaterialCandidate] = []
     for candidate in rank_broll_candidates(
         annotations=broll_annotations,
@@ -171,6 +185,7 @@ def run(ctx: NodeContext) -> NodeOutput:
             "broll_unannotated": request.broll.enabled
             and bool(broll_visual_assets)
             and not broll_annotations,
+            "broll_person_excluded": broll_person_excluded,
             "bgm_missing": request.bgm.enabled and not bgm_candidates,
             # Unified video bucket visibility: how many portrait candidates came from
             # per-clip lip-sync windows, and the honest "operator uploaded visual

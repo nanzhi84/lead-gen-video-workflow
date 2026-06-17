@@ -6,7 +6,11 @@ insertion plans. No IO, no randomness, no fabricated picks — when annotations 
 material are absent the caller soft-degrades.
 """
 
-from packages.planning.material.broll_pack import BrollCandidate, rank_broll_candidates
+from packages.planning.material.broll_pack import (
+    BrollCandidate,
+    clip_shows_person,
+    rank_broll_candidates,
+)
 from packages.planning.material.broll_plan import (
     BrollInsertion,
     CoveragePlan,
@@ -31,6 +35,7 @@ from packages.planning.material.portrait_pack import (
 __all__ = [
     "BrollCandidate",
     "rank_broll_candidates",
+    "clip_shows_person",
     "BrollInsertion",
     "CoveragePlan",
     "CoverageSegment",

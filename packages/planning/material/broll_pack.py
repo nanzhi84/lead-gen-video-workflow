@@ -34,6 +34,60 @@ _RECENCY_WEIGHT = 12.0
 # alone never makes an unrelated clip relevant.
 _MIN_SIMILARITY = 0.05
 
+# Subject-type surface forms that mark a clip as person-centric (a presenter /
+# talking-head / 出镜人物). Substring match against ``ClipSemanticsV4.subject_type``.
+_PERSON_SUBJECT_TERMS = (
+    "presenter",
+    "salesperson",
+    "spokes",
+    "host",
+    "anchor",
+    "streamer",
+    "influencer",
+    "person",
+    "people",
+    "human",
+    "speaker",
+    "主播",
+    "真人",
+    "导购",
+    "模特",
+    "口播",
+    "出镜",
+    "人物",
+    "讲解",
+)
+
+
+def clip_shows_person(clip) -> bool:
+    """Whether a clip features a real person as its subject — a presenter /
+    talking-head / on-camera 出镜人物 — making it unsuitable as clean b-roll cover.
+
+    A "B-roll only" video must carry scene/product footage, not a person. A
+    talking-head clip that *is* lip-sync usable is already routed to the A-roll
+    pool upstream; this predicate is the content-based backstop for person clips
+    that are NOT lip-sync usable (multi-face, presenter wide shots) and would
+    otherwise leak into b-roll. It looks only at clip *content* — subject type,
+    an explicit face flag, multiple faces (>=2), or talking-head visual cues — and
+    deliberately ignores the ``recommended_for_lip_sync`` usage flag (a noisy
+    legacy-b-roll signal handled by the A-roll split). A single *incidental*
+    background face (``face_count_max == 1`` with no person subject) is NOT a
+    person clip, so legitimate scene/product cover that merely catches one face in
+    frame still qualifies as b-roll.
+    """
+    sem = clip.semantics
+    subject = (sem.subject_type or "").lower()
+    if any(term in subject for term in _PERSON_SUBJECT_TERMS):
+        return True
+    if sem.contains_face is True:
+        return True
+    fcm = sem.face_count_max
+    if fcm is not None and fcm >= 2:
+        return True
+    if sem.mouth_moving is True or sem.gaze_to_camera is True:
+        return True
+    return False
+
 
 @dataclass(frozen=True)
 class BrollCandidate:
@@ -115,11 +169,15 @@ def rank_broll_candidates(
         from_unified_video = is_video(material_type)
         for clip in annotation.clips:
             # Legacy b-roll keeps the historical rule: only ``avoid`` is unusable.
-            # Unified video clips are split by lip-sync usability so a clip belongs
-            # to exactly one pool: A-roll if lip-sync-usable, otherwise B-roll.
+            # Unified video clips are split into A-roll (lip-sync-usable) vs B-roll,
+            # but B-roll must be *person-free* scene footage: a clip showing a real
+            # person as its subject (presenter / talking-head / 出镜人物) belongs to
+            # NEITHER pool — it is not a clean cover even when it cannot be lip-synced.
             if clip.usage.role.value == "avoid":
                 continue
             if from_unified_video and clip_is_lip_sync_usable(clip):
+                continue
+            if clip_shows_person(clip):
                 continue
             scene = _scene_from_clip(asset_id, clip)
             best_segment, match = best_match(seg_list, scene)

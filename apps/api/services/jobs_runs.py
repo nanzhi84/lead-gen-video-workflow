@@ -23,7 +23,7 @@ from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
 from packages.core.observability import record_funnel_event, workflow_stage
 from packages.production.pipeline import ReusePlan, ReuseSourceRun, compute_reuse_plan
-from packages.production.pipeline.digital_human import digital_human_template
+from packages.production.pipeline.digital_human import template_for
 from packages.production.pipeline.node_sequence import expected_node_count
 
 
@@ -95,7 +95,7 @@ def _admit_run(
     elif next_job_status not in {c.JobStatus.queued, c.JobStatus.running}:
         assert_transition("job", next_job_status, c.JobStatus.running)
 
-    template = digital_human_template()
+    template = template_for(job.request.workflow_template_id)
     attempt = 1 + len([run for run in repo.runs.values() if run.job_id == job_id])
     run = c.WorkflowRun(
         id=new_id("run"),

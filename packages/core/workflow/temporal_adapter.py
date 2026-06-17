@@ -485,9 +485,9 @@ def _workflow_payload(
 
 
 def _template_from_run(run: WorkflowRun) -> WorkflowTemplate:
-    from packages.production.pipeline.digital_human import digital_human_template
+    from packages.production.pipeline.digital_human import template_for
 
-    template = digital_human_template()
+    template = template_for(run.workflow_template_id)
     if (
         template.workflow_template_id != run.workflow_template_id
         or template.version != run.workflow_version

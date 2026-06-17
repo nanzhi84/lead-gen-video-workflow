@@ -188,3 +188,52 @@ def test_jobs_provider_id_resolves_via_gateway_reader_not_provider_repository() 
     assert _provider_id_from_profile(request, "reader.lipsync.prod") == "reader.lipsync"
     assert _provider_id_from_profile(request, "foo.bar.prod") == "foo.bar"
     assert _provider_id_from_profile(request, None) == "sandbox"
+
+
+def test_estimate_excludes_lipsync_video_for_broll_only_template() -> None:
+    # broll_only_v1 has no LipSync node, so the estimate must not bill video seconds
+    # against lipsync.video (the template never runs lip-sync). Cost is TTS-only.
+    app = create_app()
+    with TestClient(app) as client:
+        _login(client)
+        _seed_prices(app)
+
+        response = client.post(
+            "/api/jobs/digital-human-video/estimate-cost",
+            json={
+                "case_id": "case_demo",
+                "script": "1234567890" * 4,  # 40 chars
+                "voice": {"voice_id": "voice_sandbox"},
+                "workflow_template_id": "broll_only_v1",
+            },
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["estimated_video_seconds"] == 0
+        assert body["video"]["quantity"] == "0"
+        assert body["video"]["estimated_cost"]["amount"] == "0"
+        assert body["tts"]["estimated_cost"]["amount"] == "0.040"
+        # total == TTS only, no phantom lipsync video charge.
+        assert body["total"]["estimated_cost"]["amount"] == "0.040"
+
+
+def test_estimate_rejects_unknown_workflow_template_with_4xx() -> None:
+    # workflow_template_id is a free-form request string; an unknown id must surface
+    # as a clean 4xx (NodeExecutionError -> ErrorEnvelope), never an uncaught 500.
+    app = create_app()
+    with TestClient(app) as client:
+        _login(client)
+
+        response = client.post(
+            "/api/jobs/digital-human-video/estimate-cost",
+            json={
+                "case_id": "case_demo",
+                "script": "短脚本",
+                "voice": {"voice_id": "voice_sandbox"},
+                "workflow_template_id": "no_such_template",
+            },
+        )
+        # NodeExecutionError(validation_invalid_options) maps to a clean 400
+        # ErrorEnvelope, not an uncaught 500.
+        assert response.status_code == 400, response.text
+        assert response.json()["error"]["code"] == "validation.invalid_options"

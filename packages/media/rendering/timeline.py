@@ -281,6 +281,119 @@ def fit_video_to_exact_duration(
 
 
 @_limit_render_slot("render.cpu.heavy")
+def render_broll_montage(
+    *,
+    segments: list[dict],
+    output_path: Path,
+    total_frames: int,
+    width: int,
+    height: int,
+    fps: int,
+    source_artifact_for_asset: Callable[[str], object],
+    artifact_path: Callable[[object], Path],
+) -> None:
+    """Concatenate ordered b-roll windows into an exact-frame silent base video."""
+    if total_frames <= 0 or fps <= 0 or not segments:
+        raise NodeExecutionError(
+            ErrorCode.render_invalid_timeline,
+            "B-roll montage timeline is invalid.",
+        )
+
+    args = [
+        ffmpeg_bin(),
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+    ]
+    montage_inputs: list[tuple[float, float]] = []
+    total_duration = total_frames / fps
+    frame_tolerance = 1 / fps
+    for segment in segments:
+        source_artifact = source_artifact_for_asset(str(segment.get("asset_id") or ""))
+        source_path = artifact_path(source_artifact)
+        source_info = getattr(source_artifact, "media_info", None) or probe_media(source_path)
+        source_duration = float(source_info.duration_sec or 0)
+        source_start = float(segment.get("source_start", 0) or 0)
+        source_end = float(segment.get("source_end", 0) or 0)
+        timeline_start = float(segment.get("timeline_start", segment.get("start_sec", 0)) or 0)
+        timeline_end = float(segment.get("timeline_end", segment.get("end_sec", 0)) or 0)
+        timeline_duration = timeline_end - timeline_start
+        source_span = source_end - source_start
+        if (
+            source_start < 0
+            or source_end <= source_start
+            or source_end > source_duration + frame_tolerance
+            or source_span < timeline_duration - frame_tolerance
+        ):
+            raise NodeExecutionError(
+                ErrorCode.render_invalid_timeline,
+                "B-roll source window is out of bounds.",
+            )
+        if (
+            timeline_start < 0
+            or timeline_end <= timeline_start
+            or timeline_end > total_duration + frame_tolerance
+        ):
+            raise NodeExecutionError(
+                ErrorCode.render_invalid_timeline,
+                "B-roll timeline window is out of bounds.",
+            )
+        montage_inputs.append((source_start, min(source_span, timeline_duration)))
+        args.extend(["-i", str(source_path)])
+
+    filters = []
+    for index, (source_start, duration) in enumerate(montage_inputs):
+        filters.append(
+            (
+                f"[{index}:v]trim=start={source_start:.3f}:duration={duration:.3f},"
+                "setpts=PTS-STARTPTS,"
+                f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+                f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,"
+                f"fps={fps}[seg{index}]"
+            )
+        )
+    concat_inputs = "".join(f"[seg{index}]" for index in range(len(montage_inputs)))
+    filters.append(
+        (
+            f"{concat_inputs}concat=n={len(montage_inputs)}:v=1:a=0,"
+            # Per-segment fps resampling floors sub-frame tails, so the raw concat can
+            # land a frame short of total_frames (real narration durations are rarely
+            # frame-aligned). Clone the final frame to overshoot the target, then the
+            # frame-exact trim below sets the precise length -- mirrors
+            # fit_video_to_exact_duration on the A-roll base track. Without this, a
+            # short montage trips validate_rendered_output's exact-frame check and the
+            # whole render hard-fails with a misleading render_invalid_timeline.
+            "tpad=stop_mode=clone:stop_duration=1.000,"
+            f"trim=start_frame=0:end_frame={total_frames},setpts=PTS-STARTPTS[outv]"
+        )
+    )
+    args.extend(
+        [
+            "-filter_complex",
+            ";".join(filters),
+            "-map",
+            "[outv]",
+            "-an",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-pix_fmt",
+            "yuv420p",
+            "-r",
+            str(fps),
+            "-frames:v",
+            str(total_frames),
+            "-movflags",
+            "+faststart",
+            str(output_path),
+        ]
+    )
+    FfmpegRunner(timeout_sec=60).run(args)
+
+
+@_limit_render_slot("render.cpu.heavy")
 def render_video_timeline(
     *,
     main_path: Path,

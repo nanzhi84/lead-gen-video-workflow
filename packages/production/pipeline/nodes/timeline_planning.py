@@ -6,10 +6,9 @@ from packages.core.contracts import ArtifactKind, ErrorCode
 from packages.core.contracts.artifacts import (
     RenderPlanArtifact,
     TimelinePlanArtifact,
-    TimelineTrackSegment,
-    TimelineValidationReport,
 )
 from packages.core.workflow import NodeExecutionError, NodeOutput
+from packages.production.pipeline._timeline_grid import build_tracks, validate_timeline
 from packages.production.pipeline._node_context import NodeContext
 
 
@@ -25,9 +24,6 @@ def run(ctx: NodeContext) -> NodeOutput:
         raise NodeExecutionError(ErrorCode.render_invalid_timeline, "Timeline duration is invalid.")
     fps = int(portrait.get("fps") or 30)
     total_frames = max(1, round(duration * fps))
-
-    def to_frame(seconds: float) -> int:
-        return round(seconds * fps)
 
     raw_segments: list[dict] = []
     for index, segment in enumerate(portrait.get("segments", [])):
@@ -69,65 +65,11 @@ def run(ctx: NodeContext) -> NodeOutput:
             }
         )
 
-    def timeline_start(segment: dict) -> int:
-        if segment["timeline_start_frame"] is not None:
-            return segment["timeline_start_frame"]
-        return to_frame(segment["start_sec"])
-
-    def timeline_end(segment: dict) -> int:
-        if segment["timeline_end_frame"] is not None:
-            return segment["timeline_end_frame"]
-        return to_frame(segment["end_sec"])
-
-    def source_start(segment: dict) -> int:
-        if segment["source_start_frame"] is not None:
-            return segment["source_start_frame"]
-        return to_frame(segment.get("source_start_sec", segment["start_sec"]))
-
-    def source_end(segment: dict) -> int:
-        if segment["source_end_frame"] is not None:
-            return segment["source_end_frame"]
-        return to_frame(segment.get("source_end_sec", segment["end_sec"]))
-
-    negative_duration = any(timeline_end(segment) <= timeline_start(segment) for segment in raw_segments)
-    out_of_bounds = any(
-        timeline_start(segment) < 0 or timeline_end(segment) > total_frames
-        for segment in raw_segments
-    )
-    overlap = False
-    by_track: dict[str, list[dict]] = {}
-    for segment in raw_segments:
-        by_track.setdefault(segment["track_id"], []).append(segment)
-    for segments in by_track.values():
-        ordered = sorted(segments, key=timeline_start)
-        previous_end = None
-        for segment in ordered:
-            if previous_end is not None and timeline_start(segment) < previous_end:
-                overlap = True
-            previous_end = max(previous_end or timeline_end(segment), timeline_end(segment))
-    if negative_duration or out_of_bounds or overlap:
+    validation = validate_timeline(raw_segments, fps, total_frames)
+    if not validation.valid:
         raise NodeExecutionError(ErrorCode.render_invalid_timeline, "Timeline validation failed.")
 
-    tracks = [
-        TimelineTrackSegment(
-            track_id=segment["track_id"],
-            segment_id=segment["segment_id"],
-            asset_ref=segment["asset_ref"],
-            timeline_start_frame=timeline_start(segment),
-            timeline_end_frame=timeline_end(segment),
-            source_start_frame=source_start(segment),
-            source_end_frame=source_end(segment),
-        )
-        for segment in raw_segments
-    ]
-    validation = TimelineValidationReport(
-        valid=True,
-        checks={
-            "overlap": not overlap,
-            "negative_duration": not negative_duration,
-            "out_of_bounds": not out_of_bounds,
-        },
-    )
+    tracks = build_tracks(raw_segments, fps)
     timeline = TimelinePlanArtifact(
         fps=fps,
         total_frames=total_frames,

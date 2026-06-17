@@ -7,7 +7,13 @@ material are absent the caller soft-degrades.
 """
 
 from packages.planning.material.broll_pack import BrollCandidate, rank_broll_candidates
-from packages.planning.material.broll_plan import BrollInsertion, plan_insertions
+from packages.planning.material.broll_plan import (
+    BrollInsertion,
+    CoveragePlan,
+    CoverageSegment,
+    plan_coverage,
+    plan_insertions,
+)
 from packages.planning.material.keywords import (
     ScriptSegment,
     extract_keywords,
@@ -26,6 +32,9 @@ __all__ = [
     "BrollCandidate",
     "rank_broll_candidates",
     "BrollInsertion",
+    "CoveragePlan",
+    "CoverageSegment",
+    "plan_coverage",
     "plan_insertions",
     "ScriptSegment",
     "extract_keywords",

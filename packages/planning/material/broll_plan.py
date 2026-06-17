@@ -19,6 +19,28 @@ _MAX_INSERT_SECONDS = 4.0
 
 
 @dataclass(frozen=True)
+class CoverageSegment:
+    asset_id: str
+    clip_id: str
+    timeline_start: float
+    timeline_end: float
+    source_start: float
+    source_end: float
+    reason: str
+    confidence: float
+    matched_keywords: tuple[str, ...]
+    scene_name: str
+    diversity_key: str
+
+
+@dataclass(frozen=True)
+class CoveragePlan:
+    segments: tuple[CoverageSegment, ...]
+    covered_sec: float
+    sufficient: bool
+
+
+@dataclass(frozen=True)
 class BrollInsertion:
     asset_id: str
     clip_id: str
@@ -31,6 +53,80 @@ class BrollInsertion:
     scene_name: str
     reason: str
     diversity_key: str = ""
+
+
+def _coverage_reason(candidate: BrollCandidate, units: Sequence[NarrationUnit]) -> str:
+    if candidate.best_segment is not None:
+        return f"cover full narration near '{candidate.best_segment.text[:24]}'"
+    if units:
+        return f"cover full narration near '{units[0].text[:24]}'"
+    return "cover full narration"
+
+
+def plan_coverage(
+    *,
+    candidates: Sequence[BrollCandidate],
+    units: Sequence[NarrationUnit],
+    target_sec: float,
+    min_segment_duration: float,
+    tolerance_sec: float = 0.04,
+) -> CoveragePlan:
+    """Plan deterministic b-roll coverage over ``[0, target_sec]`` from ranked clips."""
+    target = max(0.0, float(target_sec))
+    min_duration = max(0.0, float(min_segment_duration))
+    tolerance = max(0.0, float(tolerance_sec))
+    if target <= tolerance:
+        return CoveragePlan(segments=(), covered_sec=0.0, sufficient=True)
+
+    segments: list[CoverageSegment] = []
+    cursor = 0.0
+    used_clips: set[tuple[str, str]] = set()
+
+    for candidate in candidates:
+        if cursor >= target - tolerance:
+            break
+        key = (candidate.asset_id, candidate.clip_id)
+        if key in used_clips:
+            continue
+
+        source_start = float(candidate.source_start)
+        source_end = float(candidate.source_end)
+        available = max(0.0, source_end - source_start)
+        remaining = target - cursor
+        if available <= 0 or (available < min_duration and available < remaining - tolerance):
+            continue
+
+        length = min(available, remaining)
+        if length <= 0:
+            continue
+
+        timeline_start = round(cursor, 3)
+        timeline_end = round(min(target, cursor + length), 3)
+        taken = timeline_end - timeline_start
+        segments.append(
+            CoverageSegment(
+                asset_id=candidate.asset_id,
+                clip_id=candidate.clip_id,
+                timeline_start=timeline_start,
+                timeline_end=timeline_end,
+                source_start=round(source_start, 3),
+                source_end=round(source_start + taken, 3),
+                reason=_coverage_reason(candidate, units),
+                confidence=round(min(1.0, candidate.score / 100.0), 3),
+                matched_keywords=candidate.matched_keywords,
+                scene_name=candidate.scene_name,
+                diversity_key=candidate.diversity_key,
+            )
+        )
+        used_clips.add(key)
+        cursor = timeline_end
+
+    covered = min(target, cursor)
+    return CoveragePlan(
+        segments=tuple(segments),
+        covered_sec=round(covered, 3),
+        sufficient=covered >= target - tolerance,
+    )
 
 
 def _unit_for_time(units: Sequence[NarrationUnit], t: float) -> NarrationUnit | None:

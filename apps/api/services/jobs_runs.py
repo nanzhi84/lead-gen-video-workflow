@@ -23,7 +23,7 @@ from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
 from packages.core.observability import record_funnel_event, workflow_stage
 from packages.production.pipeline import ReusePlan, ReuseSourceRun, compute_reuse_plan
-from packages.production.pipeline.digital_human import digital_human_template
+from packages.production.pipeline.digital_human import template_for
 from packages.production.pipeline.node_sequence import expected_node_count
 
 
@@ -95,7 +95,7 @@ def _admit_run(
     elif next_job_status not in {c.JobStatus.queued, c.JobStatus.running}:
         assert_transition("job", next_job_status, c.JobStatus.running)
 
-    template = digital_human_template()
+    template = template_for(job.request.workflow_template_id)
     attempt = 1 + len([run for run in repo.runs.values() if run.job_id == job_id])
     run = c.WorkflowRun(
         id=new_id("run"),
@@ -362,9 +362,17 @@ def estimate_digital_human_video_cost(
 ) -> c.DigitalHumanVideoCostEstimateResponse:
     get_case(request, payload.case_id)
     tts_characters = len(payload.script.strip())
-    estimated_video_seconds = max(
-        1,
-        int((Decimal(tts_characters) / Decimal("5")).to_integral_value(rounding=ROUND_CEILING)),
+    # Bill video seconds only for templates that actually run LipSync. B_roll-only
+    # mode (broll_only_v1) has no LipSync node, so charging lipsync.video would
+    # inflate the estimate for a job that never performs lip-sync. Decide by node
+    # capability (mirrors ValidateRequest), not a mode string. An unknown template id
+    # raises NodeExecutionError here -> a clean 4xx, not an uncaught 500.
+    node_ids = {spec.node_id for spec in template_for(payload.workflow_template_id).nodes}
+    runs_lipsync = "LipSync" in node_ids
+    estimated_video_seconds = (
+        max(1, int((Decimal(tts_characters) / Decimal("5")).to_integral_value(rounding=ROUND_CEILING)))
+        if runs_lipsync
+        else 0
     )
     price_items = _active_price_items(request)
     tts = _estimate_line(
@@ -375,14 +383,23 @@ def estimate_digital_human_video_cost(
         price_items=price_items,
         preferred_provider_id=_provider_id_from_profile(request, payload.voice.provider_profile_id),
     )
-    video = _estimate_line(
-        label="视频秒数",
-        capability_id=VIDEO_CAPABILITY_ID,
-        unit=VIDEO_UNIT,
-        quantity=Decimal(estimated_video_seconds),
-        price_items=price_items,
-        preferred_provider_id=_provider_id_from_profile(request, payload.lipsync.provider_profile_id),
-    )
+    if runs_lipsync:
+        video = _estimate_line(
+            label="视频秒数",
+            capability_id=VIDEO_CAPABILITY_ID,
+            unit=VIDEO_UNIT,
+            quantity=Decimal(estimated_video_seconds),
+            price_items=price_items,
+            preferred_provider_id=_provider_id_from_profile(request, payload.lipsync.provider_profile_id),
+        )
+    else:
+        video = c.CostEstimateLine(
+            label="视频秒数",
+            capability_id=VIDEO_CAPABILITY_ID,
+            unit=VIDEO_UNIT,
+            quantity=Decimal("0"),
+            estimated_cost=c.zero_money(),
+        )
     total_amount = tts.estimated_cost.amount + video.estimated_cost.amount
     total = c.CostEstimateLine(
         label="总成本",

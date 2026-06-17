@@ -32,6 +32,42 @@ def _case_fk(name: str = "case_id"):
     return sa.Column(name, sa.String(), sa.ForeignKey("cases.id", ondelete="CASCADE"), nullable=False)
 
 
+def _existing_index_names(bind, table_name: str) -> set[str]:
+    return {index["name"] for index in sa.inspect(bind).get_indexes(table_name)}
+
+
+def _index_where_kw(bind, where_sql: str | None) -> dict[str, object]:
+    if where_sql is None:
+        return {}
+    if bind.dialect.name == "postgresql":
+        return {"postgresql_where": sa.text(where_sql)}
+    if bind.dialect.name == "sqlite":
+        return {"sqlite_where": sa.text(where_sql)}
+    return {}
+
+
+def _ensure_index(
+    bind,
+    name: str,
+    table_name: str,
+    columns: list[str],
+    *,
+    unique: bool = False,
+    where_sql: str | None = None,
+) -> None:
+    if table_name not in sa.inspect(bind).get_table_names():
+        return
+    if name in _existing_index_names(bind, table_name):
+        return
+    op.create_index(
+        name,
+        table_name,
+        columns,
+        unique=unique,
+        **_index_where_kw(bind, where_sql),
+    )
+
+
 def upgrade() -> None:
     bind = op.get_bind()
     existing_tables = set(sa.inspect(bind).get_table_names())
@@ -103,6 +139,38 @@ def upgrade() -> None:
             *_TIMESTAMP_COLUMNS,
         )
         op.create_index("idx_rubric_bump_case_status", "rubric_bump_proposals", ["case_id", "status"])
+
+    _ensure_index(bind, "idx_case_rubrics_case_status", "case_rubrics", ["case_id", "status"])
+    _ensure_index(
+        bind,
+        "uq_case_rubrics_active_case",
+        "case_rubrics",
+        ["case_id"],
+        unique=True,
+        where_sql="status = 'active'",
+    )
+    _ensure_index(bind, "idx_score_predictions_case", "score_predictions", ["case_id"])
+    _ensure_index(
+        bind,
+        "idx_score_predictions_draft",
+        "score_predictions",
+        ["script_draft_id"],
+    )
+    _ensure_index(bind, "idx_reward_signals_case", "reward_signals", ["case_id"])
+    _ensure_index(
+        bind,
+        "uq_reward_signals_case_source_evidence",
+        "reward_signals",
+        ["case_id", "source_kind", "evidence_ref"],
+        unique=True,
+        where_sql="evidence_ref IS NOT NULL",
+    )
+    _ensure_index(
+        bind,
+        "idx_rubric_bump_case_status",
+        "rubric_bump_proposals",
+        ["case_id", "status"],
+    )
 
 
 def downgrade() -> None:

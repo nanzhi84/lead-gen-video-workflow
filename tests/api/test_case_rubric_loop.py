@@ -9,6 +9,7 @@ pending-retro. Finished-video lineage is seeded directly via app.state.repositor
 from __future__ import annotations
 
 from datetime import timedelta
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -286,6 +287,62 @@ def test_published_reward_is_idempotent_across_syncs():
         assert len(produced) == 1
 
 
+def test_performance_reward_uses_observation_time_for_blind_gate():
+    with TestClient(create_app()) as client:
+        _login(client)
+        case_id = _create_case(client)
+        gen = client.post(
+            f"/api/cases/{case_id}/scripts/generate-with-memory",
+            json={"brief": "痛点开场"},
+        )
+        draft_id = gen.json()["id"]
+        adopt = client.post(f"/api/cases/{case_id}/agent/drafts/{draft_id}/adopt", json={})
+        script_version_id = adopt.json()["id"]
+
+        repo = client.app.state.repository
+        prediction = next(
+            p for p in repo.score_predictions.values() if p.script_draft_id == draft_id
+        )
+        old_observed_at = prediction.locked_at - timedelta(hours=1)
+        repo.video_versions["vv_old_metric"] = c.VideoVersion(
+            id="vv_old_metric",
+            case_id=case_id,
+            script_version_id=script_version_id,
+            finished_video_id=None,
+            timeline_plan_artifact_id="art_timeline",
+            style_plan_artifact_id="art_style",
+        )
+        repo.performance_observations["obs_old_metric"] = c.PerformanceObservation(
+            id="obs_old_metric",
+            case_id=case_id,
+            publish_record_id="pr_old_metric",
+            video_version_id="vv_old_metric",
+            metric_name="views",
+            metric_value=1000,
+            observed_at=old_observed_at,
+        )
+        repo.performance_scores["score_old_metric"] = c.PerformanceScore(
+            id="score_old_metric",
+            observation_id="obs_old_metric",
+            case_id=case_id,
+            video_version_id="vv_old_metric",
+            normalized_score=0.9,
+            confidence=0.8,
+        )
+
+        calibration = client.get(f"/api/cases/{case_id}/rubric/calibration")
+        assert calibration.status_code == 200, calibration.text
+
+        performance_rewards = [
+            r for r in repo.reward_signals.values() if r.source_kind == "performance_scored"
+        ]
+        assert len(performance_rewards) == 1
+        assert performance_rewards[0].occurred_at == old_observed_at
+        labeled = case_rubric._reward_labeled_predictions(SimpleNamespace(app=client.app), case_id)
+        labeled_prediction = next(p for p in labeled if p.id == prediction.id)
+        assert labeled_prediction.settled_reward == 0.2
+
+
 def test_backfill_rejects_missing_finished_video():
     with TestClient(create_app()) as client:
         _login(client)
@@ -298,6 +355,18 @@ def test_backfill_rejects_missing_finished_video():
 
         assert response.status_code == 404, response.text
         assert not client.app.state.repository.performance_observations
+
+
+def test_missing_finished_video_read_endpoints_return_404():
+    with TestClient(create_app(), raise_server_exceptions=False) as client:
+        _login(client)
+        for path in (
+            "/api/finished-videos/missing_fv",
+            "/api/finished-videos/missing_fv/preview-url",
+            "/api/finished-videos/missing_fv/download",
+        ):
+            response = client.get(path)
+            assert response.status_code == 404, response.text
 
 
 def test_backfill_unpublished_finished_video_preserves_lineage():

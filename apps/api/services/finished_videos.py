@@ -67,7 +67,7 @@ def finished_video_detail(request: Request, id: str) -> c.FinishedVideoDetail:
         if detail is None:
             raise NodeExecutionError(c.ErrorCode.artifact_missing, "Finished video is missing.")
         return detail
-    finished = repository(request).finished_videos[id]
+    finished = _finished_video_or_error(request, id)
     version = next(
         (item for item in repository(request).video_versions.values() if item.finished_video_id == id),
         None,
@@ -84,7 +84,7 @@ def finished_video_preview(request: Request, id: str) -> c.SignedUrlResponse:
         if uri:
             return object_store(request).signed_url(uri).model_copy(update={"request_id": request_id()})
         return signed(request, f"finished-videos/{id}/preview.mp4")
-    finished = repository(request).finished_videos[id]
+    finished = _finished_video_or_error(request, id)
     artifact = repository(request).artifacts.get(finished.video_artifact.artifact_id)
     if artifact and artifact.uri:
         return object_store(request).signed_url(artifact.uri).model_copy(update={"request_id": request_id()})

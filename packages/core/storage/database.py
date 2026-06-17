@@ -995,6 +995,25 @@ Index("idx_feature_vectors_case", CreativeFeatureVectorRow.case_id)
 Index("idx_feature_vectors_video", CreativeFeatureVectorRow.video_version_id)
 Index("idx_performance_scores_case", PerformanceScoreRow.case_id, PerformanceScoreRow.window)
 Index("idx_performance_scores_observation", PerformanceScoreRow.observation_id)
+Index("idx_case_rubrics_case_status", CaseRubricRow.case_id, CaseRubricRow.status)
+Index(
+    "uq_case_rubrics_active_case",
+    CaseRubricRow.case_id,
+    unique=True,
+    postgresql_where=CaseRubricRow.status == "active",
+)
+Index("idx_score_predictions_case", ScorePredictionRow.case_id)
+Index("idx_score_predictions_draft", ScorePredictionRow.script_draft_id)
+Index("idx_reward_signals_case", RewardSignalRow.case_id)
+Index(
+    "uq_reward_signals_case_source_evidence",
+    RewardSignalRow.case_id,
+    RewardSignalRow.source_kind,
+    RewardSignalRow.evidence_ref,
+    unique=True,
+    postgresql_where=RewardSignalRow.evidence_ref.isnot(None),
+)
+Index("idx_rubric_bump_case_status", RubricBumpProposalRow.case_id, RubricBumpProposalRow.status)
 Index("idx_outbox_pending", OutboxEventRow.status, OutboxEventRow.available_at, OutboxEventRow.created_at, OutboxEventRow.id)
 Index("idx_failure_taxonomy_class", FailureTaxonomyRow.failure_class, FailureTaxonomyRow.created_at)
 Index("idx_failure_taxonomy_run", FailureTaxonomyRow.run_id)

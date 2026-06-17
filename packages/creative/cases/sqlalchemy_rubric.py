@@ -9,6 +9,7 @@ stays in the storage-agnostic ``rubric.py`` pure functions; this module only doe
 from __future__ import annotations
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from packages.core.contracts import (
@@ -270,7 +271,14 @@ class SqlAlchemyCaseRubricRepository:
             card = rubric.cold_start_rubric(rubric_id=new_id("rubric"), case_id=case_id)
             new_row = _case_rubric_to_row(card)
             session.add(new_row)
-            session.commit()
+            try:
+                session.commit()
+            except IntegrityError:
+                session.rollback()
+                row = self._active_rubric_row(session, case_id)
+                if row is None:
+                    raise
+                return case_rubric_row_to_contract(row)
             session.refresh(new_row)
             return case_rubric_row_to_contract(new_row)
 
@@ -367,7 +375,18 @@ class SqlAlchemyCaseRubricRepository:
         with self.session_factory() as session:
             row = _reward_signal_to_row(reward)
             session.add(row)
-            session.commit()
+            try:
+                session.commit()
+            except IntegrityError:
+                session.rollback()
+                if reward.evidence_ref is None:
+                    raise
+                existing = self._reward_row_by_evidence(
+                    session, reward.case_id, reward.source_kind, reward.evidence_ref
+                )
+                if existing is None:
+                    raise
+                return reward_signal_row_to_contract(existing)
             session.refresh(row)
             return reward_signal_row_to_contract(row)
 
@@ -380,17 +399,35 @@ class SqlAlchemyCaseRubricRepository:
             )
             return [reward_signal_row_to_contract(row) for row in session.scalars(statement)]
 
-    def reward_exists(self, source_kind: RewardSourceKind, evidence_ref: str | None) -> bool:
+    def reward_exists(
+        self, case_id: str, source_kind: RewardSourceKind, evidence_ref: str | None
+    ) -> bool:
         if evidence_ref is None:
             return False
         with self.session_factory() as session:
-            statement = (
-                select(RewardSignalRow.id)
-                .where(RewardSignalRow.source_kind == source_kind)
-                .where(RewardSignalRow.evidence_ref == evidence_ref)
-                .limit(1)
-            )
+            statement = self._reward_by_evidence_statement(case_id, source_kind, evidence_ref).limit(1)
             return session.scalars(statement).first() is not None
+
+    def _reward_row_by_evidence(
+        self,
+        session: Session,
+        case_id: str,
+        source_kind: RewardSourceKind,
+        evidence_ref: str,
+    ) -> RewardSignalRow | None:
+        return session.scalars(
+            self._reward_by_evidence_statement(case_id, source_kind, evidence_ref)
+        ).first()
+
+    def _reward_by_evidence_statement(
+        self, case_id: str, source_kind: RewardSourceKind, evidence_ref: str
+    ):
+        return (
+            select(RewardSignalRow)
+            .where(RewardSignalRow.case_id == case_id)
+            .where(RewardSignalRow.source_kind == source_kind)
+            .where(RewardSignalRow.evidence_ref == evidence_ref)
+        )
 
     # -- bump proposals -----------------------------------------------------
 
@@ -472,37 +509,55 @@ class SqlAlchemyCaseRubricRepository:
             statement = select(PublishRecordRow).where(PublishRecordRow.case_id == case_id)
             return [publish_record_row_to_contract(row) for row in session.scalars(statement)]
 
-    def resolve_video_version(self, video_version_id: str):
-        from packages.creative.cases.sqlalchemy_learning_mappers import video_version_row_to_contract
-
-        with self.session_factory() as session:
-            row = session.get(VideoVersionRow, video_version_id)
-            return video_version_row_to_contract(row) if row is not None else None
-
-    def resolve_video_version_for_finished_video(self, finished_video_id: str):
+    def resolve_video_version(self, case_id: str, video_version_id: str):
         from packages.creative.cases.sqlalchemy_learning_mappers import video_version_row_to_contract
 
         with self.session_factory() as session:
             statement = (
                 select(VideoVersionRow)
+                .where(VideoVersionRow.id == video_version_id)
+                .where(VideoVersionRow.case_id == case_id)
+            )
+            row = session.scalars(statement).first()
+            return video_version_row_to_contract(row) if row is not None else None
+
+    def resolve_video_version_for_finished_video(self, case_id: str, finished_video_id: str):
+        from packages.creative.cases.sqlalchemy_learning_mappers import video_version_row_to_contract
+
+        with self.session_factory() as session:
+            statement = (
+                select(VideoVersionRow)
+                .where(VideoVersionRow.case_id == case_id)
                 .where(VideoVersionRow.finished_video_id == finished_video_id)
                 .order_by(VideoVersionRow.created_at.desc())
             )
             row = session.scalars(statement).first()
             return video_version_row_to_contract(row) if row is not None else None
 
-    def get_script_version(self, script_version_id: str) -> ScriptVersion | None:
+    def get_script_version(self, case_id: str, script_version_id: str) -> ScriptVersion | None:
         with self.session_factory() as session:
-            row = session.get(ScriptVersionRow, script_version_id)
+            statement = (
+                select(ScriptVersionRow)
+                .where(ScriptVersionRow.id == script_version_id)
+                .where(ScriptVersionRow.case_id == case_id)
+            )
+            row = session.scalars(statement).first()
             return script_version_row_to_contract(row) if row is not None else None
 
     # -- lineage ------------------------------------------------------------
 
-    def resolve_script_version_for_finished_video(self, finished_video_id: str) -> str | None:
+    def resolve_script_version_for_finished_video(
+        self, case_id: str, finished_video_id: str
+    ) -> str | None:
         """FinishedVideo -> VideoVersion(by finished_video_id) -> script_version_id."""
         with self.session_factory() as session:
-            finished = session.get(FinishedVideoRow, finished_video_id)
+            statement = (
+                select(FinishedVideoRow.id)
+                .where(FinishedVideoRow.id == finished_video_id)
+                .where(FinishedVideoRow.case_id == case_id)
+            )
+            finished = session.scalars(statement).first()
             if finished is None:
                 return None
-        version = self.resolve_video_version_for_finished_video(finished_video_id)
+        version = self.resolve_video_version_for_finished_video(case_id, finished_video_id)
         return version.script_version_id if version is not None else None

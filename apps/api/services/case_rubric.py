@@ -78,7 +78,7 @@ def _load_script_version(
         return None
     repo = case_rubric_repository(request)
     if repo is not None:
-        return repo.get_script_version(script_version_id)
+        return repo.get_script_version(case_id, script_version_id)
     script = repository(request).scripts.get(script_version_id)
     if script is None or script.case_id != case_id:
         return None
@@ -246,9 +246,9 @@ def _sync_rewards_db(request: Request, case_id: str, repo) -> None:
 
     # video_produced: every finished video with a resolvable script version.
     for finished in repo.list_finished_videos(case_id):
-        if repo.reward_exists("video_produced", finished.id):
+        if repo.reward_exists(case_id, "video_produced", finished.id):
             continue
-        script_version_id = repo.resolve_script_version_for_finished_video(finished.id)
+        script_version_id = repo.resolve_script_version_for_finished_video(case_id, finished.id)
         if script_version_id is None:
             continue
         value, confidence = rubric_logic.reward_value("video_produced", settings)
@@ -268,9 +268,11 @@ def _sync_rewards_db(request: Request, case_id: str, repo) -> None:
     for record in repo.list_publish_records(case_id):
         if record.status != "published":
             continue
-        if repo.reward_exists("published", record.id):
+        if repo.reward_exists(case_id, "published", record.id):
             continue
-        script_version_id = _script_version_for_video_version_db(repo, record.video_version_id)
+        script_version_id = _script_version_for_video_version_db(
+            repo, case_id, record.video_version_id
+        )
         value, confidence = rubric_logic.reward_value("published", settings)
         repo.add_reward(
             c.RewardSignal(
@@ -289,9 +291,12 @@ def _sync_rewards_db(request: Request, case_id: str, repo) -> None:
     for score in repo.list_performance_scores(case_id):
         if score.excluded_reason is not None:
             continue
-        if not repo.reward_exists("performance_scored", score.observation_id):
-            script_version_id = score.video_version_id and _script_version_for_video_version_db(
-                repo, score.video_version_id
+        observation = _observation_by_id_db(repo, case_id, score.observation_id)
+        if not repo.reward_exists(case_id, "performance_scored", score.observation_id):
+            if observation is None:
+                continue
+            script_version_id = _script_version_for_video_version_db(
+                repo, case_id, score.video_version_id
             )
             repo.add_reward(
                 c.RewardSignal(
@@ -302,11 +307,11 @@ def _sync_rewards_db(request: Request, case_id: str, repo) -> None:
                     value=score.normalized_score,
                     confidence=score.confidence,
                     evidence_ref=score.observation_id,
+                    occurred_at=observation.observed_at,
                 )
             )
-        observation = _observation_by_id_db(repo, case_id, score.observation_id)
         target_script_version_id = _script_version_for_video_version_db(
-            repo, score.video_version_id
+            repo, case_id, score.video_version_id
         )
         settled = _settle_prediction_for_score(
             predictions, score, observation, target_script_version_id
@@ -353,7 +358,9 @@ def _sync_rewards_memory(request: Request, case_id: str) -> None:
     for record in [r for r in repo.publish_records.values() if r.case_id == case_id]:
         if record.status != "published" or _reward_exists("published", record.id):
             continue
-        script_version_id = _script_version_for_video_version_memory(repo, record.video_version_id)
+        script_version_id = _script_version_for_video_version_memory(
+            repo, case_id, record.video_version_id
+        )
         value, confidence = rubric_logic.reward_value("published", settings)
         _add(
             c.RewardSignal(
@@ -371,9 +378,12 @@ def _sync_rewards_memory(request: Request, case_id: str) -> None:
     for score in scores:
         if score.excluded_reason is not None:
             continue
+        observation = repo.performance_observations.get(score.observation_id)
         if not _reward_exists("performance_scored", score.observation_id):
+            if observation is None or observation.case_id != case_id:
+                continue
             script_version_id = _script_version_for_video_version_memory(
-                repo, score.video_version_id
+                repo, case_id, score.video_version_id
             )
             _add(
                 c.RewardSignal(
@@ -384,12 +394,12 @@ def _sync_rewards_memory(request: Request, case_id: str) -> None:
                     value=score.normalized_score,
                     confidence=score.confidence,
                     evidence_ref=score.observation_id,
+                    occurred_at=observation.observed_at,
                 )
             )
-        observation = repo.performance_observations.get(score.observation_id)
         predictions = [p for p in repo.score_predictions.values() if p.case_id == case_id]
         target_script_version_id = _script_version_for_video_version_memory(
-            repo, score.video_version_id
+            repo, case_id, score.video_version_id
         )
         settled = _settle_prediction_for_score(
             predictions, score, observation, target_script_version_id
@@ -588,7 +598,7 @@ def _pending_retro_items(request: Request, case_id: str) -> list[c.PendingRetroI
             fv.id: fv
             for fv in repo.list_finished_videos(case_id)
         }
-        video_versions = {vv_id: repo.resolve_video_version(vv_id) for vv_id in {
+        video_versions = {vv_id: repo.resolve_video_version(case_id, vv_id) for vv_id in {
             r.video_version_id for r in records if r.video_version_id is not None
         }}
     else:
@@ -743,8 +753,10 @@ def _resolve_script_version_for_finished_video(
 ) -> str | None:
     repo = case_rubric_repository(request)
     if repo is not None:
-        return repo.resolve_script_version_for_finished_video(finished_video_id)
-    version = _video_version_for_finished_video_memory(repository(request), finished_video_id)
+        return repo.resolve_script_version_for_finished_video(case_id, finished_video_id)
+    version = _video_version_for_finished_video_memory(
+        repository(request), case_id, finished_video_id
+    )
     return version.script_version_id if version is not None else None
 
 
@@ -760,20 +772,20 @@ def _resolve_publish_lineage_for_finished_video(
             raise _missing_finished_video()
         for record in repo.list_publish_records(case_id):
             resolved = (
-                repo.resolve_video_version(record.video_version_id)
+                repo.resolve_video_version(case_id, record.video_version_id)
                 if record.video_version_id
                 else None
             )
             if resolved is not None and resolved.finished_video_id == finished_video_id:
                 return record.id, record.video_version_id
-        version = repo.resolve_video_version_for_finished_video(finished_video_id)
+        version = repo.resolve_video_version_for_finished_video(case_id, finished_video_id)
         video_version_id = version.id if version is not None else None
         return finished_video_id, video_version_id
     mem = repository(request)
     finished = mem.finished_videos.get(finished_video_id)
     if finished is None or finished.case_id != case_id:
         raise _missing_finished_video()
-    version = _video_version_for_finished_video_memory(mem, finished_video_id)
+    version = _video_version_for_finished_video_memory(mem, case_id, finished_video_id)
     video_version_id = version.id if version is not None else None
     if version is not None:
         for record in mem.publish_records.values():
@@ -782,24 +794,36 @@ def _resolve_publish_lineage_for_finished_video(
     return finished_video_id, video_version_id
 
 
-def _video_version_for_finished_video_memory(repo, finished_video_id: str) -> c.VideoVersion | None:
+def _video_version_for_finished_video_memory(
+    repo, case_id: str, finished_video_id: str
+) -> c.VideoVersion | None:
     return next(
-        (vv for vv in repo.video_versions.values() if vv.finished_video_id == finished_video_id),
+        (
+            vv
+            for vv in repo.video_versions.values()
+            if vv.case_id == case_id and vv.finished_video_id == finished_video_id
+        ),
         None,
     )
 
 
-def _script_version_for_video_version_db(repo, video_version_id: str | None) -> str | None:
+def _script_version_for_video_version_db(
+    repo, case_id: str, video_version_id: str | None
+) -> str | None:
     if video_version_id is None:
         return None
-    version = repo.resolve_video_version(video_version_id)
+    version = repo.resolve_video_version(case_id, video_version_id)
     return version.script_version_id if version is not None else None
 
 
-def _script_version_for_video_version_memory(repo, video_version_id: str | None) -> str | None:
+def _script_version_for_video_version_memory(
+    repo, case_id: str, video_version_id: str | None
+) -> str | None:
     if video_version_id is None:
         return None
     version = repo.video_versions.get(video_version_id)
+    if version is None or version.case_id != case_id:
+        return None
     return version.script_version_id if version is not None else None
 
 

@@ -4,8 +4,8 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 
-revision = "0013_drop_legacy_case_agent"
-down_revision = "0012_case_rubric"
+revision = "0014_drop_legacy_case_agent"
+down_revision = ("0012_case_rubric", "0013_budget_enforce_reconcile")
 branch_labels = None
 depends_on = None
 

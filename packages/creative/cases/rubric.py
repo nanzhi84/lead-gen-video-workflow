@@ -1,6 +1,4 @@
-"""Case rubric self-evolution — pure logic (case_rubric_v1).
-
-See ``docs/superpowers/specs/2026-06-17-case-agent-rubric-redesign.md``.
+"""Case rubric self-evolution pure logic (case_rubric_v1).
 
 The "memory" of a case is an executable scoring card (``CaseRubric``): weighted
 dimensions over a script's ``CreativeFeatureVector``. This module is the storage-
@@ -12,14 +10,13 @@ agnostic core shared by the in-memory and SQLAlchemy service paths:
   reason; the prediction reads only script features, never real metrics.
 - ``reward_value`` (§5.2): stage/选择 → reward shaping (values come from
   ``LearningSettings`` so they are tunable, not magic numbers).
-- ``evaluate_calibration`` (§6.3): ranking consistency + miss-streak over settled
-  predictions; recommends a bump when the gate trips.
+- ``evaluate_calibration`` (§6.3): ranking consistency + miss-streak over reward-
+  labeled predictions; recommends a bump when the gate trips.
 - ``fit_weights`` / ``propose_bump`` (§6.4): deterministically refit weights &
   value-scores from reward samples, and only propose an upgrade when the new card
   *reranks the calibration pool strictly more accurately* (anti-self-deception).
 
-Everything is deterministic (no DB, no provider, no randomness) so it is trivially
-unit-testable — matching the ``evolution.py`` convention.
+Everything is deterministic: no DB, provider calls, or randomness.
 """
 
 from __future__ import annotations
@@ -42,11 +39,11 @@ from packages.core.contracts import (
 BAND_TOP_MIN = 7.5
 BAND_OK_MIN = 5.0
 
-# §6.3 a settled prediction counts as a "miss" when blind composite and actual
-# reward disagree by at least this much (both on a 0–1 scale).
+# §6.3 a reward-labeled prediction counts as a miss when blind composite and the
+# latest reward signal disagree by at least this much.
 MISS_DELTA = 0.3
 
-# A reward sample (a settled prediction's feature vector + its 0–1 actual reward).
+# A reward sample: prediction features plus the latest training reward.
 RewardSample = tuple[CreativeFeatureVector, float]
 
 
@@ -302,14 +299,14 @@ def consistency_for_rubric(rubric: CaseRubric, samples: Sequence[RewardSample]) 
 
 
 def evaluate_calibration(
-    settled_predictions: Sequence[ScorePrediction],
+    labeled_predictions: Sequence[ScorePrediction],
     *,
     rubric: CaseRubric,
     settings: LearningSettings,
     pending_retro_count: int = 0,
 ) -> CalibrationReport:
-    """§6.3 build the calibration report from settled (de-blinded) predictions."""
-    settled = [p for p in settled_predictions if p.settled_reward is not None]
+    """§6.3 build the calibration report from reward-labeled blind predictions."""
+    settled = [p for p in labeled_predictions if p.settled_reward is not None]
     settled = sorted(settled, key=lambda p: p.settled_at or p.locked_at)
     pairs = [(p.composite, float(p.settled_reward)) for p in settled]
     cons = consistency(pairs)

@@ -491,7 +491,7 @@ def backfill_metrics(
 def calibration(request: Request, case_id: str) -> c.CalibrationReport:
     sync_rewards(request, case_id)
     rubric_card = get_rubric(request, case_id)
-    settled = _settled_predictions(request, case_id)
+    settled = _reward_labeled_predictions(request, case_id)
     pending = len(_pending_retro_items(request, case_id))
     return rubric_logic.evaluate_calibration(
         settled,
@@ -639,20 +639,62 @@ def _pending_retro_items(request: Request, case_id: str) -> list[c.PendingRetroI
 # Shared read helpers (symmetric across backends)
 # ---------------------------------------------------------------------------
 
-def _settled_predictions(request: Request, case_id: str) -> list[c.ScorePrediction]:
+def _reward_labeled_predictions(request: Request, case_id: str) -> list[c.ScorePrediction]:
+    rewards = _reward_signals(request, case_id)
+    labeled: list[c.ScorePrediction] = []
+    for prediction in list_predictions(request, case_id):
+        reward = _latest_reward_for_prediction(prediction, rewards)
+        if reward is not None:
+            labeled.append(
+                prediction.model_copy(
+                    update={
+                        "settled_reward": reward.value,
+                        "settled_at": reward.occurred_at,
+                    }
+                )
+            )
+        elif prediction.settled_reward is not None:
+            labeled.append(prediction)
+    return labeled
+
+
+def _latest_reward_for_prediction(
+    prediction: c.ScorePrediction, rewards: list[c.RewardSignal]
+) -> c.RewardSignal | None:
+    candidates = [
+        reward
+        for reward in rewards
+        if reward.occurred_at > prediction.locked_at
+        and (
+            (
+                reward.script_draft_id is not None
+                and reward.script_draft_id == prediction.script_draft_id
+            )
+            or (
+                reward.script_version_id is not None
+                and reward.script_version_id == prediction.script_version_id
+            )
+        )
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda reward: (reward.occurred_at, reward.created_at))
+
+
+def _reward_signals(request: Request, case_id: str) -> list[c.RewardSignal]:
     repo = case_rubric_repository(request)
     if repo is not None:
-        return repo.list_settled_predictions(case_id)
+        return repo.list_rewards(case_id)
     return [
-        p
-        for p in repository(request).score_predictions.values()
-        if p.case_id == case_id and p.settled_reward is not None
+        reward
+        for reward in repository(request).reward_signals.values()
+        if reward.case_id == case_id
     ]
 
 
 def _calibration_samples(request: Request, case_id: str) -> list[RewardSample]:
     samples: list[RewardSample] = []
-    for prediction in _settled_predictions(request, case_id):
+    for prediction in _reward_labeled_predictions(request, case_id):
         features = _features_for_prediction(request, case_id, prediction)
         if features is None:
             continue

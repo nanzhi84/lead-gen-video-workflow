@@ -10,10 +10,10 @@ branch_labels = None
 depends_on = None
 
 
-# case_rubric_v1: evaluate→blind-predict→reward→retro→bump self-evolution.
+# case_rubric_v1: blind prediction, reward signals, retro, and bump proposals.
 # Adds the case_rubric_v1 persistence loop:
 #   - case_rubrics            (§6 executable scoring card, versioned)
-#   - score_predictions       (§6.2 blind predictions; settled after metrics)
+#   - score_predictions       (§6.2 blind predictions; linked to reward labels)
 #   - reward_signals          (§5 graded human-choice reward signals)
 #   - rubric_bump_proposals   (§6.4 one-click upgrade proposals)
 #

@@ -232,6 +232,25 @@ def test_blind_invariant_settles_only_after_lock():
     assert before is None
 
 
+def test_calibration_uses_adopted_draft_reward_before_metrics():
+    with TestClient(create_app()) as client:
+        _login(client)
+        case_id = _create_case(client)
+        gen = client.post(
+            f"/api/cases/{case_id}/scripts/generate-with-memory",
+            json={"brief": "痛点开场，结尾引导下单。"},
+        )
+        assert gen.status_code == 202, gen.text
+        draft_id = gen.json()["id"]
+
+        adopt = client.post(f"/api/cases/{case_id}/agent/drafts/{draft_id}/adopt", json={})
+        assert adopt.status_code == 201, adopt.text
+
+        calibration = client.get(f"/api/cases/{case_id}/rubric/calibration")
+        assert calibration.status_code == 200, calibration.text
+        assert calibration.json()["sample_size"] == 1
+
+
 def test_published_reward_is_idempotent_across_syncs():
     with TestClient(create_app()) as client:
         _login(client)

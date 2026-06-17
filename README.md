@@ -11,7 +11,7 @@
 
 | 能力域 | 说明 | 主要代码 |
 | --- | --- | --- |
-| **Case 工作台 & 自进化闭环** | Case 是所有脚本/成片/记忆/素材/指标的长期学习边界。Case Agent 接入数据源、导入参考素材（含 ASR 转写）、生成 `ScriptDraft` 并采用为版本化脚本；发布后数据回流（指标导入 → 表现归因 → 反思 → 提议 `CaseMemory` → 人工审核通过 → 生效记忆 → 下一代脚本），单次爆款不会自动沉淀为记忆（spec §8.5）。 | `apps/api/routers/{cases,case_agent}.py`、`packages/creative/cases/` |
+| **Case 工作台 & 自进化闭环** | Case 是所有脚本/成片/记忆/素材/指标的长期学习边界。Case Agent 生成 `ScriptDraft` 并采用为版本化脚本；生成时写入盲预测，采用/成片/发布/删片/指标回填写入奖励信号，复盘时用评分卡校准并在升版时人工确认。`CaseMemory` 仅保留为人工维护的品牌红线/硬约束，不再承载自动学习审批流。 | `apps/api/routers/{cases,case_agent,case_rubric}.py`、`packages/creative/cases/` |
 | **16 节点数字人生产流水线** | 一个 `DigitalHumanVideo` Job 触发 `WorkflowRun`，按固定节点序执行：`Validate → LoadCaseContext → ResolveCreativeIntent → TTS → 素材规划 → 旁白对齐 → 立绘/B-roll/风格/时间线规划 → 立绘轨构建 → LipSync → 渲染 → 字幕+BGM 混音 → 导出 → 收尾报告`。产出**带类型的 artifacts**、运行报告、用量记录与**分级降级（不静默降级）**。 | `packages/production/pipeline/digital_human.py`、`packages/production/pipeline/nodes/` |
 | **媒体内核** | TTS 字幕 → 强制对齐 → ASR 的对齐策略（strict 模式无估算回退）；字幕渲染为 ASS；B-roll 用 jieba 关键词/语义匹配脚本节拍（不足则软跳过）；BGM 混音；封面默认抽帧、可选 AI 封面。底层 ffmpeg/ffprobe 驱动。 | `packages/media/{audio,video,annotation}/`、`packages/planning/material/` |
 | **LipSync providers** | 口型同步是一种 provider 能力（`lipsync.video`）：默认 RunningHub HeyGem，备选 DashScope VideoReTalk，禁用时节点可透传跳过。 | `packages/ai/providers/{runninghub,videoretalk}.py` |

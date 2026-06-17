@@ -1,7 +1,6 @@
 """SQLAlchemy persistence for the case-rubric self-evolution loop (case_rubric_v1).
 
-See ``docs/superpowers/specs/2026-06-17-case-agent-rubric-redesign.md``. Mirrors
-``sqlalchemy_learning.py`` / ``sqlalchemy_learning_mappers.py``: each contract is
+Mirrors ``sqlalchemy_learning.py`` / ``sqlalchemy_learning_mappers.py``: each contract is
 rebuilt with ``schema_version`` / ``created_at`` / ``updated_at`` from its row, and
 JSONB columns store ``model_dump(mode="json")``. All scoring/calibration/fit logic
 stays in the storage-agnostic ``rubric.py`` pure functions; this module only does IO.
@@ -359,16 +358,6 @@ class SqlAlchemyCaseRubricRepository:
                 select(ScorePredictionRow)
                 .where(ScorePredictionRow.case_id == case_id)
                 .order_by(ScorePredictionRow.created_at.desc())
-            )
-            return [score_prediction_row_to_contract(row) for row in session.scalars(statement)]
-
-    def list_settled_predictions(self, case_id: str) -> list[ScorePrediction]:
-        with self.session_factory() as session:
-            statement = (
-                select(ScorePredictionRow)
-                .where(ScorePredictionRow.case_id == case_id)
-                .where(ScorePredictionRow.settled_reward.is_not(None))
-                .order_by(ScorePredictionRow.settled_at)
             )
             return [score_prediction_row_to_contract(row) for row in session.scalars(statement)]
 

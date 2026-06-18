@@ -12,13 +12,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Ensure ffmpeg and ffprobe
+        uses: ./.github/actions/setup-ffmpeg-tools
       - name: Install Python dependencies
         run: python -m pip install -e ".[dev]"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install frontend dependencies for pytest probes
+        working-directory: apps/web
+        run: npm ci
       - name: Run default pytest suite
         run: timeout -k 5 600 python -m pytest -q
       - name: Verify OpenAPI export is committed
@@ -60,11 +68,11 @@ jobs:
       CUTAGENT_TEMPORAL_TASK_QUEUE: cutagent-production
     steps:
       - uses: actions/checkout@v4
-      - name: Install ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Ensure ffmpeg and ffprobe
+        uses: ./.github/actions/setup-ffmpeg-tools
       - name: Install Python dependencies
         run: python -m pip install -e ".[dev]"
       - name: Start MinIO (S3-compatible object store)

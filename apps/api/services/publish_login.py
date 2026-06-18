@@ -45,16 +45,34 @@ def _sweep(request: Request) -> None:
         driver.close(login_id)
 
 
+def _is_active_account(account: c.PublishAccount | None) -> bool:
+    return account is not None and account.status == "active"
+
+
+def cancel_logins_for_account(account_id: str, request: Request) -> None:
+    _sweep(request)
+    driver = publish_browser_driver(request)
+    for login_id in publish_login_registry(request).remove_for_account(account_id):
+        driver.close(login_id)
+
+
 def begin_login(account_id: str, request: Request) -> c.BeginLoginResponse | JSONResponse:
     repo = _repo(request)
     account = repo.get_account(account_id)
-    if account is None:
+    if not _is_active_account(account):
         return not_found_response("Publish account not found")
     _sweep(request)
-    handle = publish_browser_driver(request).begin_login(account.platform)
-    publish_login_registry(request).add(
+    driver = publish_browser_driver(request)
+    registry = publish_login_registry(request)
+    handle = driver.begin_login(account.platform)
+    registry.add(
         login_id=handle.login_token, account_id=account_id, platform=account.platform
     )
+    account = repo.get_account(account_id)
+    if not _is_active_account(account):
+        registry.remove(handle.login_token)
+        driver.close(handle.login_token)
+        return not_found_response("Publish account not found")
     return c.BeginLoginResponse(
         login_id=handle.login_token,
         account_id=account_id,
@@ -75,11 +93,24 @@ def poll_login(
         return not_found_response("Login session not found")
     repo = _repo(request)
     driver = publish_browser_driver(request)
+    account = repo.get_account(account_id)
+    if not _is_active_account(account):
+        driver.close(login_id)
+        registry.remove(login_id)
+        return not_found_response("Login session not found")
     if session.status == "pending":
         result = driver.poll_login(login_id)
         if result.status == "success" and result.storage_state_json:
-            store_account_session(repo, secret_store(request), account_id, result.storage_state_json)
+            account = repo.get_account(account_id)
+            if not _is_active_account(account):
+                driver.close(login_id)
+                registry.remove(login_id)
+                return not_found_response("Login session not found")
+            updated = store_account_session(repo, secret_store(request), account_id, result.storage_state_json)
             driver.close(login_id)  # session captured — release the browser
+            if updated is None:
+                registry.remove(login_id)
+                return not_found_response("Login session not found")
             registry.update(login_id, status="active")
         elif result.status == "pending":
             pass  # still waiting for the operator to scan
@@ -89,6 +120,11 @@ def poll_login(
             registry.update(login_id, status="failed", detail=result.detail or "login did not complete")
         session = registry.get(login_id) or session
     account = repo.get_account(account_id)
+    session = registry.get(login_id)
+    if session is None or session.account_id != account_id or not _is_active_account(account):
+        driver.close(login_id)
+        registry.remove(login_id)
+        return not_found_response("Login session not found")
     return c.LoginStatusResponse(
         login_id=login_id,
         account_id=account_id,
@@ -99,14 +135,28 @@ def poll_login(
     )
 
 
+def cancel_login(account_id: str, login_id: str, request: Request) -> c.OkResponse | JSONResponse:
+    _sweep(request)
+    registry = publish_login_registry(request)
+    session = registry.get(login_id)
+    if session is None or session.account_id != account_id:
+        return not_found_response("Login session not found")
+    publish_browser_driver(request).close(login_id)
+    registry.remove(login_id)
+    return c.OkResponse(request_id=request_id())
+
+
 def validate_session(account_id: str, request: Request) -> c.ValidateSessionResponse | JSONResponse:
     repo = _repo(request)
     account = repo.get_account(account_id)
-    if account is None:
+    if not _is_active_account(account):
         return not_found_response("Publish account not found")
     # Resolve the session payload via the ref (never read it off the contract).
     ref = repo.get_account_session_ref(account_id)
     if ref is None:
+        account = repo.get_account(account_id)
+        if not _is_active_account(account):
+            return not_found_response("Publish account not found")
         return c.ValidateSessionResponse(
             account_id=account_id,
             session_status=account.session_status,
@@ -129,6 +179,8 @@ def validate_session(account_id: str, request: Request) -> c.ValidateSessionResp
             session_expires_at=account.session_expires_at,
             last_validated_at=utcnow(),
         )
+    if updated is None:
+        return not_found_response("Publish account not found")
     target = updated or account
     return c.ValidateSessionResponse(
         account_id=account_id,

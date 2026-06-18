@@ -1841,7 +1841,8 @@ export interface paths {
         get: operations["poll_account_login_api_publish_accounts__account_id__login__login_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Cancel Account Login */
+        delete: operations["cancel_account_login_api_publish_accounts__account_id__login__login_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -12743,6 +12744,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LoginStatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_account_login_api_publish_accounts__account_id__login__login_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: string;
+                login_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
                 };
             };
             /** @description Validation Error */

@@ -18,7 +18,7 @@ from apps.api.dependencies import not_found_response
 from packages.core import contracts as c
 from packages.core.workflow import NodeExecutionError
 from packages.publishing import MemoryAccountsRepository
-from packages.publishing.account_sessions import clear_account_session, store_account_session
+from packages.publishing.account_sessions import store_account_session
 
 logger = logging.getLogger(__name__)
 
@@ -116,10 +116,13 @@ def patch_account(
                 c.ErrorCode.validation_conflict,
                 f"Account '{payload.account_name}' already exists for this client on {current.platform}.",
             )
+    if payload.status == "archived":
+        _clear_account_publish_state(repo, request, account_id)
     updated = repo.patch_account(
         account_id,
         account_name=payload.account_name,
         platform_uid=payload.platform_uid,
+        platform_uid_set="platform_uid" in payload.model_fields_set,
         status=payload.status,
     )
     if updated is None:
@@ -131,14 +134,24 @@ def delete_account(account_id: str, request: Request) -> c.OkResponse | JSONResp
     repo = _repo(request)
     if repo.get_account(account_id) is None:
         return not_found_response("Publish account not found")
-    # Drop the encrypted session before archiving so no orphan secret is left behind.
-    if repo.get_account_session_ref(account_id) is not None:
-        clear_account_session(repo, secret_store(request), account_id)
+    _clear_account_publish_state(repo, request, account_id)
+    repo.patch_account(account_id, status="archived")
+    return c.OkResponse(request_id=request_id())
+
+
+def _clear_account_publish_state(repo, request: Request, account_id: str) -> None:
+    from apps.api.services import publish_login
+
+    publish_login.cancel_logins_for_account(account_id, request)
+    # Archive under the repository's row-level guard so concurrent session writes
+    # cannot leave an archived account with an active browser session.
+    _archived, old_ref = repo.archive_account(account_id)
+    publish_login.cancel_logins_for_account(account_id, request)
+    if old_ref is not None:
+        secret_store(request).disable(old_ref)
         _audit(request, account_id, "publish.account.session_cleared")
     # Don't leave case targets bound to an archived account.
     repo.delete_targets_for_account(account_id)
-    repo.patch_account(account_id, status="archived")
-    return c.OkResponse(request_id=request_id())
 
 
 def set_account_session(

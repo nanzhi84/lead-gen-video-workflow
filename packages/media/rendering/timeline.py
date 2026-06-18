@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import math
 import os
 import threading
 from contextlib import contextmanager
@@ -63,6 +64,10 @@ def _limit_render_slot(key: str) -> Callable:
         return wrapper
 
     return decorator
+
+
+def _to_frame(seconds: float, fps: int) -> int:
+    return max(0, int(math.floor(float(seconds) * fps + 0.5)))
 
 
 def validate_rendered_output(
@@ -153,8 +158,8 @@ def transcode_video_segment(
     source_path: Path,
     output_path: Path,
     *,
-    source_start: float,
-    duration: float,
+    source_start_frame: int,
+    source_end_frame: int,
     width: int,
     height: int,
     fps: int,
@@ -166,17 +171,15 @@ def transcode_video_segment(
             "-hide_banner",
             "-loglevel",
             "error",
-            "-ss",
-            f"{source_start:.3f}",
-            "-t",
-            f"{duration:.3f}",
             "-i",
             str(source_path),
             "-an",
             "-vf",
             (
                 f"scale={width}:{height}:force_original_aspect_ratio=increase,"
-                f"crop={width}:{height},fps={fps},setsar=1"
+                f"crop={width}:{height},fps={fps},"
+                f"trim=start_frame={source_start_frame}:end_frame={source_end_frame},"
+                "setpts=PTS-STARTPTS,setsar=1"
             ),
             "-c:v",
             "libx264",
@@ -306,9 +309,7 @@ def render_broll_montage(
         "-loglevel",
         "error",
     ]
-    montage_inputs: list[tuple[float, float]] = []
-    total_duration = total_frames / fps
-    frame_tolerance = 1 / fps
+    montage_inputs: list[tuple[int, int]] = []
     for segment in segments:
         source_artifact = source_artifact_for_asset(str(segment.get("asset_id") or ""))
         source_path = artifact_path(source_artifact)
@@ -318,39 +319,60 @@ def render_broll_montage(
         source_end = float(segment.get("source_end", 0) or 0)
         timeline_start = float(segment.get("timeline_start", segment.get("start_sec", 0)) or 0)
         timeline_end = float(segment.get("timeline_end", segment.get("end_sec", 0)) or 0)
-        timeline_duration = timeline_end - timeline_start
-        source_span = source_end - source_start
+        source_start_frame = (
+            int(segment["source_start_frame"])
+            if segment.get("source_start_frame") is not None
+            else _to_frame(source_start, fps)
+        )
+        source_end_frame = (
+            int(segment["source_end_frame"])
+            if segment.get("source_end_frame") is not None
+            else _to_frame(source_end, fps)
+        )
+        timeline_start_frame = (
+            int(segment["timeline_start_frame"])
+            if segment.get("timeline_start_frame") is not None
+            else _to_frame(timeline_start, fps)
+        )
+        timeline_end_frame = (
+            int(segment["timeline_end_frame"])
+            if segment.get("timeline_end_frame") is not None
+            else _to_frame(timeline_end, fps)
+        )
+        source_duration_frames = _to_frame(source_duration, fps)
+        timeline_window_frames = timeline_end_frame - timeline_start_frame
+        source_window_frames = source_end_frame - source_start_frame
+        window_frames = min(source_window_frames, timeline_window_frames)
         if (
-            source_start < 0
-            or source_end <= source_start
-            or source_end > source_duration + frame_tolerance
-            or source_span < timeline_duration - frame_tolerance
+            source_start_frame < 0
+            or source_end_frame <= source_start_frame
+            or source_end_frame > source_duration_frames
         ):
             raise NodeExecutionError(
                 ErrorCode.render_invalid_timeline,
                 "B-roll source window is out of bounds.",
             )
         if (
-            timeline_start < 0
-            or timeline_end <= timeline_start
-            or timeline_end > total_duration + frame_tolerance
+            timeline_start_frame < 0
+            or timeline_end_frame <= timeline_start_frame
+            or timeline_end_frame > total_frames
         ):
             raise NodeExecutionError(
                 ErrorCode.render_invalid_timeline,
                 "B-roll timeline window is out of bounds.",
             )
-        montage_inputs.append((source_start, min(source_span, timeline_duration)))
+        montage_inputs.append((source_start_frame, window_frames))
         args.extend(["-i", str(source_path)])
 
     filters = []
-    for index, (source_start, duration) in enumerate(montage_inputs):
+    for index, (source_start_frame, window_frames) in enumerate(montage_inputs):
         filters.append(
             (
-                f"[{index}:v]trim=start={source_start:.3f}:duration={duration:.3f},"
+                f"[{index}:v]fps={fps},"
+                f"trim=start_frame={source_start_frame}:end_frame={source_start_frame + window_frames},"
                 "setpts=PTS-STARTPTS,"
                 f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
-                f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,"
-                f"fps={fps}[seg{index}]"
+                f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1[seg{index}]"
             )
         )
     concat_inputs = "".join(f"[seg{index}]" for index in range(len(montage_inputs)))
@@ -364,7 +386,7 @@ def render_broll_montage(
             # fit_video_to_exact_duration on the A-roll base track. Without this, a
             # short montage trips validate_rendered_output's exact-frame check and the
             # whole render hard-fails with a misleading render_invalid_timeline.
-            "tpad=stop_mode=clone:stop_duration=1.000,"
+            f"tpad=stop_mode=clone:stop={fps},"
             f"trim=start_frame=0:end_frame={total_frames},setpts=PTS-STARTPTS[outv]"
         )
     )
@@ -415,7 +437,7 @@ def render_video_timeline(
         "-i",
         str(main_path),
     ]
-    overlay_inputs: list[tuple[dict, Path]] = []
+    overlay_inputs: list[tuple[dict, Path, int, int]] = []
     for segment in broll_segments:
         source_artifact = source_artifact_for_asset(segment.get("asset_id"))
         source_path = artifact_path(source_artifact)
@@ -423,9 +445,20 @@ def render_video_timeline(
         source_duration = float(source_info.duration_sec or 0)
         source_start = float(segment.get("source_start", 0) or 0)
         source_end = float(segment.get("source_end", 0) or 0)
-        if source_start < 0 or source_end <= source_start or source_end > source_duration + (1 / fps):
+        source_start_frame = (
+            int(segment["source_start_frame"])
+            if segment.get("source_start_frame") is not None
+            else _to_frame(source_start, fps)
+        )
+        source_end_frame = (
+            int(segment["source_end_frame"])
+            if segment.get("source_end_frame") is not None
+            else _to_frame(source_end, fps)
+        )
+        source_duration_frames = _to_frame(source_duration, fps)
+        if source_start_frame < 0 or source_end_frame <= source_start_frame or source_end_frame > source_duration_frames:
             raise NodeExecutionError(ErrorCode.render_invalid_timeline, "B-roll source window is out of bounds.")
-        overlay_inputs.append((segment, source_path))
+        overlay_inputs.append((segment, source_path, source_start_frame, source_end_frame))
         args.extend(["-i", str(source_path)])
 
     filters = [
@@ -436,29 +469,37 @@ def render_video_timeline(
         )
     ]
     previous_label = "base0"
-    total_duration = total_frames / fps
-    for index, (segment, _) in enumerate(overlay_inputs, start=1):
-        timeline_start = float(segment.get("start_sec", 0) or 0)
-        timeline_end = float(segment.get("end_sec", 0) or 0)
-        if timeline_start < 0 or timeline_end <= timeline_start or timeline_end > total_duration + (1 / fps):
+    for index, (segment, _, source_start_frame, source_end_frame) in enumerate(overlay_inputs, start=1):
+        timeline_start = float(segment.get("start_sec", segment.get("timeline_start", 0)) or 0)
+        timeline_end = float(segment.get("end_sec", segment.get("timeline_end", 0)) or 0)
+        timeline_start_frame = (
+            int(segment["timeline_start_frame"])
+            if segment.get("timeline_start_frame") is not None
+            else _to_frame(timeline_start, fps)
+        )
+        timeline_end_frame = (
+            int(segment["timeline_end_frame"])
+            if segment.get("timeline_end_frame") is not None
+            else _to_frame(timeline_end, fps)
+        )
+        if not (0 <= timeline_start_frame < timeline_end_frame <= total_frames):
             raise NodeExecutionError(ErrorCode.render_invalid_timeline, "B-roll timeline window is out of bounds.")
-        source_start = float(segment.get("source_start", 0) or 0)
-        source_end = float(segment.get("source_end", 0) or 0)
         overlay_label = f"ov{index}"
         next_label = f"base{index}"
         filters.append(
             (
-                f"[{index}:v]trim=start={source_start:.3f}:end={source_end:.3f},"
+                f"[{index}:v]fps={fps},"
+                f"trim=start_frame={source_start_frame}:end_frame={source_end_frame},"
                 "setpts=PTS-STARTPTS,"
-                f"fps={fps},scale={width}:{height}:force_original_aspect_ratio=increase,"
+                f"scale={width}:{height}:force_original_aspect_ratio=increase,"
                 f"crop={width}:{height},setsar=1,"
-                f"setpts=PTS-STARTPTS+{timeline_start:.3f}/TB[{overlay_label}]"
+                f"setpts=PTS-STARTPTS+{timeline_start_frame}/{fps}/TB[{overlay_label}]"
             )
         )
         filters.append(
             (
                 f"[{previous_label}][{overlay_label}]overlay="
-                f"enable='between(t,{timeline_start:.3f},{timeline_end:.3f})':"
+                f"enable='gte(n\\,{timeline_start_frame})*lt(n\\,{timeline_end_frame})':"
                 f"x=0:y=0:eof_action=pass[{next_label}]"
             )
         )

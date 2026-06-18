@@ -15,6 +15,7 @@ import OverviewPage from "./pages/OverviewPage";
 import AnalyticsPage from "./pages/AnalyticsPage";
 import AccountPage from "./pages/AccountPage";
 import PromptManagementPage from "./pages/ops/PromptManagementPage";
+import PublishOpsPage from "./pages/ops/PublishOpsPage";
 import { routePatterns, routes } from "./routes";
 
 export default function App() {
@@ -40,6 +41,7 @@ export default function App() {
           <Route path={routePatterns.analytics} element={<AnalyticsPage />} />
           <Route path={routePatterns.account} element={<AccountPage />} />
           <Route path={routePatterns.promptOps} element={<PromptManagementPage />} />
+          <Route path={routePatterns.publishOps} element={<PublishOpsPage />} />
           <Route path={routePatterns.ops} element={<Navigate to={routes.analytics()} replace />} />
         </Route>
       </Route>

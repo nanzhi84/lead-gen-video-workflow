@@ -3,7 +3,7 @@ import type { NodeRun, RunCard } from "../../api/client";
 export type RunAction = "cancel" | "forceCancel" | "retry" | "resume" | "delete";
 
 // 原始流水线节点 → 中文标签（用于折叠的高级节点时间线）。
-export const NODE_LABELS: Record<string, string> = {
+const NODE_LABELS: Record<string, string> = {
   ValidateRequest: "校验请求",
   LoadCaseContext: "加载案例上下文",
   ResolveCreativeIntent: "解析创作意图",

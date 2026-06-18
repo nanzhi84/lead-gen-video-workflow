@@ -1,7 +1,7 @@
 export type StudioStep = 0 | 1 | 2 | 3 | 4;
 
 export type LipSyncPreset = "balanced" | "large_motion" | "strict_face" | "audio_priority";
-export type ContentMode = "digital_human" | "broll_only";
+type ContentMode = "digital_human" | "broll_only";
 
 export type FormState = {
   title: string;

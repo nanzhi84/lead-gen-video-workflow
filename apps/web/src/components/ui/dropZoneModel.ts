@@ -11,7 +11,7 @@ type ResolveAcceptedDropFilesOptions<T extends DropZoneFileLike> = {
   currentFiles: T[];
 };
 
-export function matchesAccept(file: DropZoneFileLike, accept?: string) {
+function matchesAccept(file: DropZoneFileLike, accept?: string) {
   if (!accept) return true;
   const tokens = accept
     .split(",")

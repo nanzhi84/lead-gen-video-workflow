@@ -140,6 +140,7 @@ class SqlAlchemyAccountsRepository:
         *,
         account_name: str | None = None,
         platform_uid: str | None = None,
+        platform_uid_set: bool = False,
         status: str | None = None,
     ) -> PublishAccount | None:
         with self.session_factory() as session:
@@ -148,7 +149,7 @@ class SqlAlchemyAccountsRepository:
                 return None
             if account_name is not None:
                 row.account_name = account_name
-            if platform_uid is not None:
+            if platform_uid_set:
                 row.platform_uid = platform_uid
             if status is not None:
                 row.status = status
@@ -160,6 +161,21 @@ class SqlAlchemyAccountsRepository:
         with self.session_factory() as session:
             row = session.get(PublishAccountRow, account_id)
             return row.session_secret_ref if row is not None else None
+
+    def archive_account(self, account_id: str) -> tuple[PublishAccount | None, str | None]:
+        with self.session_factory() as session:
+            row = session.get(PublishAccountRow, account_id, with_for_update=True)
+            if row is None:
+                return None, None
+            old_ref = row.session_secret_ref
+            row.status = "archived"
+            row.session_secret_ref = None
+            if old_ref is not None and row.session_status != "expired":
+                assert_transition("publish_session", row.session_status, "expired")
+                row.session_status = "expired"
+            session.commit()
+            session.refresh(row)
+            return publish_account_row_to_contract(row), old_ref
 
     def set_account_session(
         self,
@@ -179,6 +195,8 @@ class SqlAlchemyAccountsRepository:
         with self.session_factory() as session:
             row = session.get(PublishAccountRow, account_id, with_for_update=True)
             if row is None:
+                return None, None
+            if row.status != "active":
                 return None, None
             old_ref = row.session_secret_ref
             assert_transition("publish_session", row.session_status, session_status)
@@ -351,6 +369,7 @@ class MemoryAccountsRepository:
         *,
         account_name: str | None = None,
         platform_uid: str | None = None,
+        platform_uid_set: bool = False,
         status: str | None = None,
     ) -> PublishAccount | None:
         account = self.repo.publish_accounts.get(account_id)
@@ -359,7 +378,7 @@ class MemoryAccountsRepository:
         updates: dict = {"updated_at": utcnow()}
         if account_name is not None:
             updates["account_name"] = account_name
-        if platform_uid is not None:
+        if platform_uid_set:
             updates["platform_uid"] = platform_uid
         if status is not None:
             updates["status"] = status
@@ -369,6 +388,19 @@ class MemoryAccountsRepository:
 
     def get_account_session_ref(self, account_id: str) -> str | None:
         return self.repo.publish_account_sessions.get(account_id)
+
+    def archive_account(self, account_id: str) -> tuple[PublishAccount | None, str | None]:
+        account = self.repo.publish_accounts.get(account_id)
+        if account is None:
+            return None, None
+        old_ref = self.repo.publish_account_sessions.pop(account_id, None)
+        updates: dict = {"status": "archived", "has_session": False, "updated_at": utcnow()}
+        if old_ref is not None:
+            assert_transition("publish_session", account.session_status, "expired")
+            updates["session_status"] = "expired"
+        updated = account.model_copy(update=updates)
+        self.repo.publish_accounts[account_id] = updated
+        return updated, old_ref
 
     def set_account_session(
         self,
@@ -381,6 +413,8 @@ class MemoryAccountsRepository:
     ) -> tuple[PublishAccount | None, str | None]:
         account = self.repo.publish_accounts.get(account_id)
         if account is None:
+            return None, None
+        if account.status != "active":
             return None, None
         old_ref = self.repo.publish_account_sessions.get(account_id)
         assert_transition("publish_session", account.session_status, session_status)

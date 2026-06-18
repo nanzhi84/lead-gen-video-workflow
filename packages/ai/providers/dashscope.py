@@ -56,7 +56,7 @@ class DashScopeASRProvider:
             timeout=float(context.profile.timeout_sec),
         )
         submit_payload = response_json(submit_response)
-        task_id = _task_id_from_payload(submit_payload)
+        task_id = task_id_from_payload(submit_payload)
         if not task_id:
             raise ProviderRuntimeError(ErrorCode.provider_remote_failed, "DashScope ASR submit response missing task ID.")
         context.mark_polling(task_id)
@@ -244,10 +244,6 @@ def task_id_from_payload(payload: dict[str, Any]) -> str:
     output = payload.get("output") if isinstance(payload.get("output"), dict) else payload
     value = first_value(output, "task_id", "taskId", "id")
     return str(value) if value else ""
-
-
-# Backwards-compatible private alias (existing call sites use the underscore name).
-_task_id_from_payload = task_id_from_payload
 
 
 def poll_dashscope_task(

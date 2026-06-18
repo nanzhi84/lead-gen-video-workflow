@@ -118,18 +118,10 @@ def compute_yield_rates(
                 if event_type == "qc_passed":
                     qc_passed_videos.add(target)
 
-        if event_type == "qc_started":
-            # manual_required QCs (rework path) are still "checked".
-            pass
-
         if event_type in _REWORK_EVENTS and (fv_id or run_id):
             reworked_videos.add(fv_id or run_id)
         if event_type in _DISCARD_EVENTS and (fv_id or run_id):
             discarded_videos.add(fv_id or run_id)
-
-        if event_type == "qc_started":
-            # treated below for manual review only if it is a manual review marker
-            pass
 
         if event_type in ("manual_approved", "manual_rejected"):
             manual_started += 1

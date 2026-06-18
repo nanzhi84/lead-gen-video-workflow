@@ -305,8 +305,6 @@ def _degraded_annotation(
         clips=[],
         quality_events=quality_events,
     )
-    if not isinstance(quality_report, dict):
-        quality_report = {}
     quality_report = dict(quality_report)
     quality_report["vlm_status"] = VLM_UNCONFIGURED
 

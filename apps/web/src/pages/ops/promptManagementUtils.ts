@@ -148,7 +148,7 @@ export function describePrompt(purpose: string, fallbackName: string): { title: 
   return { title: fallbackName || purpose, usage: "AI 生产环节使用的提示词。" };
 }
 
-export const VARIABLE_LABELS: Record<string, string> = {
+const VARIABLE_LABELS: Record<string, string> = {
   case_name: "案例 / 商家名称",
   product_name: "产品或服务名称",
   industry: "所属行业或品类",

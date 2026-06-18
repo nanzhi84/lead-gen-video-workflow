@@ -22,7 +22,7 @@ export function isRealProviderProfile(profile: { provider_id?: string | null }):
   return (profile.provider_id ?? "") !== "sandbox";
 }
 
-export function isRealAsset(asset: { id?: string; tags?: readonly string[] | null }): boolean {
+function isRealAsset(asset: { id?: string; tags?: readonly string[] | null }): boolean {
   const tags = asset.tags ?? [];
   return !tags.includes("seed") && !(asset.id ?? "").endsWith("_demo");
 }

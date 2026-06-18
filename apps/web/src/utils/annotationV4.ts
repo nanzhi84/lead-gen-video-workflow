@@ -19,8 +19,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** V4 UsageRole legal values (backend ClipUsageV4.role / UsageWindowV4.role enum; illegal => 422). */
-export const USAGE_ROLES = ["hook", "main", "backup", "avoid", "cover"] as const;
-export type UsageRole = (typeof USAGE_ROLES)[number];
+const USAGE_ROLES = ["hook", "main", "backup", "avoid", "cover"] as const;
+type UsageRole = (typeof USAGE_ROLES)[number];
 
 /** Usability flags flattened from clip.usage (display-only mirror of the cable usage layer). */
 export interface AnnotationSegmentQuality {
@@ -110,7 +110,7 @@ export interface AnnotationMeta {
 // write path produces a JSON-Patch-ready `clips` array the backend can re-validate.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface AnnotationClipSemantics {
+interface AnnotationClipSemantics {
   subject_type?: string;
   scene_type?: string;
   gaze_to_camera?: boolean | null;
@@ -129,20 +129,20 @@ export interface AnnotationClipSemantics {
   process_stage?: string;
 }
 
-export interface AnnotationClipVisual {
+interface AnnotationClipVisual {
   shot_scale?: string;
   camera_motion?: string;
   composition?: string;
 }
 
-export interface AnnotationClipUsage {
+interface AnnotationClipUsage {
   recommended_for_lip_sync?: boolean;
   recommended_for_voiceover?: boolean;
   voiceover_only?: boolean;
   role: string;
 }
 
-export interface AnnotationClipRetrieval {
+interface AnnotationClipRetrieval {
   summary?: string;
   keywords?: string[];
   retrieval_sentence?: string;
@@ -201,7 +201,7 @@ function asStringList(value: unknown): string[] {
 }
 
 /** Collapse an editor role token (possibly 'cover_broll' / 'detail' / etc.) to a legal V4 UsageRole. */
-export function normalizeUsageRole(raw: unknown, fallback: UsageRole = "main"): UsageRole {
+function normalizeUsageRole(raw: unknown, fallback: UsageRole = "main"): UsageRole {
   const token = cleanString(raw).trim().toLowerCase();
   if ((USAGE_ROLES as readonly string[]).includes(token)) return token as UsageRole;
   if (token.startsWith("cover")) return "cover";
@@ -213,7 +213,7 @@ export function normalizeUsageRole(raw: unknown, fallback: UsageRole = "main"): 
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Nested cable clip -> flat editor row. Every top-level field a display component reads is laid out here. */
-export function clipToSegment(rawClip: unknown): AnnotationTimelineSegment {
+function clipToSegment(rawClip: unknown): AnnotationTimelineSegment {
   const clip = asRecord(rawClip);
   const semantics = asRecord(clip.semantics);
   const visual = asRecord(clip.visual);
@@ -259,7 +259,7 @@ export function clipToSegment(rawClip: unknown): AnnotationTimelineSegment {
   };
 }
 
-export function clipsToSegments(clips?: unknown): AnnotationTimelineSegment[] {
+function clipsToSegments(clips?: unknown): AnnotationTimelineSegment[] {
   return asArray(clips).map(clipToSegment);
 }
 
@@ -313,7 +313,7 @@ function buildUsage(segment: AnnotationTimelineSegment, fallbackRole: UsageRole)
 }
 
 /** Flat editor row -> nested cable clip. ``fallbackRole`` distinguishes portrait (main) / b-roll (cover). */
-export function segmentToClip(segment: AnnotationTimelineSegment, index: number, fallbackRole: UsageRole): AnnotationClip {
+function segmentToClip(segment: AnnotationTimelineSegment, index: number, fallbackRole: UsageRole): AnnotationClip {
   const start = asNumber(segment.start);
   const rawEnd = asNumber(segment.end, start);
   const end = rawEnd > start ? rawEnd : start;
@@ -343,7 +343,7 @@ export function segmentsToClips(segments: AnnotationTimelineSegment[], isMainTra
 // Other canonical layers — typed views read defensively from the untyped canonical.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function qualityEventToView(raw: unknown): AnnotationQualityEvent {
+function qualityEventToView(raw: unknown): AnnotationQualityEvent {
   const event = asRecord(raw);
   return {
     event_id: cleanString(event.event_id),
@@ -368,7 +368,7 @@ export function canonicalToQualityEvents(canonical?: unknown): AnnotationQuality
 }
 
 /** Evidence frame timestamps (seconds). canonical.evidence_frames is a flat number[]. */
-export function readEvidenceFrames(canonical?: unknown): number[] {
+function readEvidenceFrames(canonical?: unknown): number[] {
   return asArray(asRecord(canonical).evidence_frames)
     .map((item) => asOptionalNumber(item))
     .filter((item): item is number => item !== undefined);
@@ -381,7 +381,7 @@ export function readEvidenceFrames(canonical?: unknown): number[] {
  * Returns a list of `{ time?, image_url }` where `time` is only present for the
  * object form; the positional fallback is resolved by the caller.
  */
-export function readEvidenceFrameImages(canonical?: unknown): Array<{ time?: number; image_url: string }> {
+function readEvidenceFrameImages(canonical?: unknown): Array<{ time?: number; image_url: string }> {
   return asArray(asRecord(canonical).evidence_frame_images)
     .map((item) => {
       if (typeof item === "string") {

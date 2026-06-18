@@ -115,7 +115,7 @@ def plan_boundary_timeline(
     )
     used_audio_pauses = bool(audio_pauses)
     if not plan_segments:
-        total_frames = max(0, _frame(constraints.target_duration))
+        total_frames = max(0, frame_index(constraints.target_duration))
         return BoundaryTimelinePlan(
             fps=TIMELINE_FPS,
             total_frames=total_frames,
@@ -126,12 +126,6 @@ def plan_boundary_timeline(
 
     ordered = sorted(plan_segments, key=lambda seg: util.as_float(seg.get("timeline_start"), 0.0))
     return _quantize_plan(ordered, used_audio_pauses=used_audio_pauses, trace=trace)
-
-
-def _frame(t: float) -> int:
-    from packages.planning.editing.frame_grid import frame_index
-
-    return frame_index(t)
 
 
 def _quantize_plan(

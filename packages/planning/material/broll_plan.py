@@ -88,8 +88,6 @@ def plan_coverage(
     used_diversity_keys: set[str] = set()
 
     while cursor < target - tolerance:
-        if cursor >= target - tolerance:
-            break
         selection = _select_coverage_candidate(
             remaining_candidates,
             used_clips=used_clips,

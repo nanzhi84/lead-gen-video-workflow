@@ -178,3 +178,18 @@ def subtract_bad_spans(start: float, end: float,
 ## 10. 执行模式
 
 Codex 实现、Claude Code 负责架构与验收（用户指定）。每个 PR 由 CC 下发精确 brief → Codex 在本工作树写码 → CC 跑测试/审查/去 churn/提交。参考 [[codex-companion-write-mode]]、[[cutagent-worktree-verify-recipe]]。
+
+落地：PR1 `3f4afec`(传感器) · PR2 `fb24551`(b-roll 避让) · PR3 `b9f4a80`(人像避让) · PR4 `7e5474c`(camera_drop 真实素材校准)。
+
+## 11. 真实素材调阈结果（2026-06-19，D2 收口）
+
+数据集：`.data/objectstore-cache/video/` 的 21 片真实便利店手持 b-roll（1080p），含 3 对 原片/stabilized。探针 dump 逐窗 metrics + 事件（脚本见 job tmp `motion_probe.py`）。
+
+结论：
+- **阈值默认（px360，沿用 oldrepo）经真实素材验证合理，无需调整。** 问题不在阈值，而在 camera_drop 的两个逻辑缺陷（PR4 已修）。
+- **shake + 平滑运镜抑制**：工作良好——A 簇高幅度(p95 30-183)但平滑(str≈1.0)的有意平移全被正确压制（防误杀有意运镜），shake 仅在真抖窗(str≈0.6、flip 高)触发；gentle 手持(p95~3-4)不报。orig 运动指标始终略高于 stab（方向性正确）。
+- **camera_drop（收机下坠，用户头号用例）经真实素材暴露并修复**：
+  1. 方向 bug——移植丢了 oldrepo 对 net_y 的 `abs()`+方向归一，只认正方向；真实收机 net_y 为负 → 21 片 0 触发（合成/mock 测不出，真实素材一跑即现）。
+  2. 平滑过报——方向无关化后平滑有意下摇被误报；补「平滑运镜抑制」门控（careless 收机抖→触发，有意平滑运镜→压制，契合「抖动」语义）。
+- 三阶段 camera_drop 事件数：0(原始/bug) → 13(仅符号修复,含平滑误报) → **6(符号+门控；5/6 落在片尾=收机典型位置)**；clip_02 抽帧确认为甩向地面的真收机。
+- 生效前提仍同 §6：改动 `packages/media`/`packages/production` 后**重启 worker**。

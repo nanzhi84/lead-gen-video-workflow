@@ -10,6 +10,7 @@ from packages.core.workflow import NodeExecutionError, NodeOutput
 from packages.media.assets import store_file
 from packages.media.rendering import render_broll_montage, validate_rendered_output
 from packages.media.video.ffmpeg import FfmpegCommandError
+from packages.production.pipeline._timeline_grid import to_frame
 from packages.production.pipeline._node_context import NodeContext
 
 
@@ -28,12 +29,40 @@ def run(ctx: NodeContext) -> NodeOutput:
     total_frames = int(timeline.get("total_frames") or 0)
     if total_frames <= 0:
         raise NodeExecutionError(ErrorCode.render_invalid_timeline, "Render plan has no frames.")
+    broll_segments = []
+    for segment in list(broll_plan.get("segments", [])):
+        timeline_start = float(segment.get("timeline_start", segment.get("start_sec", 0)) or 0)
+        timeline_end = float(segment.get("timeline_end", segment.get("end_sec", 0)) or 0)
+        source_start = float(segment.get("source_start", 0) or 0)
+        source_end = float(segment.get("source_end", 0) or 0)
+        segment_frames = dict(segment)
+        segment_frames["timeline_start_frame"] = (
+            int(segment["timeline_start_frame"])
+            if segment.get("timeline_start_frame") is not None
+            else to_frame(timeline_start, fps)
+        )
+        segment_frames["timeline_end_frame"] = (
+            int(segment["timeline_end_frame"])
+            if segment.get("timeline_end_frame") is not None
+            else to_frame(timeline_end, fps)
+        )
+        segment_frames["source_start_frame"] = (
+            int(segment["source_start_frame"])
+            if segment.get("source_start_frame") is not None
+            else to_frame(source_start, fps)
+        )
+        segment_frames["source_end_frame"] = (
+            int(segment["source_end_frame"])
+            if segment.get("source_end_frame") is not None
+            else to_frame(source_end, fps)
+        )
+        broll_segments.append(segment_frames)
 
     try:
         with tempfile.TemporaryDirectory(prefix="cutagent-broll-render-") as directory:
             output_path = Path(directory) / "rendered.mp4"
             render_broll_montage(
-                segments=list(broll_plan.get("segments", [])),
+                segments=broll_segments,
                 output_path=output_path,
                 total_frames=total_frames,
                 width=width,

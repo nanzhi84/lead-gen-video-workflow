@@ -14,6 +14,7 @@ from packages.media.rendering import (
     transcode_video_segment,
 )
 from packages.media.video.ffmpeg import FfmpegCommandError, probe_media
+from packages.production.pipeline._timeline_grid import to_frame
 from packages.production.pipeline._node_context import NodeContext
 
 
@@ -38,7 +39,22 @@ def run(ctx: NodeContext) -> NodeOutput:
                 source_duration = float(source_info.duration_sec or 0)
                 source_start = float(segment.get("source_start", 0) or 0)
                 source_end = float(segment.get("source_end", segment.get("end_sec", 0)) or 0)
-                if source_start < 0 or source_end <= source_start or source_end > source_duration + (1 / fps):
+                source_start_frame = (
+                    int(segment["source_start_frame"])
+                    if segment.get("source_start_frame") is not None
+                    else to_frame(source_start, fps)
+                )
+                source_end_frame = (
+                    int(segment["source_end_frame"])
+                    if segment.get("source_end_frame") is not None
+                    else to_frame(source_end, fps)
+                )
+                source_duration_frames = to_frame(source_duration, fps)
+                if (
+                    source_start_frame < 0
+                    or source_end_frame <= source_start_frame
+                    or source_end_frame > source_duration_frames
+                ):
                     raise NodeExecutionError(
                         ErrorCode.render_invalid_timeline,
                         "Portrait source window is out of bounds.",
@@ -47,8 +63,8 @@ def run(ctx: NodeContext) -> NodeOutput:
                 transcode_video_segment(
                     source_path,
                     output_path,
-                    source_start=source_start,
-                    duration=source_end - source_start,
+                    source_start_frame=source_start_frame,
+                    source_end_frame=source_end_frame,
                     width=width,
                     height=height,
                     fps=fps,

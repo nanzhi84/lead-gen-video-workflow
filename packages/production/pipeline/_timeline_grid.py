@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import math
+
 from packages.core.contracts.artifacts import TimelineTrackSegment, TimelineValidationReport
 
 BROLL_PORTRAIT_CUT_SNAP_MAX_FRAMES = 10
 
 
 def to_frame(seconds: float, fps: int) -> int:
-    return round(seconds * fps)
+    # Keep the round-half-up boundary invariant from planning.editing.frame_grid.
+    return max(0, int(math.floor(float(seconds) * fps + 0.5)))
 
 
 def _timeline_start(segment: dict, fps: int) -> int:

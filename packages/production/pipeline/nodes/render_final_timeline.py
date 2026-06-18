@@ -10,6 +10,7 @@ from packages.core.workflow import NodeExecutionError, NodeOutput
 from packages.media.assets import store_file
 from packages.media.rendering import render_video_timeline, validate_rendered_output
 from packages.media.video.ffmpeg import FfmpegCommandError
+from packages.production.pipeline._timeline_grid import to_frame
 from packages.production.pipeline._node_context import NodeContext
 
 
@@ -39,15 +40,21 @@ def _broll_segments_from_timeline(timeline: dict, broll_plan: dict, fps: int) ->
         source_start_frame = track.get("source_start_frame")
         source_end_frame = track.get("source_end_frame")
         if source_start_frame is None:
-            source_start_frame = round(float(original.get("source_start", 0) or 0) * fps)
+            source_start_frame = to_frame(float(original.get("source_start", 0) or 0), fps)
         if source_end_frame is None:
-            source_end_frame = round(float(original.get("source_end", 0) or 0) * fps)
+            source_end_frame = to_frame(float(original.get("source_end", 0) or 0), fps)
+        source_start_frame = int(source_start_frame)
+        source_end_frame = int(source_end_frame)
         original.update(
             {
+                "timeline_start_frame": start_frame,
+                "timeline_end_frame": end_frame,
+                "source_start_frame": source_start_frame,
+                "source_end_frame": source_end_frame,
                 "start_sec": start_frame / fps,
                 "end_sec": end_frame / fps,
-                "source_start": int(source_start_frame) / fps,
-                "source_end": int(source_end_frame) / fps,
+                "source_start": source_start_frame / fps,
+                "source_end": source_end_frame / fps,
             }
         )
         rendered_segments.append(original)

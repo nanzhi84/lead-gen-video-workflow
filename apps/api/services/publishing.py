@@ -1,25 +1,34 @@
 from __future__ import annotations
 
+import tempfile
+from collections.abc import Callable
+from pathlib import Path
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from apps.api.common import (
+    accounts_repository,
     ensure_artifact_ref,
+    object_store,
     page,
     publishing_repository,
     repository,
     request_id,
+    secret_store,
 )
 from apps.api.dependencies import not_found_response
 from apps.api.services import publishing_nodes as nodes
 from packages.core import contracts as c
 from packages.core.contracts.state_machines import assert_transition
+from packages.core.storage.object_store import parse_object_uri
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
 from packages.core.observability import record_funnel_event
 from packages.media.video import FfmpegCommandError
-from packages.publishing import normalize_publish_tags, normalize_scheduled_at, select_adapter
+from packages.publishing import MemoryAccountsRepository, normalize_publish_tags, normalize_scheduled_at, select_adapter
+from packages.publishing.platform_adapter import PublishOutcome, PublishPayload
+from packages.publishing.publish_executor import run_item_publish
 
 
 def _publish_run_ids(repo, package_id: str | None) -> tuple[str | None, str | None]:
@@ -79,6 +88,120 @@ def _record_publish_attempt_funnel(repo, batch, item, attempt) -> None:
             dedupe_key=f"{attempt.id}:publish_failed",
             event_time=attempt.finished_at or attempt.updated_at,
         )
+
+
+def _build_publish_runner(
+    payload: c.SubmitPublishBatchRequest,
+    request: Request,
+) -> tuple[Callable[[object, object], PublishOutcome], str]:
+    adapter = select_adapter(payload.adapter_id)
+    runtime_repo = repository(request)
+    target_repo = accounts_repository(request) or MemoryAccountsRepository(runtime_repo)
+    secrets = secret_store(request)
+    objects = object_store(request)
+    scheduled_at = normalize_scheduled_at(payload.mode, payload.scheduled_at)
+
+    def runner(item: object, package: object) -> PublishOutcome:
+        temp_dir: tempfile.TemporaryDirectory[str] | None = None
+        downloaded_path: Path | None = None
+
+        def resolve_session(account_id: str) -> str | None:
+            secret_ref = target_repo.get_account_session_ref(account_id)
+            return secrets.get(secret_ref) if secret_ref else None
+
+        def resolve_video() -> str | None:
+            nonlocal downloaded_path, temp_dir
+            if downloaded_path is not None:
+                return str(downloaded_path)
+            video_uri = _artifact_uri(_get_field(package, "video_artifact"))
+            if not video_uri:
+                return None
+            temp_dir = tempfile.TemporaryDirectory(prefix="cutagent-publish-")
+            downloaded_path = objects.download_file(parse_object_uri(video_uri), Path(temp_dir.name) / "video")
+            return str(downloaded_path)
+
+        try:
+            case_id = _get_field(package, "case_id")
+            case = runtime_repo.cases.get(case_id) if case_id else None
+            outcome, _per_account_results = run_item_publish(
+                adapter,
+                _build_runner_payload(
+                    item,
+                    package,
+                    case_name=getattr(case, "name", None),
+                    scheduled_at=scheduled_at,
+                    simulate_failure=payload.simulate_publish_failure,
+                ),
+                targets=_active_publish_targets(target_repo, case_id, _get_field(item, "platform")),
+                resolve_session=resolve_session,
+                resolve_video=resolve_video,
+            )
+            return outcome
+        finally:
+            if temp_dir is not None:
+                temp_dir.cleanup()
+
+    return runner, adapter.adapter_id
+
+
+def _active_publish_targets(accounts_repo, case_id: str | None, platform: str | None) -> list[tuple[str, str | None]]:
+    if not case_id or not platform:
+        return []
+    targets: list[tuple[str, str | None]] = []
+    for target in accounts_repo.list_targets(case_id):
+        if not target.enabled:
+            continue
+        account = accounts_repo.get_account(target.account_id)
+        if account is None:
+            continue
+        if account.platform != platform or account.status != "active":
+            continue
+        if account.session_status != "active":
+            continue
+        targets.append((account.id, account.account_name))
+    return targets
+
+
+def _build_runner_payload(
+    item: object,
+    package: object,
+    *,
+    case_name: str | None,
+    scheduled_at,
+    simulate_failure: bool,
+) -> PublishPayload:
+    return PublishPayload(
+        title=_get_field(item, "title", ""),
+        description=_get_field(item, "publish_content", "") or _get_field(item, "description", ""),
+        platforms=(_get_field(item, "platform"),),
+        tags=tuple(normalize_publish_tags(_get_field(item, "tags", []) or [])),
+        location=_get_field(item, "location"),
+        account_group=_get_field(item, "account_group"),
+        case_name=case_name,
+        scheduled_at=scheduled_at,
+        video_uri=_artifact_uri(_get_field(package, "video_artifact")),
+        cover_uri=_artifact_uri(_get_field(package, "cover_artifact")),
+        manual_review=False,
+        simulate_failure=simulate_failure,
+    )
+
+
+def _artifact_uri(artifact: object) -> str | None:
+    if artifact is None:
+        return None
+    if isinstance(artifact, dict):
+        uri = artifact.get("uri")
+        return uri if isinstance(uri, str) else None
+    return getattr(artifact, "uri", None)
+
+
+def _get_field(value: object, name: str, default=None):
+    if value is None:
+        return default
+    if isinstance(value, dict):
+        return value.get(name, default)
+    return getattr(value, name, default)
+
 
 def publish_packages(request: Request, limit: int = 50) -> c.PageResponse[c.PublishPackage]:
 
@@ -225,10 +348,19 @@ def delete_publish_batch(batch_id: str, request: Request) -> c.OkResponse | JSON
 
 
 def submit_publish_batch(
-    batch_id: str, payload: c.SubmitPublishBatchRequest, request: Request
+    batch_id: str,
+    payload: c.SubmitPublishBatchRequest,
+    request: Request,
+    publish_runner: Callable[[object, object], PublishOutcome] | None = None,
 ) -> c.PublishBatchVm | JSONResponse:
+    default_publish_runner, adapter_id = _build_publish_runner(payload, request)
+    active_publish_runner = publish_runner or default_publish_runner
     if publishing_repository(request) is not None:
-        batch = publishing_repository(request).submit_batch(batch_id, payload)
+        batch = publishing_repository(request).submit_batch(
+            batch_id,
+            payload,
+            publish_runner=active_publish_runner,
+        )
         if batch is None:
             return not_found_response("Publish batch not found")
         return batch
@@ -240,7 +372,6 @@ def submit_publish_batch(
     # CUTAGENT_PUBLISH_ADAPTER feature flag or an explicit override) and normalize
     # the Asia/Shanghai schedule (§23.7). A 'scheduled' submit yields scheduled
     # attempts that have not yet published.
-    adapter = select_adapter(payload.adapter_id)
     scheduled_at = normalize_scheduled_at(payload.mode, payload.scheduled_at)
     is_scheduled = scheduled_at is not None
 
@@ -253,8 +384,6 @@ def submit_publish_batch(
             continue
         selected_count += 1
         package = repo.publish_packages.get(item.publish_package_id)
-        case = repo.cases.get(package.case_id) if package and package.case_id else None
-        case_name = getattr(case, "name", None)
 
         # Stage 1 (normalizing) + Stage 3 (copy_running): the copy node produces
         # real publish copy (title / publish_content / cover_title / cover_subtitle)
@@ -281,15 +410,9 @@ def submit_publish_batch(
         if not payload.dry_run:
             assert_transition("publish_item", current_item_status, "publishing")
             current_item_status = "publishing"
-            outcome = adapter.publish(
-                nodes.build_publish_payload(
-                    item.model_copy(update=copy_updates) if copy_updates else item,
-                    package=package,
-                    case_name=case_name,
-                    scheduled_at=scheduled_at,
-                    manual_review=False,
-                    simulate_failure=payload.simulate_publish_failure,
-                )
+            outcome = active_publish_runner(
+                item.model_copy(update=copy_updates) if copy_updates else item,
+                package,
             )
             if not outcome.success:
                 any_failed = True
@@ -323,7 +446,8 @@ def submit_publish_batch(
             platforms=[item.platform],
             manual_review=payload.dry_run,
             status=c.PublishAttemptStatus(attempt_status),
-            adapter_id=adapter.adapter_id,
+            adapter_id=outcome.adapter_id if outcome is not None else adapter_id,
+            external_task_id=outcome.external_task_id if outcome is not None else None,
             results=attempt_results,
             error=(
                 c.NodeError(

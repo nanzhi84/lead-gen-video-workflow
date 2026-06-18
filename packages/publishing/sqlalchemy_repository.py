@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -8,6 +10,7 @@ from packages.core.contracts import (
     CreatePublishBatchRequest,
     CreatePublishPackageRequest,
     ErrorCode,
+    NodeError,
     PatchPublishPackageRequest,
     PatchPublishItemRequest,
     PublishAttempt,
@@ -35,7 +38,7 @@ from packages.core.storage.database import (
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
 from packages.publishing.account_matching import normalize_publish_tags, normalize_scheduled_at
-from packages.publishing.platform_adapter import select_adapter
+from packages.publishing.platform_adapter import PublishOutcome, select_adapter
 from packages.publishing.sqlalchemy_mappers import (
     artifact_ref_from_row,
     publish_attempt_row_to_contract,
@@ -227,7 +230,12 @@ class SqlAlchemyPublishingRepository:
             session.commit()
             return True
 
-    def submit_batch(self, batch_id: str, payload: SubmitPublishBatchRequest) -> PublishBatchVm | None:
+    def submit_batch(
+        self,
+        batch_id: str,
+        payload: SubmitPublishBatchRequest,
+        publish_runner: Callable[[object, object], PublishOutcome] | None = None,
+    ) -> PublishBatchVm | None:
         with self.session_factory() as session:
             batch = session.get(PublishBatchRow, batch_id)
             if batch is None:
@@ -251,17 +259,26 @@ class SqlAlchemyPublishingRepository:
             adapter = select_adapter(payload.adapter_id)
             scheduled_at = normalize_scheduled_at(payload.mode, payload.scheduled_at)
             is_scheduled = scheduled_at is not None
+            uses_publish_runner = not payload.dry_run and publish_runner is not None
 
-            batch_status = "review_ready" if payload.dry_run else "completed"
+            batch_status = (
+                "review_ready"
+                if payload.dry_run
+                else "publishing"
+                if uses_publish_runner
+                else "completed"
+            )
             assert_transition("publish_batch", batch.status, "processing")
             assert_transition("publish_batch", "processing", "review_ready" if payload.dry_run else "publishing")
-            if not payload.dry_run:
+            if not payload.dry_run and not uses_publish_runner:
                 assert_transition("publish_batch", "publishing", "completed")
             batch.status = batch_status
             batch.updated_at = utcnow()
             funnel_events: list[dict] = []
+            any_failed = False
             for item in selected_items:
-                target_item_status = "review_ready" if payload.dry_run else "published"
+                outcome: PublishOutcome | None = None
+                package = session.get(PublishPackageRow, item.publish_package_id)
                 current_item_status = item.status
                 for next_status in ["normalizing", "asr_running", "copy_running", "cover_running"]:
                     assert_transition("publish_item", current_item_status, next_status)
@@ -274,13 +291,23 @@ class SqlAlchemyPublishingRepository:
                     current_item_status = "review_ready"
                     assert_transition("publish_item", current_item_status, "publishing")
                     current_item_status = "publishing"
-                    assert_transition("publish_item", current_item_status, "published")
-                    current_item_status = "published"
+                    if uses_publish_runner:
+                        outcome = publish_runner(item, package)
+                        if outcome.success:
+                            assert_transition("publish_item", current_item_status, "published")
+                            current_item_status = "published"
+                        else:
+                            any_failed = True
+                            assert_transition("publish_item", current_item_status, "publish_failed")
+                            current_item_status = "publish_failed"
+                    else:
+                        assert_transition("publish_item", current_item_status, "published")
+                        current_item_status = "published"
+                target_item_status = current_item_status
                 item.status = target_item_status
                 if is_scheduled and not payload.dry_run:
                     item.scheduled_at = scheduled_at
                 item.updated_at = utcnow()
-                package = session.get(PublishPackageRow, item.publish_package_id)
                 if package is not None and package.case_id:
                     version = None
                     if package.source_finished_video_id:
@@ -310,6 +337,8 @@ class SqlAlchemyPublishingRepository:
                     )
                 if payload.dry_run:
                     attempt_status = "manual_review_ready"
+                elif outcome is not None and not outcome.success:
+                    attempt_status = "failed"
                 elif is_scheduled:
                     attempt_status = "scheduled"
                 else:
@@ -325,9 +354,18 @@ class SqlAlchemyPublishingRepository:
                         platforms=[item.platform],
                         manual_review=payload.dry_run,
                         status=attempt_status,
-                        adapter_id=adapter.adapter_id,
-                        external_task_id=None,
-                        results=[],
+                        adapter_id=outcome.adapter_id if outcome is not None else adapter.adapter_id,
+                        external_task_id=outcome.external_task_id if outcome is not None else None,
+                        results=list(outcome.results) if outcome is not None else [],
+                        error=(
+                            NodeError(
+                                code=ErrorCode.publish_failed,
+                                message=outcome.error_message or "Publish failed.",
+                                retryable=True,
+                            ).model_dump(mode="json")
+                            if attempt_status == "failed" and outcome is not None
+                            else None
+                        ),
                         finished_at=attempt_time if attempt_status == "published" else None,
                     )
                 )
@@ -363,6 +401,19 @@ class SqlAlchemyPublishingRepository:
                     funnel_events.append(
                         {**base_event, "event_type": "published", "dedupe_key": f"{attempt_id}:published"}
                     )
+                elif attempt_status == "failed":
+                    funnel_events.append(
+                        {
+                            **base_event,
+                            "event_type": "publish_failed",
+                            "dedupe_key": f"{attempt_id}:publish_failed",
+                        }
+                    )
+            if uses_publish_runner:
+                final_batch_status = "partial_failed" if any_failed else "completed"
+                assert_transition("publish_batch", "publishing", final_batch_status)
+                batch.status = final_batch_status
+                batch.updated_at = utcnow()
             session.commit()
             session.refresh(batch)
             result = publish_batch_row_to_contract(session, batch)

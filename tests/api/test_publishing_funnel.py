@@ -6,10 +6,14 @@ against the in-memory ``Repository`` (no FastAPI ``Request`` / DB wiring needed)
 
 from __future__ import annotations
 
+from fastapi.testclient import TestClient
+
+from apps.api.app import create_app
 from apps.api.services.publishing import (
     _publish_run_ids,
     _record_publish_attempt_funnel,
 )
+import packages.publishing.platform_adapter as platform_adapter
 from packages.core.contracts import (
     ArtifactKind,
     ArtifactRef,
@@ -20,6 +24,16 @@ from packages.core.contracts import (
     PublishBatchVm,
 )
 from packages.core.storage.repository import Repository
+from packages.publishing.accounts_repository import MemoryAccountsRepository
+from packages.publishing.platform_adapter import PublishOutcome, PublishPayload
+
+
+def _login(client: TestClient) -> None:
+    response = client.post(
+        "/api/auth/login",
+        json={"email": "admin@local.cutagent", "password": "local-admin"},
+    )
+    assert response.status_code == 200, response.text
 
 
 def _seed_finished_video_and_package(repo: Repository) -> tuple[str, str]:
@@ -115,3 +129,91 @@ def test_qc_run_ids_returns_none_for_missing_run():
     run_id, job_id = _qc_run_ids(repo, target_type="run", target_id="run_missing")
     assert run_id is None
     assert job_id is None
+
+
+def test_submit_publish_batch_records_per_account_results(monkeypatch):
+    published_payloads: list[PublishPayload] = []
+
+    class FakePublishAdapter:
+        adapter_id = "fake.publish"
+
+        def probe_accounts(self, *, account_group=None, case_name=None):
+            return [], True, None
+
+        def publish(self, payload: PublishPayload) -> PublishOutcome:
+            published_payloads.append(payload)
+            return PublishOutcome(
+                success=True,
+                adapter_id=self.adapter_id,
+                external_task_id=f"task-{payload.account_id}",
+            )
+
+    monkeypatch.setitem(platform_adapter._PUBLISH_ADAPTERS, "fake.publish", FakePublishAdapter)
+
+    with TestClient(create_app()) as client:
+        _login(client)
+        object_ref = client.app.state.object_store.prepare_upload("video.mp4", "publish-test")
+        client.app.state.object_store.put_bytes(object_ref, b"video")
+        finished = FinishedVideo(
+            id="fv_publish_accounts",
+            case_id="case_demo",
+            title="Account fanout",
+            video_artifact=ArtifactRef(
+                artifact_id="art_publish_accounts",
+                kind=ArtifactKind.video_finished,
+                uri=object_ref.uri,
+            ),
+        )
+        client.app.state.repository.finished_videos[finished.id] = finished
+
+        accounts = MemoryAccountsRepository(client.app.state.repository)
+        customer = accounts.create_client(name="ACME")
+        first = accounts.create_account(
+            client_id=customer.id,
+            platform="douyin",
+            account_name="first",
+        )
+        second = accounts.create_account(
+            client_id=customer.id,
+            platform="douyin",
+            account_name="second",
+        )
+        first_secret = client.app.state.secret_store.put('{"cookies":[{"name":"first"}]}')
+        second_secret = client.app.state.secret_store.put('{"cookies":[{"name":"second"}]}')
+        accounts.set_account_session(first.id, secret_ref=first_secret, session_status="active")
+        accounts.set_account_session(second.id, secret_ref=second_secret, session_status="active")
+        accounts.set_targets("case_demo", [first.id, second.id])
+
+        package = client.app.state.repository.create_publish_package_from_finished_video(
+            finished,
+            title="Publish me",
+            description="",
+        )
+        batch = client.app.state.repository.create_publish_batch([package.id], ["douyin"])
+
+        submitted = client.post(
+            f"/api/publish/batches/{batch.id}/submit",
+            json={"dry_run": False, "adapter_id": "fake.publish"},
+        )
+        assert submitted.status_code == 202, submitted.text
+        attempts = list(client.app.state.repository.publish_attempts.values())
+
+    assert [payload.account_id for payload in published_payloads] == [first.id, second.id]
+    results = attempts[0].results
+    account_results = [result for result in results if "account_id" in result]
+    assert account_results == [
+        {
+            "account_id": first.id,
+            "account_name": "first",
+            "success": True,
+            "external_task_id": f"task-{first.id}",
+            "error": None,
+        },
+        {
+            "account_id": second.id,
+            "account_name": "second",
+            "success": True,
+            "external_task_id": f"task-{second.id}",
+            "error": None,
+        },
+    ]

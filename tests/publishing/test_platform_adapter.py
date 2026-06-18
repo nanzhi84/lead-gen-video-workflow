@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from packages.publishing.platform_adapter import (
+    BrowserPublishAdapter,
     SANDBOX_ADAPTER_ID,
     PublishPayload,
     SandboxPublishAdapter,
@@ -69,3 +70,11 @@ def test_sandbox_adapter_probe_accounts_returns_stub_set():
     assert available is True
     assert reason is None
     assert {a.platform for a in accounts} == {"douyin", "kuaishou", "shipinhao", "xiaohongshu"}
+
+
+def test_browser_adapter_fails_without_account_session_or_video():
+    outcome = BrowserPublishAdapter().publish(PublishPayload(title="t", platforms=("douyin",)))
+    assert outcome.success is False
+    assert outcome.adapter_id == "browser.playwright"
+    assert outcome.error_message
+    assert "storage_state_json" in outcome.error_message

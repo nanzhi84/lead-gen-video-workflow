@@ -20,7 +20,8 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Protocol
+from pathlib import Path
+from typing import Any, Protocol
 
 from packages.core.contracts import PlatformAccount
 
@@ -37,6 +38,10 @@ class PublishPayload:
     tags: tuple[str, ...] = ()
     location: str | None = None
     account_group: str | None = None
+    account_id: str | None = None
+    account_name: str | None = None
+    storage_state_json: str | None = None
+    video_path: str | None = None
     case_name: str | None = None
     scheduled_at: datetime | None = None
     video_uri: str | None = None
@@ -123,10 +128,132 @@ class SandboxPublishAdapter:
         )
 
 
+@dataclass
+class BrowserPublishAdapter:
+    """UNVERIFIED Playwright browser upload adapter.
+
+    This adapter is intentionally conservative: it attempts only the Douyin upload
+    path and returns failure unless all account/session/video inputs are present.
+    The DOM automation has not been verified against the live platform, so it does
+    not fabricate success after best-effort browser interactions.
+    """
+
+    adapter_id: str = "browser.playwright"
+
+    def probe_accounts(
+        self,
+        *,
+        account_group: str | None = None,
+        case_name: str | None = None,
+    ) -> tuple[list[PlatformAccount], bool, str | None]:
+        return [], False, "Browser publish adapter is UNVERIFIED and does not probe accounts."
+
+    def publish(self, payload: PublishPayload) -> PublishOutcome:
+        missing = [
+            field_name
+            for field_name, value in (
+                ("account_id", payload.account_id),
+                ("storage_state_json", payload.storage_state_json),
+                ("video_path", payload.video_path),
+            )
+            if not value
+        ]
+        if missing:
+            return self._failure(
+                payload,
+                f"publish.browser_unavailable: missing {', '.join(missing)}.",
+            )
+        platform = payload.platforms[0] if payload.platforms else None
+        if platform != "douyin":
+            return self._failure(
+                payload,
+                f"publish.browser_unavailable: platform {platform or '<missing>'} not yet supported.",
+            )
+        if not Path(payload.video_path).exists():
+            return self._failure(payload, "publish.browser_unavailable: video_path does not exist.")
+
+        try:
+            from packages.publishing.browser.playwright_driver import _run_async
+
+            return _run_async(self._publish_douyin(payload))
+        except Exception as exc:  # noqa: BLE001 - adapter boundary must fail loudly, not crash submit.
+            return self._failure(payload, f"publish.browser_unavailable: {exc}")
+
+    def _failure(self, payload: PublishPayload, message: str) -> PublishOutcome:
+        platform = payload.platforms[0] if payload.platforms else None
+        return PublishOutcome(
+            success=False,
+            adapter_id=self.adapter_id,
+            results=[
+                {
+                    "platform": platform,
+                    "account_id": payload.account_id,
+                    "success": False,
+                    "error": message,
+                }
+            ],
+            error_message=message,
+        )
+
+    async def _publish_douyin(self, payload: PublishPayload) -> PublishOutcome:
+        import json
+
+        from playwright.async_api import async_playwright
+
+        from packages.publishing.browser.playwright_driver import DESKTOP_UA, _launch_kwargs
+
+        storage_state = json.loads(payload.storage_state_json or "{}")
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(**_launch_kwargs(headless=True))
+            try:
+                context = await browser.new_context(
+                    user_agent=DESKTOP_UA,
+                    storage_state=storage_state,
+                )
+                page = await context.new_page()
+                await page.goto(
+                    "https://creator.douyin.com/creator-micro/content/upload",
+                    wait_until="domcontentloaded",
+                    timeout=60000,
+                )
+                await page.locator("input[type='file']").first.set_input_files(
+                    payload.video_path,
+                    timeout=60000,
+                )
+                await self._fill_first_available(
+                    page,
+                    ("input[placeholder*='标题']", "textarea[placeholder*='标题']"),
+                    payload.title,
+                )
+                if payload.description:
+                    await self._fill_first_available(
+                        page,
+                        ("textarea[placeholder*='描述']", "textarea"),
+                        payload.description,
+                    )
+                await page.get_by_role("button", name="发布").first.click(timeout=30000)
+            finally:
+                await browser.close()
+        return self._failure(
+            payload,
+            "publish.browser_unavailable: Douyin upload adapter is UNVERIFIED; "
+            "success detection is not implemented.",
+        )
+
+    async def _fill_first_available(self, page: Any, selectors: tuple[str, ...], value: str) -> None:
+        for selector in selectors:
+            locator = page.locator(selector).first
+            if await locator.count() == 0:
+                continue
+            await locator.fill(value, timeout=10000)
+            return
+
+
 # Registered publish adapters by id. Real browser-automation adapters
 # (抖音/视频号/快手/小红书) register here as they land in the publishing roadmap.
 _PUBLISH_ADAPTERS: dict[str, Callable[[], PublishPlatformAdapter]] = {
     SANDBOX_ADAPTER_ID: SandboxPublishAdapter,
+    "browser.playwright": BrowserPublishAdapter,
 }
 
 

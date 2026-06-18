@@ -36,11 +36,7 @@ type QueryParams<Operation> = Operation extends {
 const enc = encodeURIComponent;
 
 export type AgentDraft = components["schemas"]["ScriptDraft"];
-export type CaseRubric = components["schemas"]["CaseRubric"];
-export type CalibrationReport = components["schemas"]["CalibrationReport"];
-export type RubricBumpProposal = components["schemas"]["RubricBumpProposal"];
 export type ScorePrediction = components["schemas"]["ScorePrediction"];
-export type PendingRetroResponse = components["schemas"]["PendingRetroResponse"];
 export type EditorHandoffResult = components["schemas"]["EditorHandoffPackageArtifact"];
 export type JianyingDraftResult = components["schemas"]["JianyingDraftPackageArtifact"];
 export type ProviderBalanceReport = components["schemas"]["ProviderBalanceReport"];

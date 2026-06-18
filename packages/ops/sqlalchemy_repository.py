@@ -623,29 +623,6 @@ class SqlAlchemyOpsRepository:
             session.refresh(row)
             return alert_rule_row_to_contract(row)
 
-    def _alert_metric_snapshot(
-        self,
-        *,
-        window_start: datetime | None,
-        window_end: datetime | None,
-    ) -> dict[str, float | None]:
-        """The metric values §9.8 rules evaluate against."""
-
-        usage = self.provider_usage(window_start=window_start, window_end=window_end)
-        rates = self.yield_funnel(window_start=window_start, window_end=window_end).rates
-        cost = self.cost_metrics(window_start=window_start, window_end=window_end)
-        provider_success = rates.provider_success_rate if rates else None
-        return {
-            "yield.true_yield_rate": rates.true_yield_rate if rates else None,
-            "yield.qc_fail_rate": (1 - rates.qc_pass_rate) if (rates and rates.qc_pass_rate is not None) else None,
-            "provider.failure_rate": (1 - provider_success) if provider_success is not None else None,
-            "cost.unpriced": float(usage.unpriced_invocation_count),
-            "cost.retry_cost": float(cost.retry_cost.amount),
-            "cost.single_video": float(cost.unit_cost_per_finished_video.amount)
-            if cost.unit_cost_per_finished_video
-            else None,
-        }
-
     # ----- §9.2 failure_taxonomy + §9.6 classification -----
 
     def record_failure(

@@ -12,11 +12,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Ensure ffmpeg and ffprobe
+        uses: ./.github/actions/setup-ffmpeg-tools
       - name: Install Python dependencies
         run: python -m pip install -e ".[dev]"
       - uses: actions/setup-node@v4
@@ -68,11 +68,11 @@ jobs:
       CUTAGENT_TEMPORAL_TASK_QUEUE: cutagent-production
     steps:
       - uses: actions/checkout@v4
-      - name: Install ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Ensure ffmpeg and ffprobe
+        uses: ./.github/actions/setup-ffmpeg-tools
       - name: Install Python dependencies
         run: python -m pip install -e ".[dev]"
       - name: Start MinIO (S3-compatible object store)

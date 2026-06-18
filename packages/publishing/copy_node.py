@@ -33,10 +33,6 @@ _TITLE_DEFAULT_LIMIT = 30
 _COVER_TITLE_LIMIT = 18
 _COVER_SUBTITLE_LIMIT = 18
 
-# Output schema id the registry validates against (see registry.validate_output).
-PUBLISH_COPY_OUTPUT_SCHEMA_ID = "publish_copy.output"
-PUBLISH_COPY_NODE_ID = "PublishingCopy"
-
 
 @dataclass(frozen=True)
 class PublishCopyContext:

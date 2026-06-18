@@ -13,10 +13,8 @@ from apps.api.common import object_store, repository
 from packages.core import contracts as c
 from packages.publishing import (
     PublishCopyContext,
-    PublishPayload,
     generate_publish_copy,
     generate_publish_cover,
-    normalize_publish_tags,
     preview_cover_frame,
 )
 from packages.publishing.cover_node import CoverArtifact
@@ -139,31 +137,4 @@ def run_preview_frame(
         frame_time_sec=frame_time_sec,
         write_artifact=_cover_artifact_writer(request),
         case_id=case_id,
-    )
-
-
-def build_publish_payload(
-    item,
-    *,
-    package: c.PublishPackage | None,
-    case_name: str | None,
-    scheduled_at,
-    manual_review: bool,
-    simulate_failure: bool,
-) -> PublishPayload:
-    video_uri = getattr(getattr(package, "video_artifact", None), "uri", None)
-    cover_uri = getattr(getattr(package, "cover_artifact", None), "uri", None)
-    return PublishPayload(
-        title=item.title,
-        description=item.publish_content or item.description,
-        platforms=(item.platform,),
-        tags=tuple(normalize_publish_tags(item.tags or [])),
-        location=item.location,
-        account_group=item.account_group,
-        case_name=case_name,
-        scheduled_at=scheduled_at,
-        video_uri=video_uri,
-        cover_uri=cover_uri,
-        manual_review=manual_review,
-        simulate_failure=simulate_failure,
     )

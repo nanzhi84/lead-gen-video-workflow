@@ -27,7 +27,7 @@ export interface VideoPlayerQualityEvent {
   risk_tier?: string;
 }
 
-export interface VideoPlayerEvidenceFrame {
+interface VideoPlayerEvidenceFrame {
   /** Timestamp (seconds) of the sampled evidence frame. */
   time: number;
   /** Optional thumbnail shown on hover; absent => render a plain tick only. */

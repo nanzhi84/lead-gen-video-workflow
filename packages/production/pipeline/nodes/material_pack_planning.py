@@ -12,7 +12,10 @@ from __future__ import annotations
 
 from packages.core.contracts import ArtifactKind
 from packages.core.contracts.artifacts import MaterialCandidate, MaterialPackArtifact
+from packages.core.workflow import NodeOutput
+from packages.media.annotation._material import is_video
 from packages.planning.material import (
+    avoid_intervals,
     clip_is_lip_sync_usable,
     clip_shows_person,
     extract_keywords,
@@ -20,8 +23,9 @@ from packages.planning.material import (
     rank_portrait_clip_candidates,
     score_simple_candidate,
     segment_script,
+    subtract_bad_spans,
 )
-from packages.core.workflow import NodeOutput
+from packages.planning.material.broll_pack import _MIN_CLEAN_SPAN_SEC
 from packages.production.pipeline._node_context import NodeContext
 
 _BROLL_RECENT_SELECTION_LIMIT = 80
@@ -131,6 +135,10 @@ def run(ctx: NodeContext) -> NodeOutput:
         and not clip_is_lip_sync_usable(clip)
         and clip_shows_person(clip)
     )
+    broll_motion_excluded = _broll_motion_excluded_count(
+        broll_annotations,
+        asset_kinds=broll_asset_kinds,
+    )
     broll_candidates: list[MaterialCandidate] = []
     for candidate in rank_broll_candidates(
         annotations=broll_annotations,
@@ -193,6 +201,7 @@ def run(ctx: NodeContext) -> NodeOutput:
             and bool(broll_visual_assets)
             and not broll_annotations,
             "broll_person_excluded": broll_person_excluded,
+            "broll_motion_excluded": broll_motion_excluded,
             "bgm_missing": request.bgm.enabled and not bgm_candidates,
             # Unified video bucket visibility: how many portrait candidates came from
             # per-clip lip-sync windows, and the honest "operator uploaded visual
@@ -215,6 +224,41 @@ def run(ctx: NodeContext) -> NodeOutput:
 # only the single eventual pick) is intentional: the production node may pick any of the
 # top candidates, and uncommitted reservations are released at finalize/failure.
 _RESERVE_TOP_N = 3
+
+
+def _broll_motion_excluded_count(annotations, *, asset_kinds: dict[str, str]) -> int:
+    excluded = 0
+    for asset_id, annotation in annotations.items():
+        bad_spans = avoid_intervals(annotation)
+        if not bad_spans:
+            continue
+        material_type = asset_kinds.get(asset_id) or annotation.meta.material_type
+        from_unified_video = is_video(material_type)
+        for clip in annotation.clips:
+            if clip.usage.role.value == "avoid":
+                continue
+            if from_unified_video and clip_is_lip_sync_usable(clip):
+                continue
+            if clip_shows_person(clip):
+                continue
+            if not _clip_overlaps_bad_span(clip, bad_spans):
+                continue
+            clean_spans = subtract_bad_spans(
+                clip.start,
+                clip.end,
+                bad_spans,
+                min_len=_MIN_CLEAN_SPAN_SEC,
+            )
+            original_span = (round(float(clip.start), 3), round(float(clip.end), 3))
+            if not clean_spans or clean_spans != [original_span]:
+                excluded += 1
+    return excluded
+
+
+def _clip_overlaps_bad_span(clip, bad_spans: list[tuple[float, float]]) -> bool:
+    start = round(float(clip.start), 3)
+    end = round(float(clip.end), 3)
+    return any(min(end, bad_end) > max(start, bad_start) for bad_start, bad_end in bad_spans)
 
 
 def _reserve_top_candidates(

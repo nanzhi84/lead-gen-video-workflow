@@ -127,6 +127,16 @@ def poll_account_login(
     return login_service.poll_login(account_id, login_id, request)
 
 
+@router.delete(
+    "/api/publish/accounts/{account_id}/login/{login_id}", response_model=c.OkResponse
+)
+def cancel_account_login(
+    account_id: str, login_id: str, request: Request
+) -> c.OkResponse | JSONResponse:
+    require_role(request, c.UserRole.operator)
+    return login_service.cancel_login(account_id, login_id, request)
+
+
 @router.post(
     "/api/publish/accounts/{account_id}/session:validate",
     response_model=c.ValidateSessionResponse,

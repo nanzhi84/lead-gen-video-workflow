@@ -62,6 +62,17 @@ class PublishLoginRegistry:
         with self._lock:
             self._sessions.pop(login_id, None)
 
+    def remove_for_account(self, account_id: str) -> list[str]:
+        with self._lock:
+            login_ids = [
+                login_id
+                for login_id, session in self._sessions.items()
+                if session.account_id == account_id
+            ]
+            for login_id in login_ids:
+                self._sessions.pop(login_id, None)
+            return login_ids
+
     def sweep_expired(self) -> list[str]:
         """Remove and return login_ids past TTL (caller closes their driver sessions)."""
         now = utcnow()

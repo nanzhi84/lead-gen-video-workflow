@@ -17,6 +17,7 @@ export const routePatterns = {
   analytics: "/analytics/*",
   account: "/account/*",
   promptOps: "/ops/prompts",
+  publishOps: "/publish-ops",
   ops: "/ops/*",
 } as const;
 
@@ -41,5 +42,6 @@ export const routes = {
   analytics: () => "/analytics",
   account: () => "/account",
   promptOps: () => "/ops/prompts",
+  publishOps: () => "/publish-ops",
   ops: () => "/ops",
 } as const;

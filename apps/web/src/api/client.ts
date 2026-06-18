@@ -670,6 +670,85 @@ export const api = {
         `/api/publish/attempts/${enc(attemptId)}`,
       ),
   },
+  publishOps: {
+    listClients: (query: QueryParams<operations["list_clients_api_publish_clients_get"]> = {}) =>
+      fetchJson<JsonResponse<operations["list_clients_api_publish_clients_get"]>>("/api/publish/clients", {
+        query,
+      }),
+    createClient: (payload: JsonRequest<operations["create_client_api_publish_clients_post"]>) =>
+      fetchJson<JsonResponse<operations["create_client_api_publish_clients_post"]>>("/api/publish/clients", {
+        method: "POST",
+        body: payload,
+        idempotencyKey: createIdempotencyKey("publish_client"),
+      }),
+    patchClient: (
+      clientId: string,
+      payload: JsonRequest<operations["patch_client_api_publish_clients__client_id__patch"]>,
+    ) =>
+      fetchJson<JsonResponse<operations["patch_client_api_publish_clients__client_id__patch"]>>(
+        `/api/publish/clients/${enc(clientId)}`,
+        { method: "PATCH", body: payload, idempotencyKey: createIdempotencyKey("publish_client_patch") },
+      ),
+    deleteClient: (clientId: string) =>
+      fetchJson<JsonResponse<operations["delete_client_api_publish_clients__client_id__delete"]>>(
+        `/api/publish/clients/${enc(clientId)}`,
+        { method: "DELETE", idempotencyKey: createIdempotencyKey("publish_client_delete") },
+      ),
+    listAccounts: (query: QueryParams<operations["list_accounts_api_publish_accounts_get"]> = {}) =>
+      fetchJson<JsonResponse<operations["list_accounts_api_publish_accounts_get"]>>("/api/publish/accounts", {
+        query,
+      }),
+    createAccount: (payload: JsonRequest<operations["create_account_api_publish_accounts_post"]>) =>
+      fetchJson<JsonResponse<operations["create_account_api_publish_accounts_post"]>>("/api/publish/accounts", {
+        method: "POST",
+        body: payload,
+        idempotencyKey: createIdempotencyKey("publish_account"),
+      }),
+    patchAccount: (
+      accountId: string,
+      payload: JsonRequest<operations["patch_account_api_publish_accounts__account_id__patch"]>,
+    ) =>
+      fetchJson<JsonResponse<operations["patch_account_api_publish_accounts__account_id__patch"]>>(
+        `/api/publish/accounts/${enc(accountId)}`,
+        { method: "PATCH", body: payload, idempotencyKey: createIdempotencyKey("publish_account_patch") },
+      ),
+    deleteAccount: (accountId: string) =>
+      fetchJson<JsonResponse<operations["delete_account_api_publish_accounts__account_id__delete"]>>(
+        `/api/publish/accounts/${enc(accountId)}`,
+        { method: "DELETE", idempotencyKey: createIdempotencyKey("publish_account_delete") },
+      ),
+    beginLogin: (accountId: string) =>
+      fetchJson<JsonResponse<operations["begin_account_login_api_publish_accounts__account_id__login_post"]>>(
+        `/api/publish/accounts/${enc(accountId)}/login`,
+        { method: "POST", idempotencyKey: createIdempotencyKey("publish_login") },
+      ),
+    pollLogin: (accountId: string, loginId: string) =>
+      fetchJson<JsonResponse<operations["poll_account_login_api_publish_accounts__account_id__login__login_id__get"]>>(
+        `/api/publish/accounts/${enc(accountId)}/login/${enc(loginId)}`,
+      ),
+    cancelLogin: (accountId: string, loginId: string) =>
+      fetchJson<JsonResponse<operations["cancel_account_login_api_publish_accounts__account_id__login__login_id__delete"]>>(
+        `/api/publish/accounts/${enc(accountId)}/login/${enc(loginId)}`,
+        { method: "DELETE", idempotencyKey: createIdempotencyKey("publish_login_cancel") },
+      ),
+    validateSession: (accountId: string) =>
+      fetchJson<JsonResponse<operations["validate_account_session_api_publish_accounts__account_id__session_validate_post"]>>(
+        `/api/publish/accounts/${enc(accountId)}/session:validate`,
+        { method: "POST", idempotencyKey: createIdempotencyKey("publish_session_validate") },
+      ),
+    listCaseTargets: (caseId: string) =>
+      fetchJson<JsonResponse<operations["list_case_targets_api_cases__case_id__publish_targets_get"]>>(
+        `/api/cases/${enc(caseId)}/publish-targets`,
+      ),
+    setCaseTargets: (
+      caseId: string,
+      payload: JsonRequest<operations["set_case_targets_api_cases__case_id__publish_targets_put"]>,
+    ) =>
+      fetchJson<JsonResponse<operations["set_case_targets_api_cases__case_id__publish_targets_put"]>>(
+        `/api/cases/${enc(caseId)}/publish-targets`,
+        { method: "PUT", body: payload, idempotencyKey: createIdempotencyKey("case_targets") },
+      ),
+  },
   providers: {
     profiles: (query: QueryParams<operations["provider_profiles_api_providers_profiles_get"]> = {}) =>
       fetchJson<JsonResponse<operations["provider_profiles_api_providers_profiles_get"]>>("/api/providers/profiles", {
@@ -801,6 +880,18 @@ export type PublishAttemptDetail = components["schemas"]["PublishAttemptDetail"]
 export type PublishBatch = components["schemas"]["PublishBatchVm"];
 export type PublishBatchItem = components["schemas"]["PublishBatchItemVm"];
 export type PublishPackage = components["schemas"]["PublishPackage"];
+export type PublishClient = components["schemas"]["Client"];
+export type PublishAccount = components["schemas"]["PublishAccount"];
+export type CasePublishTarget = components["schemas"]["CasePublishTarget"];
+export type CreateClientRequest = components["schemas"]["CreateClientRequest"];
+export type PatchClientRequest = components["schemas"]["PatchClientRequest"];
+export type CreatePublishAccountRequest = components["schemas"]["CreatePublishAccountRequest"];
+export type PatchPublishAccountRequest = components["schemas"]["PatchPublishAccountRequest"];
+export type BeginLoginResponse = components["schemas"]["BeginLoginResponse"];
+export type LoginStatusResponse = components["schemas"]["LoginStatusResponse"];
+export type ValidateSessionResponse = components["schemas"]["ValidateSessionResponse"];
+export type PublishPlatform = "douyin" | "shipinhao" | "kuaishou" | "xiaohongshu";
+export type PublishSessionStatus = "never_logged_in" | "active" | "expired";
 export type ProviderProfile = components["schemas"]["ProviderProfile"];
 export type SecretPreview = components["schemas"]["SecretPreview"];
 export type CostRollup = components["schemas"]["CostRollup"];

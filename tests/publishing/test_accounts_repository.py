@@ -93,6 +93,28 @@ def test_clear_session_disables_secret_and_expires(tmp_path):
     assert repo.get_account_session_ref(account.id) is None
 
 
+def test_archive_account_blocks_late_session_store(tmp_path):
+    repo = _repo()
+    store = LocalSecretStore(root=tmp_path)
+    client = repo.create_client(name="ACME")
+    account = repo.create_account(client_id=client.id, platform="douyin", account_name="a")
+    store_account_session(repo, store, account.id, "session-1")
+    old_ref = repo.get_account_session_ref(account.id)
+
+    archived, archived_ref = repo.archive_account(account.id)
+    assert archived is not None
+    assert archived.status == "archived"
+    assert archived.session_status == "expired"
+    assert archived.has_session is False
+    assert archived_ref == old_ref
+    assert repo.get_account_session_ref(account.id) is None
+
+    late = store_account_session(repo, store, account.id, "late-session")
+    assert late is None
+    assert repo.get_account_session_ref(account.id) is None
+    assert repo.get_account(account.id).has_session is False
+
+
 def test_targets_replace_is_idempotent_and_hydrated():
     repo = _repo()
     client = repo.create_client(name="ACME")

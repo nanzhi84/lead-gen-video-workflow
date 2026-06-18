@@ -5,6 +5,7 @@ import {
   Library,
   LogOut,
   MessageSquareText,
+  RadioTower,
   Sparkles,
   UserCircle2,
 } from "lucide-react";
@@ -22,6 +23,7 @@ const mainNav = [
   { to: routes.account(), label: "账户中心", icon: UserCircle2 },
   { to: routes.settings(), label: "设置", icon: KeyRound },
   { to: routes.promptOps(), label: "提示词", icon: MessageSquareText },
+  { to: routes.publishOps(), label: "发布运维", icon: RadioTower },
 ] satisfies Array<{ to: string; label: string; icon: ComponentType<{ className?: string }>; end?: boolean }>;
 
 const mobilePrimaryPaths = [routes.overview(), routes.studio(), routes.library(), routes.account()];
@@ -54,6 +56,8 @@ function Breadcrumbs() {
     parts.push("账户中心");
   } else if (location.pathname.startsWith("/ops/prompts")) {
     parts.push("提示词");
+  } else if (location.pathname.startsWith("/publish-ops")) {
+    parts.push("发布运维");
   }
   return <div className="text-xs font-medium text-text-tertiary">{parts.join(" / ")}</div>;
 }

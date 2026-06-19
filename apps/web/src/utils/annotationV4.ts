@@ -443,3 +443,55 @@ export function readDuration(canonical?: unknown): number {
   for (const ev of asArray(record.quality_events)) ends.push(asNumber(asRecord(ev).end));
   return ends.length > 0 ? Math.max(...ends) : 0;
 }
+
+export type BgmSegmentRole = "hook" | "climax" | "outro" | "general";
+
+export const BGM_ROLES: BgmSegmentRole[] = ["hook", "climax", "outro", "general"];
+
+export interface BgmUsageWindow {
+  start: number;          // seconds
+  end: number;            // seconds
+  role: BgmSegmentRole;
+  energy?: number;        // 0-1
+  drop_anchor_sec?: number;
+  mood?: string;
+  scene_fit?: string[];   // tags
+  reason?: string;
+}
+
+export function asBgmRole(v: unknown): BgmSegmentRole {
+  if (typeof v === "string" && (BGM_ROLES as string[]).includes(v)) {
+    return v as BgmSegmentRole;
+  }
+  return "general";
+}
+
+export function canonicalToBgmWindows(canonical: Record<string, unknown>): BgmUsageWindow[] {
+  const arr = asArray(canonical["bgm_usage_windows"]);
+  return arr.map((item) => {
+    const r = asRecord(item);
+    return {
+      start: asNumber(r["start"], 0),
+      end: asNumber(r["end"], 0),
+      role: asBgmRole(r["role"]),
+      energy: asOptionalNumber(r["energy"]),
+      drop_anchor_sec: asOptionalNumber(r["drop_anchor_sec"]),
+      mood: cleanString(r["mood"]),
+      scene_fit: asStringList(r["scene_fit"]),
+      reason: cleanString(r["reason"]),
+    };
+  });
+}
+
+export function bgmWindowsToCanonical(windows: BgmUsageWindow[]): Record<string, unknown>[] {
+  return windows.map((w) => ({
+    start: w.start,
+    end: w.end,
+    role: w.role,
+    ...(w.energy !== undefined ? { energy: w.energy } : {}),
+    ...(w.drop_anchor_sec !== undefined ? { drop_anchor_sec: w.drop_anchor_sec } : {}),
+    ...(w.mood ? { mood: w.mood } : {}),
+    ...(w.scene_fit && w.scene_fit.length > 0 ? { scene_fit: w.scene_fit } : {}),
+    ...(w.reason ? { reason: w.reason } : {}),
+  }));
+}

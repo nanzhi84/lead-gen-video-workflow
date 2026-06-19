@@ -5,7 +5,7 @@ Case-first 数字人短视频内容生产系统。Python（FastAPI + Temporal）
 ## 仓库地图（改对应代码前先读该目录的 CLAUDE.md）
 
 - `apps/`：`api`（FastAPI）· `worker`（Temporal worker，独立进程）· `web`（React/Vite SPA）· `connectors`（OceanEngine 离线 ETL CLI）
-- `packages/`：`core`（contracts/storage/config/auth/observability/workflow/对象存储/secret）· `ai`（gateway/prompts/providers）· `creative`（Case/脚本/自进化）· `media` · `planning` · `production`（16 节点流水线）· `publishing` · `ops`
+- `packages/`：`core`（contracts/storage/config/auth/observability/workflow/对象存储/secret）· `ai`（gateway/prompts/providers）· `creative`（Case/脚本/自进化）· `media` · `planning` · `production`（16 节点流水线）· `publishing` · `ops` · `migrations`（保留目录约定，**非** Alembic）
 - `tests/`（按域）· `scripts/` · `deploy/`（Temporal 配置）· `docs/`
 
 ## 关键命令

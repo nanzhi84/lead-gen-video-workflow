@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Literal
 from uuid import uuid4
-from pydantic import Field, JsonValue, field_serializer, field_validator, model_validator
+from pydantic import Field, JsonValue, ValidationError, field_serializer, field_validator, model_validator
 
 from .base import ArtifactRef, BaseListQuery, ContractModel, EntityMeta, ErrorCode, utcnow
 from .publishing import PublishPackage
@@ -345,7 +345,7 @@ class AnnotationEditorVm(ContractModel):
         if isinstance(value, dict):
             try:
                 return AnnotationV4.model_validate(value)
-            except Exception:
+            except ValidationError:
                 return value
         return value
 

@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -34,7 +36,7 @@ class UnifyPlan:
 def _validated_annotation(annotation: AnnotationV4) -> AnnotationV4 | None:
     try:
         return AnnotationV4.model_validate(annotation)
-    except Exception:
+    except ValidationError:
         return None
 
 
@@ -43,7 +45,7 @@ def _has_lip_sync_usable_clip(clips: list[ClipV4]) -> bool:
         try:
             if clip_is_lip_sync_usable(clip):
                 return True
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             continue
     return False
 

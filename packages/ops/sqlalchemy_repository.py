@@ -1042,7 +1042,7 @@ class SqlAlchemyOpsRepository:
             if isinstance(value, dict):
                 try:
                     return Money.model_validate(value).amount
-                except Exception:
+                except ValueError:
                     continue
             if value is not None:
                 try:

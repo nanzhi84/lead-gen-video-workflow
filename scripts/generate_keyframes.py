@@ -71,12 +71,13 @@ def _coerce_annotation_v4(canonical: dict) -> Any | None:
     ``evidence_frames``.
     """
     from packages.core.contracts.media import AnnotationV4
+    from pydantic import ValidationError
 
     if not isinstance(canonical, dict) or "meta" not in canonical:
         return None
     try:
         return AnnotationV4.model_validate(canonical)
-    except Exception:
+    except ValidationError:
         return None
 
 

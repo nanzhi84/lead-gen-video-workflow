@@ -38,7 +38,7 @@ def candidate_recency_penalty(candidate: dict[str, Any]) -> float:
     for value in values:
         try:
             best = max(best, float(value or 0.0))
-        except Exception:
+        except (TypeError, ValueError):
             continue
     return round(best, 3)
 

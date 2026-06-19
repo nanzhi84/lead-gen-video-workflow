@@ -17,7 +17,7 @@ def to_float(value: Any, default: float = 0.0) -> float:
     """Best-effort float conversion; non-numeric input falls back to ``default``."""
     try:
         return float(value)
-    except Exception:
+    except (TypeError, ValueError):
         return default
 
 

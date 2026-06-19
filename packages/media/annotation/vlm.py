@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from typing import Any, get_args
 
 from pydantic import ValidationError
 
@@ -162,6 +162,12 @@ def _extract_json_object(raw: str) -> str:
 _SEMANTIC_STR_FIELDS = frozenset(
     name for name, field in ClipSemanticsV4.model_fields.items() if field.annotation is str
 )
+_SEMANTIC_BOOL_FIELDS = frozenset(
+    name for name, field in ClipSemanticsV4.model_fields.items() if bool in get_args(field.annotation)
+)
+_BOOL_TRUE_TOKENS = frozenset({"true", "yes", "y", "1", "direct", "是", "有"})
+_BOOL_FALSE_TOKENS = frozenset({"false", "no", "n", "0", "否", "无"})
+_BOOL_UNKNOWN_TOKENS = frozenset({"", "partial", "unknown", "uncertain", "maybe", "n/a", "na"})
 
 
 def _coerce_semantics_strings(payload: dict) -> None:
@@ -175,6 +181,28 @@ def _coerce_semantics_strings(payload: dict) -> None:
         if isinstance(value, str):
             continue
         semantics[name] = "" if value is None or isinstance(value, bool) else str(value)
+
+
+def _coerce_semantics_bools(payload: dict) -> None:
+    semantics = payload.get("semantics")
+    if not isinstance(semantics, dict):
+        return
+    for name in _SEMANTIC_BOOL_FIELDS:
+        if name not in semantics:
+            continue
+        value = semantics[name]
+        if value is None or isinstance(value, bool):
+            continue
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in _BOOL_TRUE_TOKENS:
+                semantics[name] = True
+            elif normalized in _BOOL_FALSE_TOKENS:
+                semantics[name] = False
+            elif normalized in _BOOL_UNKNOWN_TOKENS:
+                semantics[name] = None
+        elif isinstance(value, (int, float)):
+            semantics[name] = bool(value)
 
 
 def parse_window_response(
@@ -240,6 +268,7 @@ def parse_window_response(
         payload["end"] = f_end
         payload["duration"] = round(f_end - f_start, 3)
         _coerce_semantics_strings(payload)
+        _coerce_semantics_bools(payload)
         try:
             clip = ClipV4(**payload)
         except (ValidationError, ValueError, TypeError) as exc:

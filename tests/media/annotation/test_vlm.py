@@ -142,6 +142,42 @@ def test_parse_coerces_non_string_semantics_fields():
     assert clips[0].semantics.process_stage == "3"
 
 
+def test_parse_coerces_partial_bool_semantics_to_unknown():
+    seg = _segment(start=0.0, end=4.0, role="main", lip_sync=True)
+    seg["semantics"] = {
+        "subject_type": "person",
+        "scene_type": "studio",
+        "gaze_to_camera": "partial",
+    }
+    clips = parse_window_response(
+        json.dumps({"segments": [seg]}),
+        material_type="video",
+        window_start=0.0,
+        window_end=4.0,
+        duration=4.0,
+    )
+    assert len(clips) == 1
+    assert clips[0].semantics.gaze_to_camera is None
+
+
+def test_parse_coerces_direct_bool_semantics_to_true():
+    seg = _segment(start=0.0, end=4.0, role="main", lip_sync=True)
+    seg["semantics"] = {
+        "subject_type": "person",
+        "scene_type": "studio",
+        "gaze_to_camera": "direct",
+    }
+    clips = parse_window_response(
+        json.dumps({"segments": [seg]}),
+        material_type="video",
+        window_start=0.0,
+        window_end=4.0,
+        duration=4.0,
+    )
+    assert len(clips) == 1
+    assert clips[0].semantics.gaze_to_camera is True
+
+
 def test_parse_strips_markdown_fence():
     raw = "```json\n" + _full_window_response(0.0, 4.0) + "\n```"
     clips = parse_window_response(

@@ -1,7 +1,6 @@
 """Browser-session automation for publish-account QR login (publishing center)."""
 
 from packages.publishing.browser.driver import (
-    PLAYWRIGHT_BROWSER_DRIVER,
     SANDBOX_BROWSER_DRIVER,
     BrowserSessionDriver,
     LoginHandle,
@@ -16,7 +15,6 @@ from packages.publishing.browser.login_registry import LoginSession, PublishLogi
 
 __all__ = [
     "SANDBOX_BROWSER_DRIVER",
-    "PLAYWRIGHT_BROWSER_DRIVER",
     "BrowserSessionDriver",
     "LoginHandle",
     "LoginPollResult",

@@ -1,9 +1,8 @@
 """Browser-session driver port for publish-account QR login (publishing center).
 
-Mirrors the publish-adapter split: ``SandboxBrowserDriver`` (deterministic, no real
-browser — the tested default) and ``PlaywrightBrowserDriver`` (drives a real browser
-on the Mac Mini; UNVERIFIED against live platforms). ``select_browser_driver`` picks
-by explicit override > ``CUTAGENT_PUBLISH_BROWSER_DRIVER`` env > sandbox.
+``SandboxBrowserDriver`` (deterministic, no real browser) is the only driver until
+the 小V猫 CDP driver lands (PR4); it is the tested default. ``select_browser_driver``
+returns it regardless of override/env for now.
 
 The driver is **stateful**: ``begin_login`` opens a browser session keyed by
 ``login_token`` that stays alive until the operator scans the QR (``poll_login``
@@ -22,7 +21,6 @@ from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
 
 SANDBOX_BROWSER_DRIVER = "sandbox"
-PLAYWRIGHT_BROWSER_DRIVER = "playwright"
 
 
 def browser_unavailable(message: str) -> NodeExecutionError:
@@ -105,13 +103,6 @@ def resolve_browser_driver_id(explicit: str | None = None) -> str:
 
 
 def select_browser_driver(explicit: str | None = None) -> BrowserSessionDriver:
-    """Select a browser driver: explicit > CUTAGENT_PUBLISH_BROWSER_DRIVER > sandbox.
-
-    The real Playwright driver (UNVERIFIED against live platforms) is only imported
-    when explicitly selected, so the sandbox default never needs Playwright present.
-    """
-    if resolve_browser_driver_id(explicit) == PLAYWRIGHT_BROWSER_DRIVER:
-        from packages.publishing.browser.playwright_driver import PlaywrightBrowserDriver
-
-        return PlaywrightBrowserDriver()
+    """Select a browser driver. Only the sandbox driver exists until the 小V猫 CDP
+    driver lands (PR4); any explicit/env selection degrades to the sandbox driver."""
     return SandboxBrowserDriver()

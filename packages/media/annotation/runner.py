@@ -71,7 +71,7 @@ class GatedAnnotationResult:
     provider_invocation_ids: list[str]
 
 
-# Profile gating (M6i pattern: real provider only when enabled + secret active)
+# Profile gating: real provider only when enabled and backed by an active secret.
 def resolve_vlm_profile(
     gateway: ProviderGateway,
     *,

@@ -78,12 +78,15 @@ export function DraftEditorStep({
         </summary>
         <div className="grid gap-4 border-t border-border/70 pt-4">
           <label>
-            <span>平台 chips</span>
+            <span>新建批次平台</span>
             <PlatformChips
               value={defaults.platforms}
               onChange={(platforms) => onDefaultsChange({ ...defaults, platforms })}
             />
           </label>
+          <p className="text-xs leading-5 text-text-secondary">
+            仅用于创建新批次；已创建条目的平台不可批量改动。
+          </p>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <label>
               <span>发布时间</span>

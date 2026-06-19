@@ -67,7 +67,7 @@ export function LibraryAssetUploadModal({ isOpen, onClose, kind, onUploaded }: L
           label={`上传${libraryAssetLabels[kind]}文件`}
         />
         <label>
-          <span>{kind === "font" ? "字体分类" : "统一风格标签"}</span>
+          <span>{kind === "font" ? "字体备注" : "风格备注"}</span>
           <input value={tag} onChange={(event) => setTag(event.target.value)} placeholder={kind === "font" ? "例如：标题、字幕、手写" : "例如：轻快、科技、温暖"} />
         </label>
         {upload.status !== "idle" ? (

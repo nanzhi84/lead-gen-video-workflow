@@ -1,9 +1,8 @@
-"""QR-login + session-validation orchestration (publishing center, PR3).
+"""QR-login and session-validation orchestration for publish accounts.
 
-Drives the browser session driver (sandbox default; Playwright/UNVERIFIED on the Mac
-Mini) to start a QR login, poll for the scan, and persist the resulting storage_state
-via PR2's ``store_account_session`` (encrypted in the SecretStore). Also validates a
-stored session against the live creator backend.
+Drives the configured browser session driver to start a QR login, poll for the
+scan, persist the resulting storage_state through ``store_account_session``, and
+validate a stored session against the creator backend.
 
 Pending-login state lives in an in-memory, single-host registry on ``app.state``; the
 storage_state payload is NEVER returned by the API (only ``has_session`` /

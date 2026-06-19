@@ -279,6 +279,65 @@ def test_unconfigured_degrades_to_vlm_unconfigured(tmp_path):
     assert ann.quality_events[0].event_type.value == "blur"
 
 
+def test_motion_event_injected_via_sensor_deps_reaches_quality_events(tmp_path):
+    """motion_guard events flow through SensorDeps -> assemble -> annotation.quality_events.
+
+    The runner only wires motion detection in via SensorDeps.detect_quality_events; this
+    asserts a motion-shaped event survives assembly (id assigned, motion source kept).
+    """
+    repository, gateway = _gateway(tmp_path)
+    motion_event = {
+        "event_type": "shake",
+        "start": 1.0,
+        "end": 2.0,
+        "risk_tier": "hard",
+        "confidence": 0.8,
+        "severity": 0.9,
+        "source": "motion_guard",
+        "description": "sensor(motion_guard): 镜头剧烈抖动 1.00~2.00s",
+    }
+    sensors_with_motion = SensorDeps(
+        detect_shot_cuts=lambda _vp: [],
+        detect_speech_islands=lambda _vp: [],
+        detect_quality_events=lambda _vp: [motion_event],
+        extract_frames=_write_fake_frames,
+        sleep=lambda _s: None,
+    )
+
+    result = annotate_asset(
+        asset_id="asset_motion",
+        case_id="case1",
+        material_type="broll",
+        video_path="/fake/video.mp4",
+        duration=4.0,
+        gateway=gateway,
+        vlm_profile=None,
+        sensor_deps=sensors_with_motion,
+    )
+
+    events = result.annotation.quality_events
+    assert len(events) == 1
+    event = events[0]
+    assert event.event_type.value == "shake"
+    assert event.source == "motion_guard"  # not overwritten with the generic "sensor" default
+    assert event.event_id  # assemble assigned a stable id
+    assert (event.start, event.end) == (1.0, 2.0)
+
+
+def test_sensor_deps_real_merges_cv_and_motion_events(monkeypatch):
+    """SensorDeps.real().detect_quality_events == CV events ++ motion events (the PR#32 wiring)."""
+    import packages.media.annotation.sensors as sensors_mod
+
+    cv_event = {"event_type": "blur", "start": 0.0, "end": 0.5, "risk_tier": "soft"}
+    motion_event = {"event_type": "shake", "start": 1.0, "end": 2.0, "risk_tier": "hard"}
+    monkeypatch.setattr(sensors_mod, "detect_cv_quality_events", lambda _vp: [cv_event])
+    monkeypatch.setattr(sensors_mod, "detect_motion_events", lambda _vp: [motion_event])
+
+    merged = SensorDeps.real().detect_quality_events("/fake/video.mp4")
+
+    assert [e["event_type"] for e in merged] == ["blur", "shake"]
+
+
 # --- gating (resolve_vlm_profile) -----------------------------------------------
 
 

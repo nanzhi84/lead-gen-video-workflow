@@ -248,6 +248,10 @@ def _run_card_from_parts(
     )
 
 
+class _ImportRowConflict(Exception):
+    """Recoverable per-row import conflict: fail just this row, do not abort the batch."""
+
+
 class SqlAlchemyProductionRepository:
     def __init__(self, session_factory: sessionmaker[Session], object_store: ObjectStore | None = None) -> None:
         self.session_factory = session_factory
@@ -1078,6 +1082,9 @@ class SqlAlchemyProductionRepository:
         created = 0
         skipped = 0
         failed = 0
+        # Track (case_id, video_number) already taken within THIS batch so a duplicate
+        # number across two rows fails that row instead of poisoning the whole-batch commit.
+        seen_finished_numbers: set[tuple[str, str]] = set()
         with self.session_factory() as session:
             for index, row in enumerate(payload.rows or []):
                 if not isinstance(row, dict):
@@ -1088,12 +1095,25 @@ class SqlAlchemyProductionRepository:
                 row_status = "created"
                 result_internal_id = internal_id
                 if not payload.dry_run:
-                    row_status, result_internal_id = self._create_import_row(
-                        session,
-                        payload.import_type,
-                        internal_id,
-                        row,
-                    )
+                    try:
+                        row_status, result_internal_id = self._create_import_row(
+                            session,
+                            payload.import_type,
+                            internal_id,
+                            row,
+                            seen_finished_numbers=seen_finished_numbers,
+                        )
+                    except _ImportRowConflict as exc:
+                        failed += 1
+                        results.append(
+                            self._failed_row(
+                                index,
+                                str(exc),
+                                external_id=str(row.get("external_id")) if row.get("external_id") else None,
+                                code=ErrorCode.validation_conflict,
+                            )
+                        )
+                        continue
                 if row_status == "skipped":
                     skipped += 1
                 else:
@@ -1126,7 +1146,15 @@ class SqlAlchemyProductionRepository:
             row = session.get(ImportBatchReportRow, batch_id)
             return import_report_row_to_contract(row) if row else None
 
-    def _create_import_row(self, session: Session, import_type: str, internal_id: str, row: dict) -> tuple[str, str]:
+    def _create_import_row(
+        self,
+        session: Session,
+        import_type: str,
+        internal_id: str,
+        row: dict,
+        *,
+        seen_finished_numbers: set[tuple[str, str]] | None = None,
+    ) -> tuple[str, str]:
         if import_type == "case":
             session.add(
                 CaseRow(
@@ -1205,6 +1233,22 @@ class SqlAlchemyProductionRepository:
             )
         elif import_type == "finished_video":
             case_id = str(row.get("case_id", "case_demo"))
+            video_number = _optional_str(row.get("video_number"))
+            if video_number is not None:
+                # uq_finished_videos_case_video_number (case_id, video_number) would raise
+                # IntegrityError at the whole-batch commit, aborting EVERY row. Detect the
+                # collision up front (vs. committed rows + earlier rows in this batch) and
+                # fail just this row. NULL video_number stays unconstrained (multi-NULL ok).
+                key = (case_id, video_number)
+                if (seen_finished_numbers is not None and key in seen_finished_numbers) or (
+                    self._finished_video_number_exists(session, case_id, video_number)
+                ):
+                    raise _ImportRowConflict(
+                        f"finished video number {video_number!r} already exists for case "
+                        f"{case_id!r}; imported numbers must be unique per case."
+                    )
+                if seen_finished_numbers is not None:
+                    seen_finished_numbers.add(key)
             artifact = ArtifactRow(
                 id=new_id("art"),
                 case_id=case_id,
@@ -1220,7 +1264,7 @@ class SqlAlchemyProductionRepository:
                     id=internal_id,
                     case_id=case_id,
                     title=str(row.get("title", "Imported finished video")),
-                    video_number=_optional_str(row.get("video_number")),
+                    video_number=video_number,
                     video_artifact=artifact_ref_from_row(artifact).model_dump(mode="json"),
                     duration_sec=float(row.get("duration_sec", 0)),
                     qc_status=str(row.get("qc_status", "pending")),
@@ -1706,9 +1750,31 @@ class SqlAlchemyProductionRepository:
             updated_at=package.updated_at,
         )
 
-    def _failed_row(self, index: int, message: str) -> ImportRowResult:
+    def _failed_row(
+        self,
+        index: int,
+        message: str,
+        *,
+        external_id: str | None = None,
+        code: ErrorCode = ErrorCode.validation_invalid_options,
+    ) -> ImportRowResult:
         return ImportRowResult(
             row_index=index,
             status="failed",
-            error=NodeError(code=ErrorCode.validation_invalid_options, message=message),
+            external_id=external_id,
+            error=NodeError(code=code, message=message),
+        )
+
+    @staticmethod
+    def _finished_video_number_exists(session: Session, case_id: str, video_number: str) -> bool:
+        return (
+            session.scalar(
+                select(FinishedVideoRow.id)
+                .where(
+                    FinishedVideoRow.case_id == case_id,
+                    FinishedVideoRow.video_number == video_number,
+                )
+                .limit(1)
+            )
+            is not None
         )

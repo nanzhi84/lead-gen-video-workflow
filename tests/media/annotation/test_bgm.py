@@ -85,6 +85,7 @@ def _features_with_librosa(_path):
     return {
         "librosa_available": True,
         "loudness_lufs": -18.5,
+        "duration": 90.0,
         "bpm": 128.0,
         "energy": 0.42,
         "tempo_bucket": "mid",
@@ -249,6 +250,48 @@ def test_bgm_unconfigured_degrades_to_features_only(tmp_path):
     assert report["bpm"] == 128.0
     assert report.get("mood") in (None, "")
     assert not result.provider_invocation_ids
+
+
+def test_bgm_meta_duration_uses_feature_duration_when_source_duration_missing(tmp_path):
+    repository, gateway = _gateway(tmp_path)
+
+    result = annotate_bgm(
+        asset_id="bgm_duration",
+        case_id="case1",
+        audio_path="/fake/bgm.mp3",
+        duration=0.0,
+        gateway=gateway,
+        audio_profile=None,
+        audio_url_for_window=None,
+        feature_extractor=_features_with_librosa,
+    )
+
+    assert result.annotation.meta.annotation_status == AnnotationStatus.completed
+    assert result.annotation.meta.duration == 90.0
+    assert result.annotation.quality_report["bgm"]["annotated_coverage_ratio"] == 1.0
+
+
+def test_bgm_meta_duration_falls_back_to_segment_end(tmp_path):
+    repository, gateway = _gateway(tmp_path)
+
+    def features_without_duration(_path):
+        features = dict(_features_with_librosa(_path))
+        features.pop("duration", None)
+        return features
+
+    result = annotate_bgm(
+        asset_id="bgm_segment_end",
+        case_id="case1",
+        audio_path="/fake/bgm.mp3",
+        duration=0.0,
+        gateway=gateway,
+        audio_profile=None,
+        audio_url_for_window=None,
+        feature_extractor=features_without_duration,
+    )
+
+    assert result.annotation.meta.annotation_status == AnnotationStatus.completed
+    assert result.annotation.meta.duration == 90.0
 
 
 def test_bgm_completes_without_librosa(tmp_path):

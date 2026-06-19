@@ -160,6 +160,7 @@ def _extract_librosa_features(path: Path) -> dict[str, Any] | None:
         logger.warning("[bgm] librosa feature extraction failed for %s: %s", path, exc)
         return None
     features = {
+        "duration": round(duration, 3),
         "energy": round(energy, 4),
         "beats": beats,
         "drops": [round(d, 3) for d in drops],
@@ -459,12 +460,13 @@ def annotate_bgm(
         logger.warning("[bgm] feature extraction errored for %s: %s", asset_id, exc)
         features = {}
 
+    effective_duration = _effective_duration(duration, features)
     raw_segments = features.get("segments") or []
     if not raw_segments:
         annotation = _degraded_annotation(
             asset_id=asset_id,
             case_id=case_id,
-            duration=duration,
+            duration=effective_duration,
             features=features,
             reason=FEATURES_UNAVAILABLE,
         )
@@ -503,7 +505,7 @@ def annotate_bgm(
     annotation = _annotation_with_segments(
         asset_id=asset_id,
         case_id=case_id,
-        duration=duration,
+        duration=_effective_duration(effective_duration, features, segments),
         features=features,
         segments=segments,
         status=status,
@@ -513,6 +515,32 @@ def annotate_bgm(
         llm_configured=audio_profile is not None,
         provider_invocation_ids=invocation_ids,
     )
+
+
+def _effective_duration(
+    duration: float,
+    features: dict[str, Any],
+    segments: list[BgmSegmentV4] | None = None,
+) -> float:
+    for candidate in (duration, features.get("duration")):
+        value = _positive_float(candidate)
+        if value is not None:
+            return value
+    if segments:
+        value = _positive_float(max((segment.end for segment in segments), default=0.0))
+        if value is not None:
+            return value
+    return 0.0
+
+
+def _positive_float(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isfinite(number) and number > 0:
+        return number
+    return None
 
 
 def _sensor_segments(raw_segments: list[Any]) -> list[BgmSegmentV4]:

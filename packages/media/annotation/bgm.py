@@ -138,12 +138,24 @@ def _extract_librosa_features(path: Path) -> dict[str, Any] | None:
         samples, sample_rate = librosa.load(str(path), sr=None, mono=True)
         if samples is None or len(samples) == 0:
             return None
-        tempo, _beats = librosa.beat.beat_track(y=samples, sr=sample_rate)
+        tempo, beat_frames = librosa.beat.beat_track(y=samples, sr=sample_rate)
         bpm = float(np.atleast_1d(tempo)[0])
         if not math.isfinite(bpm) or bpm <= 0:
             return None
-        rms = librosa.feature.rms(y=samples)
-        energy = max(0.0, min(1.0, float(np.mean(rms))))
+        beats = [
+            round(float(t), 3)
+            for t in librosa.frames_to_time(beat_frames, sr=sample_rate)
+        ]
+        rms_frames = librosa.feature.rms(y=samples)[0]
+        energy = max(0.0, min(1.0, float(np.mean(rms_frames))))
+        frame_times = [
+            round(float(t), 3)
+            for t in librosa.frames_to_time(range(len(rms_frames)), sr=sample_rate)
+        ]
+        energy_curve = [max(0.0, min(1.0, float(v))) for v in rms_frames]
+        duration = float(len(samples) / sample_rate)
+        drops = detect_drops(energy_curve, frame_times)
+        windows = candidate_windows(duration, energy_curve, frame_times, beats, drops)
     except Exception as exc:
         logger.warning("[bgm] librosa feature extraction failed for %s: %s", path, exc)
         return None
@@ -151,6 +163,9 @@ def _extract_librosa_features(path: Path) -> dict[str, Any] | None:
         "bpm": round(bpm, 2),
         "energy": round(energy, 4),
         "tempo_bucket": _tempo_bucket(bpm),
+        "beats": beats,
+        "drops": [round(d, 3) for d in drops],
+        "candidate_windows": windows,
     }
 
 
@@ -160,6 +175,120 @@ def _tempo_bucket(bpm: float) -> str:
     if bpm < 130:
         return "mid"
     return "fast"
+
+
+def snap_to_beats(value: float, beats: list[float]) -> float:
+    """Snap a timestamp to the nearest beat; unchanged when no beats."""
+    if not beats:
+        return value
+    return min(beats, key=lambda b: abs(b - value))
+
+
+def detect_drops(energy: list[float], times: list[float], *, z: float = 1.2) -> list[float]:
+    """Time points (sec) of significant positive energy jumps (drop candidates)."""
+    n = min(len(energy), len(times))
+    if n < 3:
+        return []
+    deltas = [energy[i] - energy[i - 1] for i in range(1, n)]
+    mean = sum(deltas) / len(deltas)
+    var = sum((d - mean) ** 2 for d in deltas) / len(deltas)
+    std = var ** 0.5
+    if std <= 1e-9:
+        return []
+    drops: list[float] = []
+    for i, d in enumerate(deltas, start=1):
+        if (d - mean) / std >= z:
+            drops.append(times[i])
+    return drops
+
+
+def candidate_windows(
+    duration: float,
+    energy: list[float],
+    times: list[float],
+    beats: list[float],
+    drops: list[float],
+    *,
+    max_windows: int = 3,
+    target_len: float = 20.0,
+) -> list[dict]:
+    """Pick 1-3 usable excerpt windows: drop-neighborhoods + highest-energy region.
+
+    Deterministic. start/end snapped to nearest beats and clamped to [0, duration].
+    Short tracks (<= target_len) collapse to a single whole-track window.
+    """
+    if duration <= 0:
+        return []
+    if duration <= target_len + 1e-6:
+        e = _mean(energy)
+        return [
+            {
+                "start": 0.0,
+                "end": round(duration, 3),
+                "energy": e,
+                "drop_anchor": drops[0] if drops else None,
+                "role_hint": "climax" if drops else "general",
+            }
+        ]
+
+    raw: list[tuple[float, float, float | None, str]] = []
+    half = target_len / 2.0
+    for d in drops:
+        start = max(0.0, d - half * 0.4)
+        end = min(duration, start + target_len)
+        raw.append((start, end, d, "climax"))
+    peak_t = _peak_time(energy, times)
+    if peak_t is not None:
+        start = max(0.0, peak_t - half)
+        end = min(duration, start + target_len)
+        raw.append((start, end, None, "general"))
+    if not raw:
+        raw.append((0.0, min(duration, target_len), None, "hook"))
+
+    snapped: list[dict] = []
+    for start, end, anchor, hint in raw:
+        s = min(snap_to_beats(start, beats), duration)
+        e = min(snap_to_beats(end, beats), duration)
+        if e <= s:
+            e = min(duration, s + target_len)
+        win = {
+            "start": round(s, 3),
+            "end": round(e, 3),
+            "energy": _mean_between(energy, times, s, e),
+            "drop_anchor": (
+                round(snap_to_beats(anchor, beats), 3) if anchor is not None else None
+            ),
+            "role_hint": hint,
+        }
+        if not any(_overlaps(win, kept) for kept in snapped):
+            snapped.append(win)
+    snapped.sort(key=lambda w: w["energy"], reverse=True)
+    return snapped[:max_windows]
+
+
+def _mean(values: list[float]) -> float:
+    return round(sum(values) / len(values), 4) if values else 0.0
+
+
+def _mean_between(energy: list[float], times: list[float], start: float, end: float) -> float:
+    vals = [
+        energy[i]
+        for i in range(min(len(energy), len(times)))
+        if start <= times[i] <= end
+    ]
+    return _mean(vals) if vals else _mean(energy)
+
+
+def _peak_time(energy: list[float], times: list[float]) -> float | None:
+    n = min(len(energy), len(times))
+    if n == 0:
+        return None
+    idx = max(range(n), key=lambda i: energy[i])
+    return times[idx]
+
+
+def _overlaps(a: dict, b: dict) -> bool:
+    return a["start"] < b["end"] and b["start"] < a["end"]
 
 
 def _extract_loudnorm_json(output: str) -> dict | None:

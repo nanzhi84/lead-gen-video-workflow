@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Literal
 from pydantic import Field
 
-from .base import BaseListQuery, ContractModel, EntityMeta
+from .base import ContractModel, EntityMeta
 
 
 class PromptSchemaRef(ContractModel):
@@ -55,11 +55,6 @@ class PromptInvocation(EntityMeta):
     status: Literal["succeeded", "failed"] = "succeeded"
 
 
-class PromptTemplateQuery(BaseListQuery):
-    status: str | None = None
-    purpose: str | None = None
-
-
 class PromptTemplateView(ContractModel):
     template: PromptTemplate
     published_version: PromptVersion | None = None
@@ -69,11 +64,6 @@ class PromptTemplateView(ContractModel):
 class PromptVersionView(ContractModel):
     version: PromptVersion
     template: PromptTemplate | None = None
-
-
-class PromptBindingQuery(BaseListQuery):
-    case_id: str | None = None
-    node_id: str | None = None
 
 
 class PromptBindingView(ContractModel):
@@ -133,11 +123,6 @@ class PromptExperiment(EntityMeta):
     status: Literal["draft", "running", "stopped", "completed"] = "draft"
     start_at: datetime | None = None
     end_at: datetime | None = None
-
-
-class PromptExperimentQuery(BaseListQuery):
-    prompt_template_id: str | None = None
-    status: str | None = None
 
 
 class CreatePromptExperimentRequest(ContractModel):

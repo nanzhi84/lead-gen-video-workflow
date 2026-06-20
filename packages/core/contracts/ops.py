@@ -7,13 +7,8 @@ from enum import Enum
 from typing import Literal
 from pydantic import Field, JsonValue
 
-from .base import BaseListQuery, ContractModel, EntityMeta, Money, NodeError, utcnow
+from .base import ContractModel, EntityMeta, Money, NodeError, utcnow
 from .providers import ProviderUsageReport
-
-
-class OpsDashboardQuery(ContractModel):
-    window_start: datetime
-    window_end: datetime
 
 
 # §9.2 / §26.1: the dimensions a cost rollup may GROUP BY.
@@ -28,10 +23,6 @@ class CostRollup(EntityMeta):
     invocations: int = 0
     window_start: datetime | None = None
     window_end: datetime | None = None
-
-
-class CostRollupQuery(OpsDashboardQuery):
-    group_by: CostGroupBy | None = None
 
 
 class CostMetrics(ContractModel):
@@ -73,10 +64,6 @@ class YieldFunnelEvent(EntityMeta):
     dedupe_key: str
 
 
-class YieldFunnelQuery(OpsDashboardQuery):
-    case_id: str | None = None
-
-
 class YieldRates(ContractModel):
     """§9.5 / §26.3 成品率指标. Each rate is a fraction in [0, 1] or ``None`` when
     its denominator is 0 (no data). Denominators follow §26.3 exactly:
@@ -116,10 +103,6 @@ class Budget(EntityMeta):
     alert_threshold: float = Field(0.8, ge=0, le=1)
     enabled: bool = True
     enforce: bool = False
-
-
-class BudgetQuery(BaseListQuery):
-    scope_type: str | None = None
 
 
 class UpsertBudgetRequest(ContractModel):
@@ -196,11 +179,6 @@ class OpsAlertRule(EntityMeta):
     enabled: bool = True
 
 
-class OpsAlertRuleQuery(BaseListQuery):
-    metric: str | None = None
-    enabled: bool | None = None
-
-
 class UpsertAlertRuleRequest(ContractModel):
     rule: OpsAlertRule
 
@@ -247,14 +225,6 @@ class FailureTaxonomyEntry(EntityMeta):
     case_id: str | None = None
     node_id: str | None = None
     message: str | None = None
-
-
-class FailureTaxonomyQuery(BaseListQuery):
-    failure_class: FailureClass | None = None
-    run_id: str | None = None
-    case_id: str | None = None
-    window_start: datetime | None = None
-    window_end: datetime | None = None
 
 
 class FailureAnalysisItem(ContractModel):
@@ -304,14 +274,6 @@ class AuditEvent(EntityMeta):
     resource_type: str
     resource_id: str | None = None
     details: dict[str, JsonValue] = Field(default_factory=dict)
-
-
-class AuditEventQuery(BaseListQuery):
-    actor: str | None = None
-    resource_type: str | None = None
-    action: str | None = None
-    window_start: datetime | None = None
-    window_end: datetime | None = None
 
 
 class OpsDashboardVm(ContractModel):

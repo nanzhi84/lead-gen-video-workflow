@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from pydantic import Field, JsonValue
 
-from .base import ArtifactKind, ArtifactRef, BaseListQuery, ContractModel, DegradationCode, DegradationNotice, EntityMeta, JobStatus, JobType, NodeError, NodeStatus, ResumePolicy, RetryPolicy, RunStatus, WarningCode
+from .base import ArtifactKind, ArtifactRef, ContractModel, DegradationCode, DegradationNotice, EntityMeta, JobStatus, JobType, NodeError, NodeStatus, ResumePolicy, RetryPolicy, RunStatus, WarningCode
 
 
 class WorkflowEdge(ContractModel):
@@ -337,10 +337,6 @@ class RunArtifactsResponse(ContractModel):
     run_id: str
     artifacts: list[ArtifactRef]
     request_id: str
-
-
-class RunEventsQuery(BaseListQuery):
-    since_id: str | None = None
 
 
 def build_run_config_summary(run_id: str, job: Job) -> RunConfigSummary:

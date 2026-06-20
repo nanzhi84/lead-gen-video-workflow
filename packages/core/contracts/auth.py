@@ -7,7 +7,7 @@ from enum import Enum
 from typing import Literal
 from pydantic import Field, model_validator
 
-from .base import BaseListQuery, ContractModel, EntityMeta
+from .base import ContractModel, EntityMeta
 
 
 class UserRole(str, Enum):
@@ -60,11 +60,6 @@ class ChangePasswordRequest(ContractModel):
     new_password: str = Field(min_length=8)
 
 
-class UserListQuery(BaseListQuery):
-    role: UserRole | None = None
-    status: Literal["active", "disabled"] | None = None
-
-
 class AdminCreateUserRequest(ContractModel):
     email: str
     display_name: str
@@ -76,10 +71,6 @@ class AdminUpdateUserRequest(ContractModel):
     display_name: str | None = None
     role: UserRole | None = None
     status: Literal["active", "disabled"] | None = None
-
-
-class RegistrationCodeQuery(BaseListQuery):
-    status: Literal["active", "disabled", "expired"] | None = None
 
 
 class RegistrationCodePreview(ContractModel):
@@ -113,12 +104,6 @@ class UpdateRegistrationCodeRequest(ContractModel):
 
 class UpdateMeRequest(ContractModel):
     display_name: str | None = None
-
-
-class SecretQuery(BaseListQuery):
-    provider_id: str | None = None
-    environment: str | None = None
-    status: str | None = None
 
 
 class CreateSecretRequest(ContractModel):

@@ -6,13 +6,7 @@ from datetime import datetime
 from typing import Literal
 from pydantic import Field, JsonValue
 
-from .base import BaseListQuery, ContractModel, EntityMeta, utcnow
-
-
-class CaseListQuery(BaseListQuery):
-    search: str | None = None
-    owner_user_id: str | None = None
-    industry: str | None = None
+from .base import ContractModel, EntityMeta, utcnow
 
 
 class CreateCaseRequest(ContractModel):
@@ -222,17 +216,9 @@ class ScriptDraft(EntityMeta):
     memory_ids: list[str] = Field(default_factory=list)
 
 
-class ScriptDraftQuery(BaseListQuery):
-    status: str | None = None
-
-
 class AdoptScriptDraftRequest(ContractModel):
     title: str | None = None
     publish_content: str | None = None
-
-
-class CasePerformanceQuery(ContractModel):
-    window: Literal["24h", "3d", "7d", "30d"] = "7d"
 
 
 class CasePerformanceResponse(ContractModel):
@@ -338,17 +324,6 @@ class MetricsImportRequest(ContractModel):
     platform: str | None = None
     account_id: str | None = None
     matching_policy: MetricsMatchingPolicy = "external_post_id"
-
-
-class MetricsImportResponse(ContractModel):
-    """§25.4 metrics import response with matched/unmatched accounting."""
-
-    imported_count: int = 0
-    unmatched_count: int = 0
-    unmatched_rows_artifact_id: str | None = None
-    observation_ids: list[str] = Field(default_factory=list)
-    warnings: list[str] = Field(default_factory=list)
-    request_id: str
 
 
 OceanEngineSourcePage = Literal[

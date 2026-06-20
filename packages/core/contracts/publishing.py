@@ -14,6 +14,10 @@ from .cases import PublishRecord, VideoVersion
 class FinishedVideo(EntityMeta):
     case_id: str
     run_id: str | None = None
+    # Creator-based isolation (spec §3): denormalized owner = run/job.created_by at
+    # export time (import path sets the importing user). Nullable: orphaned/legacy rows
+    # stay NULL →普通用户不可见、admin 可见.
+    owner_user_id: str | None = None
     title: str
     video_number: str | None = None
     video_artifact: ArtifactRef

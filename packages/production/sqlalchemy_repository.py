@@ -58,6 +58,7 @@ from packages.core.contracts import (
     YieldFunnelEvent,
     utcnow,
 )
+from packages.core.observability.funnel import resolve_event_owner
 from packages.core.storage import ObjectStore, Repository, get_object_store
 from packages.core.storage.database import (
     AnnotationRow,
@@ -364,7 +365,15 @@ class SqlAlchemyProductionRepository:
                     session.merge(self._outbox_event_row(event))
             for event in repository.yield_events.values():
                 if getattr(event, "run_id", None) == run.id:
-                    session.merge(self._yield_funnel_event_row(event, run.case_id))
+                    owner_user_id = resolve_event_owner(
+                        session,
+                        run_id=getattr(event, "run_id", None),
+                        job_id=getattr(event, "job_id", None),
+                        finished_video_id=getattr(event, "finished_video_id", None),
+                    )
+                    session.merge(
+                        self._yield_funnel_event_row(event, run.case_id, owner_user_id)
+                    )
             for entry in repository.failures.values():
                 if getattr(entry, "run_id", None) == run.id:
                     session.merge(
@@ -1286,6 +1295,7 @@ class SqlAlchemyProductionRepository:
                 FinishedVideoRow(
                     id=internal_id,
                     case_id=case_id,
+                    owner_user_id=_optional_str(row.get("owner_user_id")),
                     title=str(row.get("title", "Imported finished video")),
                     video_number=video_number,
                     video_artifact=artifact_ref_from_row(artifact).model_dump(mode="json"),
@@ -1666,13 +1676,14 @@ class SqlAlchemyProductionRepository:
         )
 
     def _yield_funnel_event_row(
-        self, event: YieldFunnelEvent, case_id: str | None
+        self, event: YieldFunnelEvent, case_id: str | None, owner_user_id: str | None = None
     ) -> YieldFunnelEventRow:
         return YieldFunnelEventRow(
             id=event.id,
             case_id=case_id,
             job_id=event.job_id,
             run_id=event.run_id,
+            owner_user_id=owner_user_id,
             finished_video_id=event.finished_video_id,
             publish_package_id=event.publish_package_id,
             publish_attempt_id=event.publish_attempt_id,
@@ -1729,6 +1740,7 @@ class SqlAlchemyProductionRepository:
             id=finished.id,
             case_id=finished.case_id,
             run_id=finished.run_id,
+            owner_user_id=finished.owner_user_id,
             title=finished.title,
             video_number=finished.video_number,
             video_artifact=finished.video_artifact.model_dump(mode="json"),

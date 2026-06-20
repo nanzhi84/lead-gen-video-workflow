@@ -214,6 +214,53 @@ def compute_true_yield_rate(events) -> float | None:
     return len(true_yield_runs) / len(runs)
 
 
+def resolve_event_owner(
+    session,
+    *,
+    run_id: str | None,
+    job_id: str | None,
+    finished_video_id: str | None,
+) -> str | None:
+    """Resolve a funnel event's ``owner_user_id`` from its links, mirroring the 0018
+    backfill priority: ``run_id → run.job_id → job.created_by`` then
+    ``job_id → job.created_by`` then ``finished_video_id → finished_videos.owner_user_id``.
+
+    Returns ``None`` when the chain is broken (no resolvable owner) so the row stays
+    NULL (普通用户不可见、admin 可见) — never guesses a case owner.
+
+    Takes the CALLER's session so the lookup joins the same uncommitted transaction
+    (the funnel row and the job/run it links to may be written in one unit of work).
+    """
+
+    from sqlalchemy import select
+
+    from packages.core.storage.database import (
+        FinishedVideoRow,
+        JobRow,
+        WorkflowRunRow,
+    )
+
+    if run_id is not None:
+        owner = session.scalar(
+            select(JobRow.created_by)
+            .join(WorkflowRunRow, WorkflowRunRow.job_id == JobRow.id)
+            .where(WorkflowRunRow.id == run_id)
+        )
+        if owner is not None:
+            return owner
+    if job_id is not None:
+        owner = session.scalar(select(JobRow.created_by).where(JobRow.id == job_id))
+        if owner is not None:
+            return owner
+    if finished_video_id is not None:
+        owner = session.scalar(
+            select(FinishedVideoRow.owner_user_id).where(FinishedVideoRow.id == finished_video_id)
+        )
+        if owner is not None:
+            return owner
+    return None
+
+
 def persist_funnel_event_rows(session_factory, events: list[dict]) -> None:
     """Best-effort, dedupe-safe persistence of §9.5 funnel rows for the SQL backend.
 
@@ -252,6 +299,12 @@ def persist_funnel_event_rows(session_factory, events: list[dict]) -> None:
                 )
                 if existing is not None:
                     continue
+                owner_user_id = event.get("owner_user_id") or resolve_event_owner(
+                    session,
+                    run_id=event.get("run_id"),
+                    job_id=event.get("job_id"),
+                    finished_video_id=event.get("finished_video_id"),
+                )
                 session.add(
                     YieldFunnelEventRow(
                         id=new_id("yield"),
@@ -261,6 +314,7 @@ def persist_funnel_event_rows(session_factory, events: list[dict]) -> None:
                         finished_video_id=event.get("finished_video_id"),
                         publish_package_id=event.get("publish_package_id"),
                         publish_attempt_id=event.get("publish_attempt_id"),
+                        owner_user_id=owner_user_id,
                         event_type=event["event_type"],
                         event_time=event.get("event_time") or utcnow(),
                         dedupe_key=dedupe_key,

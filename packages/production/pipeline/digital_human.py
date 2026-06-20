@@ -701,10 +701,10 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
             # could not price (billing_status="unpriced") surfaces as a node-level
             # cost.unpriced warning instead of staying buried in usage metering.
             if WarningCode.cost_unpriced not in output.warnings:
-                invocations = getattr(self.repository, "provider_invocations", {})
+                invocations = self.repository.provider_invocations
                 for inv_id in output.provider_invocation_ids:
                     invocation = invocations.get(inv_id)
-                    if invocation is not None and getattr(invocation, "billing_status", None) == "unpriced":
+                    if invocation is not None and invocation.billing_status == "unpriced":
                         output.warnings.append(WarningCode.cost_unpriced)
                         break
             for artifact in output.artifacts:
@@ -737,12 +737,12 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
                 "workflow.node.updated",
                 "run",
                 run.id,
-                {"node_id": node_id, "status": status.value if hasattr(status, "value") else str(status)},
-                dedupe_key=f"{patched.id}:{status.value if hasattr(status, 'value') else str(status)}",
+                {"node_id": node_id, "status": status.value},
+                dedupe_key=f"{patched.id}:{status.value}",
                 event_type="node_update",
                 node_id=node_id,
-                status=status.value if hasattr(status, "value") else str(status),
-                message=f"Node {node_id} finished with {status.value if hasattr(status, 'value') else status}.",
+                status=status.value,
+                message=f"Node {node_id} finished with {status.value}.",
             )
             funnel_stage = node_stage(status)
             if funnel_stage is not None:

@@ -202,7 +202,7 @@ def extract_video_features(
     timeline = timeline_plan or {}
     style = style_plan or {}
 
-    segments = timeline.get("segments") if isinstance(timeline, dict) else None
+    segments = timeline.get("segments")
     cuts = len(segments) if isinstance(segments, list) else None
     duration = None
     broll_count = base.broll_count

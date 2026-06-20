@@ -60,7 +60,6 @@ def _with_preview_playback(
 
 
 def _with_browser_preview_url(
-    request: Request,
     asset_id: str,
     response: c.SignedUrlResponse,
     uri: str | None,
@@ -187,7 +186,6 @@ def media_asset_preview(request: Request, asset_id: str) -> c.SignedUrlResponse:
     uri, media_info = source
     if uri:
         return _with_browser_preview_url(
-            request,
             asset_id,
             object_store(request).signed_url(uri),
             uri,

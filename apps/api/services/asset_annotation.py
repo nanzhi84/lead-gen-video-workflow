@@ -102,7 +102,7 @@ def run_inmemory_asset_annotation(
         sensor_deps=sensor_deps,
     )
 
-    _persist(request, repo, asset, result)
+    _persist(repo, asset, result)
     status = "failed" if (result.vlm_configured and _is_failed(result)) else "completed"
     return c.AnnotationRunResponse(asset_id=asset_id, run_id=None, status=status)
 
@@ -112,15 +112,12 @@ def _run_bgm_annotation(
     repo,
     asset: c.MediaAssetRecord,
     payload: c.RerunAnnotationRequest,
-    *,
-    feature_extractor=None,
 ) -> c.AnnotationRunResponse:
     """Annotate a BGM/audio asset: objective features + gated LLM semantics.
 
     Gates the paid ``llm.chat`` path behind a real profile + active secret. Without
     one (or with an unreadable source) it degrades to a features-only annotation and
-    never fabricates semantics. ``feature_extractor`` is injectable for tests so no
-    real ffmpeg / librosa runs.
+    never fabricates semantics.
     """
     gateway = request.app.state.provider_gateway
     explicit = (
@@ -149,7 +146,6 @@ def _run_bgm_annotation(
         gateway=gateway,
         audio_profile=audio_profile,
         audio_url_for_window=audio_url_for_window,
-        feature_extractor=feature_extractor,
     )
 
     _persist_bgm(repo, asset, result)
@@ -200,7 +196,6 @@ def _bgm_is_failed(result: BgmAnnotationResult) -> bool:
 
 
 def _persist(
-    request: Request,
     repo,
     asset: c.MediaAssetRecord,
     result: GatedAnnotationResult,
@@ -332,8 +327,6 @@ def _run_sqlalchemy_bgm_annotation(
     media_repo,
     asset: c.MediaAssetRecord,
     payload: c.RerunAnnotationRequest,
-    *,
-    feature_extractor=None,
 ) -> c.AnnotationRunResponse:
     """Annotate a DB-backed BGM/audio asset: objective features + gated LLM semantics.
 
@@ -343,7 +336,7 @@ def _run_sqlalchemy_bgm_annotation(
     ``media_assets.annotation_status``). Gates the paid ``llm.chat`` path behind a real
     profile + active secret; without one (or with an unreadable source) it degrades to a
     features-only annotation and never fabricates semantics. Does NOT fall through to the
-    visual ``annotate_asset`` path. ``feature_extractor`` is injectable for tests.
+    visual ``annotate_asset`` path.
     """
     gateway = request.app.state.provider_gateway
 
@@ -374,7 +367,6 @@ def _run_sqlalchemy_bgm_annotation(
         gateway=gateway,
         audio_profile=audio_profile,
         audio_url_for_window=audio_url_for_window,
-        feature_extractor=feature_extractor,
     )
 
     annotation = result.annotation

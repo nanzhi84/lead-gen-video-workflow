@@ -558,7 +558,7 @@ async def run_websocket(websocket: WebSocket, run_id: str) -> None:
             aggregate_id=run_id,
         )
     else:
-        writer = OutboxWriter.in_memory(repo)
+        writer = OutboxWriter(repo)
         replay_payloads = [
             event.payload
             for event in writer.replay(aggregate_type="run", aggregate_id=run_id)

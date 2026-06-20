@@ -128,7 +128,7 @@ def _memory_budget_evaluations(request: Request) -> list[c.BudgetEvaluation]:
 def _memory_failure_analysis(request: Request) -> c.FailureAnalysisReport:
     repo = repository(request)
     counts: dict[str, int] = {}
-    for entry in getattr(repo, "failures", {}).values():
+    for entry in repo.failures.values():
         fc = entry.failure_class.value if hasattr(entry.failure_class, "value") else str(entry.failure_class)
         counts[fc] = counts.get(fc, 0) + 1
     items = [
@@ -327,7 +327,7 @@ def failure_taxonomy(
         return c.PageResponse(items=values, total_hint=len(values), request_id=request_id())
     repo = repository(request)
     items = []
-    for entry in getattr(repo, "failures", {}).values():
+    for entry in repo.failures.values():
         fc = entry.failure_class.value if hasattr(entry.failure_class, "value") else str(entry.failure_class)
         if failure_class and fc != failure_class:
             continue
@@ -352,8 +352,8 @@ def list_alert_rules(request: Request, limit: int = 50) -> c.PageResponse[c.OpsA
         return c.PageResponse(items=values, total_hint=len(values), request_id=request_id())
     repo = repository(request)
     return c.PageResponse(
-        items=list(getattr(repo, "alert_rules", {}).values())[:limit],
-        total_hint=len(getattr(repo, "alert_rules", {})),
+        items=list(repo.alert_rules.values())[:limit],
+        total_hint=len(repo.alert_rules),
         request_id=request_id(),
     )
 
@@ -362,8 +362,6 @@ def upsert_alert_rule(payload: c.UpsertAlertRuleRequest, request: Request) -> c.
     if ops_repository(request) is not None:
         return ops_repository(request).upsert_alert_rule(payload)
     repo = repository(request)
-    if not hasattr(repo, "alert_rules"):
-        repo.alert_rules = {}
     repo.alert_rules[payload.rule.id] = payload.rule
     return payload.rule
 
@@ -372,7 +370,7 @@ def patch_alert_rule(rule_id: str, payload: c.PatchAlertRuleRequest, request: Re
     if ops_repository(request) is not None:
         return ops_repository(request).patch_alert_rule(rule_id, payload)
     repo = repository(request)
-    return repo.patch(getattr(repo, "alert_rules", {}), rule_id, payload.model_dump(exclude_none=True))
+    return repo.patch(repo.alert_rules, rule_id, payload.model_dump(exclude_none=True))
 
 
 def budgets(request: Request, limit: int = 50) -> c.PageResponse[c.Budget]:

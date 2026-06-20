@@ -12,9 +12,8 @@ This module gates only those *user-supplied* URL overrides against an allow-list
 The default list is the set of provider hosts already shipped in the registry /
 provider seed, so typing the real provider URL is never falsely blocked — only
 off-list hosts are. The list is extendable per-deployment via
-``CUTAGENT_ALLOWED_API_HOSTS`` (comma-separated hostnames; the legacy
-``AI_ALLOWED_API_HOSTS`` name is also honored) so a sanctioned proxy can be added
-without a code change.
+``CUTAGENT_ALLOWED_API_HOSTS`` (comma-separated hostnames) so a sanctioned proxy
+can be added without a code change.
 
 Enforced in two places (defense in depth):
 - at provider-profile create/patch time (``apps/api/services/providers.py``), so a
@@ -65,11 +64,10 @@ def allowed_hosts() -> set[str]:
     config change is observed, matching the rest of the infra-config conventions.
     """
     hosts = set(DEFAULT_ALLOWED_HOSTS)
-    for env_name in ("CUTAGENT_ALLOWED_API_HOSTS", "AI_ALLOWED_API_HOSTS"):
-        for item in os.environ.get(env_name, "").split(","):
-            host = item.strip().lower()
-            if host:
-                hosts.add(host)
+    for item in os.environ.get("CUTAGENT_ALLOWED_API_HOSTS", "").split(","):
+        host = item.strip().lower()
+        if host:
+            hosts.add(host)
     return hosts
 
 

@@ -42,11 +42,6 @@ def test_env_extension_adds_a_sanctioned_proxy(monkeypatch):
     assert netpolicy.is_host_allowed("https://proxy.internal.test/v1")
 
 
-def test_legacy_env_name_is_honored(monkeypatch):
-    monkeypatch.setenv("AI_ALLOWED_API_HOSTS", "legacy-proxy.test")
-    assert netpolicy.is_host_allowed("https://legacy-proxy.test/v1")
-
-
 def test_assert_options_hosts_allowed_checks_every_url_key():
     # base_url + the explicit per-endpoint overrides the adapters read.
     netpolicy.assert_options_hosts_allowed(

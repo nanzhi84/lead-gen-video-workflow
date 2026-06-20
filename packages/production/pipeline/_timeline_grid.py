@@ -7,7 +7,8 @@ import math
 from packages.core.contracts.artifacts import TimelineTrackSegment, TimelineValidationReport
 
 BROLL_PORTRAIT_CUT_SNAP_MAX_FRAMES = 15
-BROLL_MIN_VISIBLE_AROLL_SECONDS = 3.0
+BROLL_MIN_VISIBLE_AROLL_SECONDS = 2.0
+BROLL_MAX_PAD_SECONDS = 0.15
 
 
 def to_frame(seconds: float, fps: int) -> int:
@@ -49,6 +50,8 @@ def build_tracks(raw_segments: list[dict], fps: int) -> list[TimelineTrackSegmen
             timeline_end_frame=_timeline_end(segment, fps),
             source_start_frame=_source_start(segment, fps),
             source_end_frame=_source_end(segment, fps),
+            pad_start=float(segment.get("pad_start", 0.0) or 0.0),
+            pad_end=float(segment.get("pad_end", 0.0) or 0.0),
         )
         for segment in raw_segments
     ]
@@ -67,7 +70,8 @@ def align_broll_to_portrait_cuts(
         if min_visible_aroll_frames is not None
         else to_frame(BROLL_MIN_VISIBLE_AROLL_SECONDS, fps)
     )
-    if max_gap_frames <= 0 and residual_limit <= 0:
+    max_pad_seconds = max(0.0, BROLL_MAX_PAD_SECONDS)
+    if max_gap_frames <= 0 or residual_limit <= 0 or max_pad_seconds <= 0:
         return list(raw_segments)
 
     portrait_windows = sorted(
@@ -103,9 +107,11 @@ def align_broll_to_portrait_cuts(
     def should_snap(residual_frames: int) -> bool:
         if residual_frames <= 0:
             return False
+        required_pad_seconds = residual_frames / fps
         return (
-            (residual_limit > 0 and residual_frames < residual_limit)
-            or (max_gap_frames > 0 and residual_frames <= max_gap_frames)
+            residual_frames < residual_limit
+            and residual_frames <= max_gap_frames
+            and required_pad_seconds <= max_pad_seconds
         )
 
     aligned: list[dict] = []
@@ -117,6 +123,7 @@ def align_broll_to_portrait_cuts(
         start_frame = _timeline_start(segment, fps)
         end_frame = _timeline_end(segment, fps)
         source_start_frame = _source_start(segment, fps)
+        source_end_frame = _source_end(segment, fps)
         if end_frame <= start_frame:
             aligned.append(segment)
             continue
@@ -135,10 +142,6 @@ def align_broll_to_portrait_cuts(
                 if should_snap(tail_residual):
                     new_end = portrait_end
 
-        start_delta = start_frame - new_start
-        if start_delta > source_start_frame:
-            continue
-
         preceding_broll_end = previous_broll_end.get(index)
         following_broll_start = next_broll_start.get(index)
         if (
@@ -149,16 +152,19 @@ def align_broll_to_portrait_cuts(
             continue
 
         if new_start != start_frame or new_end != end_frame:
-            new_source_start = source_start_frame - start_delta
+            pad_start_seconds = round((start_frame - new_start) / fps, 6)
+            pad_end_seconds = round((new_end - end_frame) / fps, 6)
             adjusted = dict(segment)
             adjusted["timeline_start_frame"] = new_start
             adjusted["timeline_end_frame"] = new_end
-            adjusted["source_start_frame"] = new_source_start
-            adjusted["source_end_frame"] = new_source_start + (new_end - new_start)
+            adjusted["source_start_frame"] = source_start_frame
+            adjusted["source_end_frame"] = source_end_frame
             adjusted["start_sec"] = round(new_start / fps, 3)
             adjusted["end_sec"] = round(new_end / fps, 3)
-            adjusted["source_start_sec"] = round(new_source_start / fps, 3)
-            adjusted["source_end_sec"] = round(adjusted["source_end_frame"] / fps, 3)
+            adjusted["source_start_sec"] = round(source_start_frame / fps, 3)
+            adjusted["source_end_sec"] = round(source_end_frame / fps, 3)
+            adjusted["pad_start"] = round(float(segment.get("pad_start", 0.0) or 0.0) + pad_start_seconds, 6)
+            adjusted["pad_end"] = round(float(segment.get("pad_end", 0.0) or 0.0) + pad_end_seconds, 6)
             aligned.append(adjusted)
         else:
             aligned.append(segment)

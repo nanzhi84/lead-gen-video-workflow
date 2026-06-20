@@ -112,6 +112,50 @@ def test_render_video_timeline_pads_broll_overlay_to_timeline_window(monkeypatch
     assert "enable='gte(n\\,1679)*lt(n\\,1774)'" in filter_complex
 
 
+def test_render_video_timeline_consumes_explicit_broll_head_and_tail_pad(monkeypatch, tmp_path):
+    captured: dict[str, list[str]] = {}
+
+    def capture_run(self, args):
+        captured["args"] = args
+
+    monkeypatch.setattr(rendering_timeline.FfmpegRunner, "run", capture_run)
+    artifact = _video_artifact("asset_a", tmp_path / "asset_a.mp4", duration_sec=20.0)
+
+    render_video_timeline(
+        main_path=tmp_path / "main.mp4",
+        output_path=tmp_path / "rendered.mp4",
+        broll_segments=[
+            {
+                "asset_id": "asset_a",
+                "source_start": 5.0,
+                "source_end": 7.8,
+                "source_start_frame": 150,
+                "source_end_frame": 234,
+                "start_sec": 0.0,
+                "end_sec": 3.0,
+                "timeline_start_frame": 0,
+                "timeline_end_frame": 90,
+                "pad_start": 0.1,
+                "pad_end": 0.15,
+            }
+        ],
+        total_frames=120,
+        width=1080,
+        height=1920,
+        fps=30,
+        source_artifact_for_asset=lambda _asset_id: artifact,
+        artifact_path=lambda source_artifact: Path(source_artifact.local_path),
+    )
+
+    args = captured["args"]
+    filter_complex = args[args.index("-filter_complex") + 1]
+
+    assert "trim=start_frame=150:end_frame=234" in filter_complex
+    assert "tpad=start_duration=0.1:start_mode=clone" in filter_complex
+    assert "tpad=stop_duration=0.15:stop_mode=clone" in filter_complex
+    assert "tpad=stop_mode=clone:stop=90,trim=start_frame=0:end_frame=90" in filter_complex
+
+
 def test_transcode_video_segment_uses_output_frame_trim_without_input_seek(monkeypatch, tmp_path):
     signature = inspect.signature(transcode_video_segment)
     assert "source_start_frame" in signature.parameters

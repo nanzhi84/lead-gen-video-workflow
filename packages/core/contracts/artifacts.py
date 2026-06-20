@@ -244,6 +244,8 @@ class TimelineTrackSegment(ContractModel):
     timeline_end_frame: int
     source_start_frame: int | None = None
     source_end_frame: int | None = None
+    pad_start: float = 0.0
+    pad_end: float = 0.0
 
 
 class TimelinePlanArtifact(ContractModel):

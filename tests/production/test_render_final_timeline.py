@@ -15,6 +15,8 @@ def test_render_broll_segments_use_timeline_frames_over_original_plan_seconds():
                 "timeline_end_frame": 150,
                 "source_start_frame": 3,
                 "source_end_frame": 63,
+                "pad_start": 0.1,
+                "pad_end": 0.2,
             }
         ]
     }
@@ -42,4 +44,6 @@ def test_render_broll_segments_use_timeline_frames_over_original_plan_seconds():
     assert segment["end_sec"] == pytest.approx(5.0)
     assert segment["source_start"] == pytest.approx(0.1)
     assert segment["source_end"] == pytest.approx(2.1)
+    assert segment["pad_start"] == pytest.approx(0.1)
+    assert segment["pad_end"] == pytest.approx(0.2)
     assert segment["reason"] == "matched"

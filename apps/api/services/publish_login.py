@@ -1,58 +1,34 @@
-"""QR-login and session-validation orchestration for publish accounts.
+"""CDP-driven 小V猫 login orchestration for publish accounts.
 
-Drives the configured browser session driver to start a QR login, poll for the
-scan, persist the resulting storage_state through ``store_account_session``, and
-validate a stored session against the creator backend.
-
-Pending-login state lives in an in-memory, single-host registry on ``app.state``; the
-storage_state payload is NEVER returned by the API (only ``has_session`` /
-``session_status`` / the QR). The driver session is closed on every terminal poll and
-on TTL sweep so no browser is leaked.
+The dashboard keeps the QR-login UX, but the underlying session source of truth is
+小V猫. QR frames are streamed over WebSocket; successful completion binds the local
+account anchor to the 小V猫 account uid. No platform session is stored in DB or
+SecretStore.
 """
 
 from __future__ import annotations
 
-import logging
-
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-from apps.api.common import (
-    accounts_repository,
-    publish_browser_driver,
-    publish_login_registry,
-    repository,
-    request_id,
-    secret_store,
-)
+from apps.api.common import accounts_repository, repository, request_id, xiaovmao_login_manager
 from apps.api.dependencies import not_found_response
+from apps.api.services.publish_accounts import (
+    _login_state_for_account,
+    _probe_xiaovmao_accounts,
+)
 from packages.core import contracts as c
 from packages.core.contracts.base import utcnow
+from packages.core.storage.repository import new_id
 from packages.publishing import MemoryAccountsRepository
-from packages.publishing.account_sessions import store_account_session
-
-logger = logging.getLogger(__name__)
 
 
 def _repo(request: Request):
     return accounts_repository(request) or MemoryAccountsRepository(repository(request))
 
 
-def _sweep(request: Request) -> None:
-    driver = publish_browser_driver(request)
-    for login_id in publish_login_registry(request).sweep_expired():
-        driver.close(login_id)
-
-
 def _is_active_account(account: c.PublishAccount | None) -> bool:
     return account is not None and account.status == "active"
-
-
-def cancel_logins_for_account(account_id: str, request: Request) -> None:
-    _sweep(request)
-    driver = publish_browser_driver(request)
-    for login_id in publish_login_registry(request).remove_for_account(account_id):
-        driver.close(login_id)
 
 
 def begin_login(account_id: str, request: Request) -> c.BeginLoginResponse | JSONResponse:
@@ -60,24 +36,29 @@ def begin_login(account_id: str, request: Request) -> c.BeginLoginResponse | JSO
     account = repo.get_account(account_id)
     if not _is_active_account(account):
         return not_found_response("Publish account not found")
-    _sweep(request)
-    driver = publish_browser_driver(request)
-    registry = publish_login_registry(request)
-    handle = driver.begin_login(account.platform)
-    registry.add(
-        login_id=handle.login_token, account_id=account_id, platform=account.platform
-    )
-    account = repo.get_account(account_id)
-    if not _is_active_account(account):
-        registry.remove(handle.login_token)
-        driver.close(handle.login_token)
-        return not_found_response("Publish account not found")
+
+    login_id = new_id("login")
+
+    def bind_xiaovmao_account(platform_account: c.PlatformAccount) -> c.PublishAccount | None:
+        current = repo.get_account(account_id)
+        if not _is_active_account(current):
+            return None
+        updated = repo.patch_account(
+            account_id,
+            xiaovmao_uid=platform_account.uid,
+            xiaovmao_uid_set=True,
+        )
+        if updated is None:
+            return None
+        return updated.model_copy(update={"login_state": "logged_in"})
+
+    xiaovmao_login_manager(request).begin(login_id, account, on_account=bind_xiaovmao_account)
     return c.BeginLoginResponse(
-        login_id=handle.login_token,
+        login_id=login_id,
         account_id=account_id,
         platform=account.platform,
         status="pending",
-        qr_image=handle.qr_image,
+        stream_path=f"/api/publish/accounts/login/{login_id}/stream",
         request_id=request_id(),
     )
 
@@ -85,60 +66,30 @@ def begin_login(account_id: str, request: Request) -> c.BeginLoginResponse | JSO
 def poll_login(
     account_id: str, login_id: str, request: Request
 ) -> c.LoginStatusResponse | JSONResponse:
-    _sweep(request)  # reap TTL-expired logins (incl. this one) on every poll
-    registry = publish_login_registry(request)
-    session = registry.get(login_id)
+    manager = xiaovmao_login_manager(request)
+    session = manager.poll(login_id)
     if session is None or session.account_id != account_id:
         return not_found_response("Login session not found")
-    repo = _repo(request)
-    driver = publish_browser_driver(request)
-    account = repo.get_account(account_id)
+    account = _repo(request).get_account(account_id)
     if not _is_active_account(account):
-        driver.close(login_id)
-        registry.remove(login_id)
-        return not_found_response("Login session not found")
-    if session.status == "pending":
-        result = driver.poll_login(login_id)
-        if result.status == "success" and result.storage_state_json:
-            account = repo.get_account(account_id)
-            if not _is_active_account(account):
-                driver.close(login_id)
-                registry.remove(login_id)
-                return not_found_response("Login session not found")
-            updated = store_account_session(repo, secret_store(request), account_id, result.storage_state_json)
-            driver.close(login_id)  # session captured — release the browser
-            if updated is None:
-                registry.remove(login_id)
-                return not_found_response("Login session not found")
-            registry.update(login_id, status="active")
-        elif result.status != "pending":
-            driver.close(login_id)
-            registry.update(login_id, status="failed", detail=result.detail or "login did not complete")
-        session = registry.get(login_id) or session
-    account = repo.get_account(account_id)
-    session = registry.get(login_id)
-    if session is None or session.account_id != account_id or not _is_active_account(account):
-        driver.close(login_id)
-        registry.remove(login_id)
+        manager.cancel(login_id)
         return not_found_response("Login session not found")
     return c.LoginStatusResponse(
         login_id=login_id,
         account_id=account_id,
         status=session.status,
         detail=session.detail,
-        session_status=account.session_status if account is not None else "never_logged_in",
+        login_state=session.login_state,
         request_id=request_id(),
     )
 
 
 def cancel_login(account_id: str, login_id: str, request: Request) -> c.OkResponse | JSONResponse:
-    _sweep(request)
-    registry = publish_login_registry(request)
-    session = registry.get(login_id)
+    manager = xiaovmao_login_manager(request)
+    session = manager.poll(login_id)
     if session is None or session.account_id != account_id:
         return not_found_response("Login session not found")
-    publish_browser_driver(request).close(login_id)
-    registry.remove(login_id)
+    manager.cancel(login_id)
     return c.OkResponse(request_id=request_id())
 
 
@@ -147,41 +98,13 @@ def validate_session(account_id: str, request: Request) -> c.ValidateSessionResp
     account = repo.get_account(account_id)
     if not _is_active_account(account):
         return not_found_response("Publish account not found")
-    # Resolve the session payload via the ref (never read it off the contract).
-    ref = repo.get_account_session_ref(account_id)
-    if ref is None:
-        account = repo.get_account(account_id)
-        if not _is_active_account(account):
-            return not_found_response("Publish account not found")
-        return c.ValidateSessionResponse(
-            account_id=account_id,
-            session_status=account.session_status,
-            has_session=False,
-            last_validated_at=account.last_validated_at,
-            request_id=request_id(),
-        )
-    storage_state = secret_store(request).get(ref)
-    if storage_state is None:
-        # The session secret vanished out-of-band — treat as no session.
-        updated, _old = repo.set_account_session(
-            account_id, secret_ref=None, session_status="expired", last_validated_at=utcnow()
-        )
-    else:
-        active = publish_browser_driver(request).validate_session(account.platform, storage_state).active
-        updated, _old = repo.set_account_session(
-            account_id,
-            secret_ref=ref,
-            session_status="active" if active else "expired",
-            session_expires_at=account.session_expires_at,
-            last_validated_at=utcnow(),
-        )
-    if updated is None:
-        return not_found_response("Publish account not found")
-    target = updated or account
+    xiaovmao_accounts = _probe_xiaovmao_accounts(request)
+    login_state = (
+        "unknown" if xiaovmao_accounts is None else _login_state_for_account(account, xiaovmao_accounts)
+    )
     return c.ValidateSessionResponse(
         account_id=account_id,
-        session_status=target.session_status,
-        has_session=target.has_session,
-        last_validated_at=target.last_validated_at,
+        login_state=login_state,
+        last_checked_at=utcnow(),
         request_id=request_id(),
     )

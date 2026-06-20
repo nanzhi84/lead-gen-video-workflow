@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import asyncio
+import os
 
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
@@ -66,7 +67,7 @@ from packages.ops.circuit_breaker import ProviderCircuitBreaker
 from packages.production import SqlAlchemyProductionRepository
 from packages.production.pipeline import build_digital_human_workflow
 from packages.publishing import SqlAlchemyAccountsRepository, SqlAlchemyPublishingRepository
-from packages.publishing.browser import PublishLoginRegistry, select_browser_driver
+from packages.publishing.connectors.xiaovmao_cdp import XiaoVmaoLoginManager
 
 ROUTER_MODULES = (
     core,
@@ -124,10 +125,12 @@ def configure_app_state(app: FastAPI, *, session_factory=None) -> None:
     app.state.settings = build_settings()
     runtime_repository = Repository()
     app.state.repository = runtime_repository
-    # Publishing-center QR login: single-host (Mac Mini) registry + browser driver
-    # (sandbox default; Playwright/UNVERIFIED via CUTAGENT_PUBLISH_BROWSER_DRIVER).
-    app.state.publish_login_registry = PublishLoginRegistry()
-    app.state.publish_browser_driver = select_browser_driver()
+    # Publishing-center QR login: 小V猫 CDP manager. Platform sessions live in
+    # 小V猫, never in SecretStore/DB.
+    app.state.xiaovmao_login_manager = XiaoVmaoLoginManager(
+        host=os.getenv("CUTAGENT_XIAOVMAO_CDP_HOST", "127.0.0.1"),
+        port=int(os.getenv("CUTAGENT_XIAOVMAO_CDP_PORT", "9222")),
+    )
     app.state.event_hub = InProcessFanoutHub(redis_url=app.state.settings.redis_url)
     app.state.event_tokens = EventStreamTokenStore(redis_url=app.state.settings.redis_url)
     app.state.sqlalchemy_session_factory = session_factory

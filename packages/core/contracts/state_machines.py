@@ -141,14 +141,6 @@ PUBLISH_ATTEMPT_TRANSITIONS: dict[str, frozenset[str]] = {
     "failed": frozenset(),
 }
 
-# Publish-account browser session (publishing center): never_logged_in → active
-# (login succeeds) → expired (validation finds the session dead) → active (re-login).
-PUBLISH_SESSION_TRANSITIONS: dict[str, frozenset[str]] = {
-    "never_logged_in": frozenset({"active"}),
-    "active": frozenset({"expired"}),
-    "expired": frozenset({"active"}),
-}
-
 TRANSITIONS: dict[str, dict[Any, frozenset[Any]]] = {
     "job": JOB_TRANSITIONS,
     "run": RUN_TRANSITIONS,
@@ -162,7 +154,6 @@ TRANSITIONS: dict[str, dict[Any, frozenset[Any]]] = {
     "publish_batch": PUBLISH_BATCH_TRANSITIONS,
     "publish_item": PUBLISH_ITEM_TRANSITIONS,
     "publish_attempt": PUBLISH_ATTEMPT_TRANSITIONS,
-    "publish_session": PUBLISH_SESSION_TRANSITIONS,
 }
 
 

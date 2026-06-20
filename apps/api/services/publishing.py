@@ -15,7 +15,6 @@ from apps.api.common import (
     publishing_repository,
     repository,
     request_id,
-    secret_store,
 )
 from apps.api.dependencies import not_found_response
 from apps.api.services import publishing_nodes as nodes
@@ -97,17 +96,12 @@ def _build_publish_runner(
     adapter = select_adapter(payload.adapter_id)
     runtime_repo = repository(request)
     target_repo = accounts_repository(request) or MemoryAccountsRepository(runtime_repo)
-    secrets = secret_store(request)
     objects = object_store(request)
     scheduled_at = normalize_scheduled_at(payload.mode, payload.scheduled_at)
 
     def runner(item: object, package: object) -> PublishOutcome:
         temp_dir: tempfile.TemporaryDirectory[str] | None = None
         downloaded_path: Path | None = None
-
-        def resolve_session(account_id: str) -> str | None:
-            secret_ref = target_repo.get_account_session_ref(account_id)
-            return secrets.get(secret_ref) if secret_ref else None
 
         def resolve_video() -> str | None:
             nonlocal downloaded_path, temp_dir
@@ -133,7 +127,6 @@ def _build_publish_runner(
                     simulate_failure=payload.simulate_publish_failure,
                 ),
                 targets=_active_publish_targets(target_repo, case_id, _get_field(item, "platform")),
-                resolve_session=resolve_session,
                 resolve_video=resolve_video,
             )
             return outcome
@@ -144,10 +137,12 @@ def _build_publish_runner(
     return runner, adapter.adapter_id
 
 
-def _active_publish_targets(accounts_repo, case_id: str | None, platform: str | None) -> list[tuple[str, str | None]]:
+def _active_publish_targets(
+    accounts_repo, case_id: str | None, platform: str | None
+) -> list[tuple[str, str | None, str | None]]:
     if not case_id or not platform:
         return []
-    targets: list[tuple[str, str | None]] = []
+    targets: list[tuple[str, str | None, str | None]] = []
     for target in accounts_repo.list_targets(case_id):
         if not target.enabled:
             continue
@@ -156,9 +151,9 @@ def _active_publish_targets(accounts_repo, case_id: str | None, platform: str | 
             continue
         if account.platform != platform or account.status != "active":
             continue
-        if account.session_status != "active":
-            continue
-        targets.append((account.id, account.account_name))
+        # Thread the exact 小V猫 account uid so multi-account-per-platform routes to
+        # the right account (not just the first platform match).
+        targets.append((account.id, account.account_name, getattr(account, "xiaovmao_uid", None)))
     return targets
 
 
@@ -368,10 +363,9 @@ def submit_publish_batch(
     batch = repo.publish_batches.get(batch_id)
     if batch is None:
         return not_found_response("Publish batch not found")
-    # Resolve the publish adapter (sandbox by default; a production adapter via the
-    # CUTAGENT_PUBLISH_ADAPTER feature flag or an explicit override) and normalize
-    # the Asia/Shanghai schedule (§23.7). A 'scheduled' submit yields scheduled
-    # attempts that have not yet published.
+    # Resolve the publish adapter (小V猫 CDP by default; sandbox only when explicitly
+    # selected via payload/env) and normalize the Asia/Shanghai schedule (§23.7).
+    # A 'scheduled' submit yields scheduled attempts that have not yet published.
     scheduled_at = normalize_scheduled_at(payload.mode, payload.scheduled_at)
     is_scheduled = scheduled_at is not None
 
@@ -519,6 +513,21 @@ def retry_publish_item(batch_id: str, item_id: str, request: Request) -> c.Publi
             continue
         if item.status != c.PublishItemStatus.publish_failed:
             raise NodeExecutionError(c.ErrorCode.validation_invalid_options, "Publish item is not failed.")
+        # Re-run through the sandbox adapter (this path is memory-backend only; the
+        # production SQL backend returns 404 above). Honest: only advance to
+        # published when the adapter actually reports success — never hard-code it.
+        retry_outcome = select_adapter("sandbox.publish").publish(
+            PublishPayload(
+                title=item.title,
+                description=getattr(item, "description", "") or "",
+                platforms=(item.platform,),
+            )
+        )
+        if not retry_outcome.success:
+            raise NodeExecutionError(
+                c.ErrorCode.validation_invalid_options,
+                retry_outcome.error_message or "Retry publish failed.",
+            )
         current_item_status = item.status
         assert_transition("publish_item", current_item_status, "publishing")
         current_item_status = "publishing"
@@ -543,8 +552,8 @@ def retry_publish_item(batch_id: str, item_id: str, request: Request) -> c.Publi
             platforms=[item.platform],
             manual_review=False,
             status=c.PublishAttemptStatus.published,
-            adapter_id="sandbox.publish",
-            results=[{"retry": True}],
+            adapter_id=retry_outcome.adapter_id,
+            results=retry_outcome.results or [{"retry": True}],
             finished_at=c.utcnow(),
         )
         repository(request).publish_attempts[attempt.id] = attempt
@@ -698,8 +707,8 @@ def platform_accounts(
     request: Request, account_group: str | None = None, case_name: str | None = None, adapter_id: str | None = None
 ) -> c.PlatformAccountList:
     """List publish accounts discoverable through the resolved platform adapter
-    (§28.3 platform-accounts). The sandbox adapter returns a deterministic stub
-    set until a real platform adapter is wired."""
+    (§28.3 platform-accounts). Default is 小V猫 CDP; unavailable 小V猫 returns an
+    explicit unavailable reason and an empty account list."""
     adapter = select_adapter(adapter_id)
     accounts, available, reason = adapter.probe_accounts(account_group=account_group, case_name=case_name)
     return c.PlatformAccountList(

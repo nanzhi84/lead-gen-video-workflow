@@ -125,14 +125,18 @@ def test_preview_cover_frame_extracts_frame(tmp_path):
     assert body["frame_artifact"]["artifact_id"]
 
 
-def test_platform_accounts_lists_sandbox_stub_accounts(tmp_path):
+def test_platform_accounts_reports_xiaovmao_unavailable_without_fabricating_accounts(tmp_path, monkeypatch):
+    # The suite defaults to the sandbox adapter; this test specifically exercises the
+    # 小V猫 CDP adapter's honest "unavailable" report when no desktop app is running.
+    monkeypatch.setenv("CUTAGENT_PUBLISH_ADAPTER", "xiaovmao.cdp")
     _login_admin()
     response = client.get("/api/publish/platform-accounts", params={"case_name": "树影"})
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["adapter_id"] == "sandbox.publish"
-    assert body["available"] is True
-    assert {a["platform"] for a in body["accounts"]} == {"douyin", "kuaishou", "shipinhao", "xiaohongshu"}
+    assert body["adapter_id"] == "xiaovmao.cdp"
+    assert body["available"] is False
+    assert body["accounts"] == []
+    assert body["unavailable_reason"]
 
 
 def test_patch_item_persists_tags_and_location(tmp_path):
@@ -159,7 +163,7 @@ def test_scheduled_submit_records_scheduled_attempt(tmp_path):
     future = (datetime.now(timezone.utc) + timedelta(hours=3)).isoformat()
     response = client.post(
         f"/api/publish/batches/{batch_id}/submit",
-        json={"mode": "scheduled", "scheduled_at": future},
+        json={"mode": "scheduled", "scheduled_at": future, "adapter_id": "sandbox.publish"},
     )
     assert response.status_code == 202, response.text
 

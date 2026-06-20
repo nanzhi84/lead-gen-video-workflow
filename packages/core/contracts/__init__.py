@@ -333,6 +333,7 @@ from .publish_accounts import (
     Client,
     PublishAccount,
     CasePublishTarget,
+    PublishLoginState,
     CreateClientRequest,
     PatchClientRequest,
     CreatePublishAccountRequest,
@@ -341,6 +342,7 @@ from .publish_accounts import (
     BeginLoginResponse,
     LoginStatusResponse,
     ValidateSessionResponse,
+    LoginStreamEvent,
 )
 from .ops import (
     OpsDashboardQuery,
@@ -691,6 +693,7 @@ __all__ = [
     "Client",
     "PublishAccount",
     "CasePublishTarget",
+    "PublishLoginState",
     "CreateClientRequest",
     "PatchClientRequest",
     "CreatePublishAccountRequest",
@@ -699,6 +702,7 @@ __all__ = [
     "BeginLoginResponse",
     "LoginStatusResponse",
     "ValidateSessionResponse",
+    "LoginStreamEvent",
     "OpsDashboardQuery",
     "CostGroupBy",
     "CostRollup",

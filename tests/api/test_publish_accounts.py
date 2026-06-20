@@ -5,8 +5,6 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from apps.api.app import create_app
-from apps.api.services import publish_login
-from packages.publishing import MemoryAccountsRepository
 
 
 def _login(client: TestClient) -> None:
@@ -23,29 +21,25 @@ def _new_client(client: TestClient, name: str = "ACME") -> str:
 
 
 def _new_account(
-    client: TestClient, client_id: str, platform: str, name: str, *, platform_uid: str | None = None
+    client: TestClient,
+    client_id: str,
+    platform: str,
+    name: str,
+    *,
+    platform_uid: str | None = None,
+    xiaovmao_uid: str | None = None,
 ) -> str:
     payload = {"client_id": client_id, "platform": platform, "account_name": name}
     if platform_uid is not None:
         payload["platform_uid"] = platform_uid
+    if xiaovmao_uid is not None:
+        payload["xiaovmao_uid"] = xiaovmao_uid
     resp = client.post(
         "/api/publish/accounts",
         json=payload,
     )
     assert resp.status_code == 201, resp.text
     return resp.json()["id"]
-
-
-def _complete_login(client: TestClient, account_id: str) -> None:
-    begin = client.post(f"/api/publish/accounts/{account_id}/login")
-    assert begin.status_code == 201, begin.text
-    login_id = begin.json()["login_id"]
-    for _ in range(5):
-        poll = client.get(f"/api/publish/accounts/{account_id}/login/{login_id}")
-        assert poll.status_code == 200, poll.text
-        if poll.json()["status"] == "active":
-            return
-    raise AssertionError("login did not become active")
 
 
 def test_client_and_account_crud_and_dedup():
@@ -64,8 +58,8 @@ def test_client_and_account_crud_and_dedup():
         assert created.status_code == 201, created.text
         account = created.json()
         assert account["client_id"] == client_id
-        assert account["has_session"] is False
-        assert account["session_status"] == "never_logged_in"
+        assert account["xiaovmao_uid"] is None
+        assert account["login_state"] == "unknown"
         assert "session_secret_ref" not in account  # secret ref never leaks
 
         dup = client.post(
@@ -133,12 +127,11 @@ def test_delete_account_soft_archives():
         assert all(item["id"] != account_id for item in items)
 
 
-def test_patch_account_archive_clears_session_and_targets():
+def test_patch_account_archive_clears_targets():
     with TestClient(create_app()) as client:
         _login(client)
         client_id = _new_client(client)
         account_id = _new_account(client, client_id, "douyin", "dy")
-        _complete_login(client, account_id)
         client.put("/api/cases/case_demo/publish-targets", json={"account_ids": [account_id]})
 
         patched = client.patch(f"/api/publish/accounts/{account_id}", json={"status": "archived"})
@@ -149,47 +142,31 @@ def test_patch_account_archive_clears_session_and_targets():
         ).json()["items"]
         account = next(item for item in archived if item["id"] == account_id)
         assert account["status"] == "archived"
-        assert account["has_session"] is False
-        assert account["session_status"] == "expired"
+        assert account["login_state"] == "unknown"
         targets = client.get("/api/cases/case_demo/publish-targets").json()["items"]
         assert all(target["account_id"] != account_id for target in targets)
 
 
-def test_archive_cancels_logins_registered_during_archive(monkeypatch):
+def test_patch_account_can_clear_platform_and_xiaovmao_uid():
     with TestClient(create_app()) as client:
         _login(client)
         client_id = _new_client(client)
-        account_id = _new_account(client, client_id, "douyin", "dy")
-        registry = client.app.state.publish_login_registry
-        calls = 0
-        original_cancel = publish_login.cancel_logins_for_account
+        account_id = _new_account(
+            client,
+            client_id,
+            "douyin",
+            "dy",
+            platform_uid="dy-123",
+            xiaovmao_uid="xvm-123",
+        )
 
-        def cancel_then_register(account_id_arg, request):
-            nonlocal calls
-            calls += 1
-            original_cancel(account_id_arg, request)
-            if calls == 1:
-                repo = MemoryAccountsRepository(client.app.state.repository)
-                account = repo.get_account(account_id_arg)
-                registry.add(login_id="login_race", account_id=account_id_arg, platform=account.platform)
-
-        monkeypatch.setattr(publish_login, "cancel_logins_for_account", cancel_then_register)
-
-        deleted = client.delete(f"/api/publish/accounts/{account_id}")
-        assert deleted.status_code == 200, deleted.text
-        assert calls == 2
-        assert registry.get("login_race") is None
-
-
-def test_patch_account_can_clear_platform_uid():
-    with TestClient(create_app()) as client:
-        _login(client)
-        client_id = _new_client(client)
-        account_id = _new_account(client, client_id, "douyin", "dy", platform_uid="dy-123")
-
-        patched = client.patch(f"/api/publish/accounts/{account_id}", json={"platform_uid": None})
+        patched = client.patch(
+            f"/api/publish/accounts/{account_id}",
+            json={"platform_uid": None, "xiaovmao_uid": None},
+        )
         assert patched.status_code == 200, patched.text
         assert patched.json()["platform_uid"] is None
+        assert patched.json()["xiaovmao_uid"] is None
 
 
 def test_patch_account_rename_conflict():

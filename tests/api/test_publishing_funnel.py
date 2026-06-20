@@ -178,10 +178,6 @@ def test_submit_publish_batch_records_per_account_results(monkeypatch):
             platform="douyin",
             account_name="second",
         )
-        first_secret = client.app.state.secret_store.put('{"cookies":[{"name":"first"}]}')
-        second_secret = client.app.state.secret_store.put('{"cookies":[{"name":"second"}]}')
-        accounts.set_account_session(first.id, secret_ref=first_secret, session_status="active")
-        accounts.set_account_session(second.id, secret_ref=second_secret, session_status="active")
         accounts.set_targets("case_demo", [first.id, second.id])
 
         package = client.app.state.repository.create_publish_package_from_finished_video(

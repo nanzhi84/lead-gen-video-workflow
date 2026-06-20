@@ -5,10 +5,9 @@ center, distinct from ``PlatformAccount`` (``publishing.py``) — the latter is 
 *ephemeral probe result* returned by a publish adapter. Here:
 
 - ``Client`` — a customer/brand we publish on behalf of.
-- ``PublishAccount`` — one of a client's platform accounts. Its browser session
-  (Playwright ``storage_state`` / cookies) is a secret stored out-of-band in the
-  ``SecretStore``; only ``session_status`` / ``has_session`` are exposed here —
-  never the secret ref or the session payload.
+- ``PublishAccount`` — one of a client's platform-account binding anchors. The
+  platform login/session lives in 小V猫; ``login_state`` is computed live and never
+  persisted.
 - ``CasePublishTarget`` — a binding from a Case to one of its client's accounts.
 """
 
@@ -22,7 +21,9 @@ from pydantic import Field
 from packages.core.contracts.base import ContractModel, EntityMeta
 
 PublishPlatform = Literal["douyin", "shipinhao", "kuaishou", "xiaohongshu"]
-PublishSessionStatus = Literal["never_logged_in", "active", "expired"]
+# Live login state of a 小V猫-managed platform account, computed at read time from
+# 小V猫's ``CatBridge`` ``isLogin`` (NOT persisted — 小V猫 is the session source of truth).
+PublishLoginState = Literal["logged_in", "logged_out", "unknown"]
 ArchivableStatus = Literal["active", "archived"]
 
 
@@ -35,21 +36,20 @@ class Client(EntityMeta):
 
 
 class PublishAccount(EntityMeta):
-    """A client's persistent publishing account on one platform.
+    """A client's persistent publishing account on one platform — a binding anchor
+    that maps to a 小V猫-managed account via ``xiaovmao_uid``.
 
-    The browser session lives in the ``SecretStore`` (never in the DB row nor in
-    this contract); ``has_session`` + ``session_status`` are the only session
-    surface exposed to the API.
+    The platform session lives **inside 小V猫** (never in our DB/SecretStore nor in
+    this contract). ``login_state`` is computed live at read time from 小V猫's
+    ``CatBridge`` ``isLogin`` and is **not persisted**.
     """
 
     client_id: str
     platform: PublishPlatform
     account_name: str
     platform_uid: str | None = None
-    session_status: PublishSessionStatus = "never_logged_in"
-    has_session: bool = False
-    session_expires_at: datetime | None = None
-    last_validated_at: datetime | None = None
+    xiaovmao_uid: str | None = None
+    login_state: PublishLoginState = "unknown"
     status: ArchivableStatus = "active"
 
 
@@ -87,11 +87,13 @@ class CreatePublishAccountRequest(ContractModel):
     platform: PublishPlatform
     account_name: str
     platform_uid: str | None = None
+    xiaovmao_uid: str | None = None
 
 
 class PatchPublishAccountRequest(ContractModel):
     account_name: str | None = None
     platform_uid: str | None = None
+    xiaovmao_uid: str | None = None
     status: ArchivableStatus | None = None
 
 
@@ -101,33 +103,45 @@ class SetCasePublishTargetsRequest(ContractModel):
     account_ids: list[str] = Field(default_factory=list)
 
 
-# --- QR login / session validation responses (PR3) ---
+# --- QR login (CDP-driven 小V猫) + session validation responses ---
 
 
 class BeginLoginResponse(ContractModel):
-    """A started QR-login flow. ``qr_image`` is a login credential (data-url); the API
-    marks the response ``Cache-Control: no-store`` — never persist or log it."""
+    """A started QR-login flow against 小V猫. The QR is **streamed in real time** over
+    the WebSocket at ``stream_path`` — 小V猫's platform QR refreshes fast, so the socket
+    pushes each fresh frame instead of returning one snapshot. ``Cache-Control: no-store``."""
 
     login_id: str
     account_id: str
     platform: PublishPlatform
     status: str  # pending
-    qr_image: str
+    stream_path: str  # WS path to subscribe: /api/publish/accounts/login/{login_id}/stream
     request_id: str
 
 
 class LoginStatusResponse(ContractModel):
+    """Fallback poll of a login flow (the WebSocket stream is the primary channel)."""
+
     login_id: str
     account_id: str
-    status: str  # pending | active | failed
+    status: str  # pending | verifying | active | failed
     detail: str | None = None
-    session_status: PublishSessionStatus
+    login_state: PublishLoginState
     request_id: str
 
 
 class ValidateSessionResponse(ContractModel):
     account_id: str
-    session_status: PublishSessionStatus
-    has_session: bool
-    last_validated_at: datetime | None = None
+    login_state: PublishLoginState
+    last_checked_at: datetime | None = None
     request_id: str
+
+
+class LoginStreamEvent(ContractModel):
+    """One event pushed over the login WebSocket stream (``stream_path``)."""
+
+    type: Literal["qr", "status", "account", "error"]
+    qr_image: str | None = None  # type=qr — data-url credential; never persist/log
+    status: str | None = None  # type=status — pending|verifying|active|failed
+    detail: str | None = None
+    account: PublishAccount | None = None  # type=account — the newly-added account

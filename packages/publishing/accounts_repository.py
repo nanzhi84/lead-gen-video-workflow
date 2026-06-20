@@ -1,21 +1,16 @@
 """SqlAlchemy persistence for the publishing-center account foundation.
 
-Covers clients, publish accounts (with an encrypted-session ref into the
-SecretStore — never the payload), and case→account publish targets. SecretStore
-orchestration (put/disable of the session payload) lives in the service layer;
-this repo only persists the ``session_secret_ref`` + session status fields.
+Covers clients, publish-account binding anchors, and case→account publish targets.
+Platform login/session state is owned by 小V猫 and is never persisted here.
 """
 
 from __future__ import annotations
-
-from datetime import datetime
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from packages.core.contracts import CasePublishTarget, Client, PublishAccount
 from packages.core.contracts.base import utcnow
-from packages.core.contracts.state_machines import assert_transition
 from packages.core.storage.database import (
     CasePublishTargetRow,
     ClientRow,
@@ -117,7 +112,13 @@ class SqlAlchemyAccountsRepository:
             return publish_account_row_to_contract(row) if row is not None else None
 
     def create_account(
-        self, *, client_id: str, platform: str, account_name: str, platform_uid: str | None = None
+        self,
+        *,
+        client_id: str,
+        platform: str,
+        account_name: str,
+        platform_uid: str | None = None,
+        xiaovmao_uid: str | None = None,
     ) -> PublishAccount:
         with self.session_factory() as session:
             row = PublishAccountRow(
@@ -126,7 +127,7 @@ class SqlAlchemyAccountsRepository:
                 platform=platform,
                 account_name=account_name,
                 platform_uid=platform_uid,
-                session_status="never_logged_in",
+                xiaovmao_uid=xiaovmao_uid,
                 status="active",
             )
             session.add(row)
@@ -141,6 +142,8 @@ class SqlAlchemyAccountsRepository:
         account_name: str | None = None,
         platform_uid: str | None = None,
         platform_uid_set: bool = False,
+        xiaovmao_uid: str | None = None,
+        xiaovmao_uid_set: bool = False,
         status: str | None = None,
     ) -> PublishAccount | None:
         with self.session_factory() as session:
@@ -151,62 +154,13 @@ class SqlAlchemyAccountsRepository:
                 row.account_name = account_name
             if platform_uid_set:
                 row.platform_uid = platform_uid
+            if xiaovmao_uid_set:
+                row.xiaovmao_uid = xiaovmao_uid
             if status is not None:
                 row.status = status
             session.commit()
             session.refresh(row)
             return publish_account_row_to_contract(row)
-
-    def get_account_session_ref(self, account_id: str) -> str | None:
-        with self.session_factory() as session:
-            row = session.get(PublishAccountRow, account_id)
-            return row.session_secret_ref if row is not None else None
-
-    def archive_account(self, account_id: str) -> tuple[PublishAccount | None, str | None]:
-        with self.session_factory() as session:
-            row = session.get(PublishAccountRow, account_id, with_for_update=True)
-            if row is None:
-                return None, None
-            old_ref = row.session_secret_ref
-            row.status = "archived"
-            row.session_secret_ref = None
-            if old_ref is not None and row.session_status != "expired":
-                assert_transition("publish_session", row.session_status, "expired")
-                row.session_status = "expired"
-            session.commit()
-            session.refresh(row)
-            return publish_account_row_to_contract(row), old_ref
-
-    def set_account_session(
-        self,
-        account_id: str,
-        *,
-        secret_ref: str | None,
-        session_status: str,
-        session_expires_at: datetime | None = None,
-        last_validated_at: datetime | None = None,
-    ) -> tuple[PublishAccount | None, str | None]:
-        """Atomically swap an account's session ref, returning ``(account, old_ref)``.
-
-        The row is locked (``with_for_update``) so a concurrent replace can't orphan
-        a secret: the returned ``old_ref`` is exactly the ref this call displaced.
-        The session-status transition is enforced here via ``assert_transition``.
-        """
-        with self.session_factory() as session:
-            row = session.get(PublishAccountRow, account_id, with_for_update=True)
-            if row is None:
-                return None, None
-            if row.status != "active":
-                return None, None
-            old_ref = row.session_secret_ref
-            assert_transition("publish_session", row.session_status, session_status)
-            row.session_secret_ref = secret_ref
-            row.session_status = session_status
-            row.session_expires_at = session_expires_at
-            row.last_validated_at = last_validated_at
-            session.commit()
-            session.refresh(row)
-            return publish_account_row_to_contract(row), old_ref
 
     def accounts_client_map(self, account_ids: list[str]) -> dict[str, str]:
         """Return ``{account_id: client_id}`` for the given accounts (same-client check)."""
@@ -348,7 +302,13 @@ class MemoryAccountsRepository:
         return None
 
     def create_account(
-        self, *, client_id: str, platform: str, account_name: str, platform_uid: str | None = None
+        self,
+        *,
+        client_id: str,
+        platform: str,
+        account_name: str,
+        platform_uid: str | None = None,
+        xiaovmao_uid: str | None = None,
     ) -> PublishAccount:
         account = PublishAccount(
             id=new_id("pubacct"),
@@ -356,8 +316,8 @@ class MemoryAccountsRepository:
             platform=platform,
             account_name=account_name,
             platform_uid=platform_uid,
-            session_status="never_logged_in",
-            has_session=False,
+            xiaovmao_uid=xiaovmao_uid,
+            login_state="unknown",
             status="active",
         )
         self.repo.publish_accounts[account.id] = account
@@ -370,6 +330,8 @@ class MemoryAccountsRepository:
         account_name: str | None = None,
         platform_uid: str | None = None,
         platform_uid_set: bool = False,
+        xiaovmao_uid: str | None = None,
+        xiaovmao_uid_set: bool = False,
         status: str | None = None,
     ) -> PublishAccount | None:
         account = self.repo.publish_accounts.get(account_id)
@@ -380,59 +342,13 @@ class MemoryAccountsRepository:
             updates["account_name"] = account_name
         if platform_uid_set:
             updates["platform_uid"] = platform_uid
+        if xiaovmao_uid_set:
+            updates["xiaovmao_uid"] = xiaovmao_uid
         if status is not None:
             updates["status"] = status
         updated = account.model_copy(update=updates)
         self.repo.publish_accounts[account_id] = updated
         return updated
-
-    def get_account_session_ref(self, account_id: str) -> str | None:
-        return self.repo.publish_account_sessions.get(account_id)
-
-    def archive_account(self, account_id: str) -> tuple[PublishAccount | None, str | None]:
-        account = self.repo.publish_accounts.get(account_id)
-        if account is None:
-            return None, None
-        old_ref = self.repo.publish_account_sessions.pop(account_id, None)
-        updates: dict = {"status": "archived", "has_session": False, "updated_at": utcnow()}
-        if old_ref is not None:
-            assert_transition("publish_session", account.session_status, "expired")
-            updates["session_status"] = "expired"
-        updated = account.model_copy(update=updates)
-        self.repo.publish_accounts[account_id] = updated
-        return updated, old_ref
-
-    def set_account_session(
-        self,
-        account_id: str,
-        *,
-        secret_ref: str | None,
-        session_status: str,
-        session_expires_at=None,
-        last_validated_at=None,
-    ) -> tuple[PublishAccount | None, str | None]:
-        account = self.repo.publish_accounts.get(account_id)
-        if account is None:
-            return None, None
-        if account.status != "active":
-            return None, None
-        old_ref = self.repo.publish_account_sessions.get(account_id)
-        assert_transition("publish_session", account.session_status, session_status)
-        if secret_ref is None:
-            self.repo.publish_account_sessions.pop(account_id, None)
-        else:
-            self.repo.publish_account_sessions[account_id] = secret_ref
-        updated = account.model_copy(
-            update={
-                "session_status": session_status,
-                "has_session": secret_ref is not None,
-                "session_expires_at": session_expires_at,
-                "last_validated_at": last_validated_at,
-                "updated_at": utcnow(),
-            }
-        )
-        self.repo.publish_accounts[account_id] = updated
-        return updated, old_ref
 
     def accounts_client_map(self, account_ids: list[str]) -> dict[str, str]:
         return {

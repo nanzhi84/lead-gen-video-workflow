@@ -17,10 +17,12 @@ from packages.publishing.cover_node import (
     preview_cover_frame,
 )
 from packages.publishing.platform_adapter import (
+    XIAOVMAO_ADAPTER_ID,
     PublishOutcome,
     PublishPayload,
     PublishPlatformAdapter,
     SandboxPublishAdapter,
+    XiaoVmaoPublishAdapter,
     resolve_adapter_id,
     select_adapter,
 )
@@ -48,6 +50,8 @@ __all__ = [
     "PublishPayload",
     "PublishPlatformAdapter",
     "SandboxPublishAdapter",
+    "XIAOVMAO_ADAPTER_ID",
+    "XiaoVmaoPublishAdapter",
     "resolve_adapter_id",
     "select_adapter",
 ]

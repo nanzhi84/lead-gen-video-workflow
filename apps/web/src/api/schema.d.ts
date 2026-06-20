@@ -2845,8 +2845,9 @@ export interface components {
         };
         /**
          * BeginLoginResponse
-         * @description A started QR-login flow. ``qr_image`` is a login credential (data-url); the API
-         *     marks the response ``Cache-Control: no-store`` — never persist or log it.
+         * @description A started QR-login flow against 小V猫. The QR is **streamed in real time** over
+         *     the WebSocket at ``stream_path`` — 小V猫's platform QR refreshes fast, so the socket
+         *     pushes each fresh frame instead of returning one snapshot. ``Cache-Control: no-store``.
          */
         BeginLoginResponse: {
             /** Login Id */
@@ -2860,8 +2861,8 @@ export interface components {
             platform: "douyin" | "shipinhao" | "kuaishou" | "xiaohongshu";
             /** Status */
             status: string;
-            /** Qr Image */
-            qr_image: string;
+            /** Stream Path */
+            stream_path: string;
             /** Request Id */
             request_id: string;
         };
@@ -4087,6 +4088,8 @@ export interface components {
             account_name: string;
             /** Platform Uid */
             platform_uid?: string | null;
+            /** Xiaovmao Uid */
+            xiaovmao_uid?: string | null;
         };
         /** CreatePublishBatchRequest */
         CreatePublishBatchRequest: {
@@ -4787,7 +4790,10 @@ export interface components {
             /** Password */
             password: string;
         };
-        /** LoginStatusResponse */
+        /**
+         * LoginStatusResponse
+         * @description Fallback poll of a login flow (the WebSocket stream is the primary channel).
+         */
         LoginStatusResponse: {
             /** Login Id */
             login_id: string;
@@ -4798,10 +4804,10 @@ export interface components {
             /** Detail */
             detail?: string | null;
             /**
-             * Session Status
+             * Login State
              * @enum {string}
              */
-            session_status: "never_logged_in" | "active" | "expired";
+            login_state: "logged_in" | "logged_out" | "unknown";
             /** Request Id */
             request_id: string;
         };
@@ -5763,6 +5769,8 @@ export interface components {
             account_name?: string | null;
             /** Platform Uid */
             platform_uid?: string | null;
+            /** Xiaovmao Uid */
+            xiaovmao_uid?: string | null;
             /** Status */
             status?: ("active" | "archived") | null;
         };
@@ -6796,11 +6804,12 @@ export interface components {
         };
         /**
          * PublishAccount
-         * @description A client's persistent publishing account on one platform.
+         * @description A client's persistent publishing account on one platform — a binding anchor
+         *     that maps to a 小V猫-managed account via ``xiaovmao_uid``.
          *
-         *     The browser session lives in the ``SecretStore`` (never in the DB row nor in
-         *     this contract); ``has_session`` + ``session_status`` are the only session
-         *     surface exposed to the API.
+         *     The platform session lives **inside 小V猫** (never in our DB/SecretStore nor in
+         *     this contract). ``login_state`` is computed live at read time from 小V猫's
+         *     ``CatBridge`` ``isLogin`` and is **not persisted**.
          */
         PublishAccount: {
             /** Id */
@@ -6838,21 +6847,14 @@ export interface components {
             account_name: string;
             /** Platform Uid */
             platform_uid?: string | null;
+            /** Xiaovmao Uid */
+            xiaovmao_uid?: string | null;
             /**
-             * Session Status
-             * @default never_logged_in
+             * Login State
+             * @default unknown
              * @enum {string}
              */
-            session_status: "never_logged_in" | "active" | "expired";
-            /**
-             * Has Session
-             * @default false
-             */
-            has_session: boolean;
-            /** Session Expires At */
-            session_expires_at?: string | null;
-            /** Last Validated At */
-            last_validated_at?: string | null;
+            login_state: "logged_in" | "logged_out" | "unknown";
             /**
              * Status
              * @default active
@@ -8317,14 +8319,12 @@ export interface components {
             /** Account Id */
             account_id: string;
             /**
-             * Session Status
+             * Login State
              * @enum {string}
              */
-            session_status: "never_logged_in" | "active" | "expired";
-            /** Has Session */
-            has_session: boolean;
-            /** Last Validated At */
-            last_validated_at?: string | null;
+            login_state: "logged_in" | "logged_out" | "unknown";
+            /** Last Checked At */
+            last_checked_at?: string | null;
             /** Request Id */
             request_id: string;
         };

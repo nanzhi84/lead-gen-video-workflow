@@ -9,7 +9,7 @@ from packages.publishing.platform_adapter import (
     PublishPlatformAdapter,
 )
 
-PublishTarget = tuple[str, str | None]
+PublishTarget = tuple[str, str | None, str | None]  # (account_id, account_name, xiaovmao_uid)
 
 
 def run_item_publish(
@@ -17,38 +17,24 @@ def run_item_publish(
     base_payload: PublishPayload,
     *,
     targets: Iterable[PublishTarget],
-    resolve_session: Callable[[str], str | None],
     resolve_video: Callable[[], str | None],
 ) -> tuple[PublishOutcome, list[dict]]:
     target_list = list(targets)
+    video_uri = resolve_video() or base_payload.video_uri
+    payload_with_video = replace(base_payload, video_uri=video_uri)
     if not target_list:
-        return adapter.publish(base_payload), []
+        return adapter.publish(payload_with_video), []
 
     per_account_results: list[dict] = []
     external_task_ids: list[str] = []
     all_succeeded = True
-    for account_id, account_name in target_list:
-        storage_state_json = resolve_session(account_id)
-        if storage_state_json is None:
-            all_succeeded = False
-            per_account_results.append(
-                _account_result(
-                    account_id=account_id,
-                    account_name=account_name,
-                    success=False,
-                    external_task_id=None,
-                    error="Missing active browser session.",
-                )
-            )
-            continue
-
+    for account_id, account_name, account_uid in target_list:
         outcome = adapter.publish(
             replace(
-                base_payload,
+                payload_with_video,
                 account_id=account_id,
                 account_name=account_name,
-                storage_state_json=storage_state_json,
-                video_path=resolve_video(),
+                account_uid=account_uid,
             )
         )
         if outcome.external_task_id:

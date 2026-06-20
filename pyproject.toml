@@ -20,6 +20,7 @@ dependencies = [
   "redis>=5",
   "yt-dlp>=2025.1",
   "playwright>=1.50",
+  "websockets>=12",
   "opencv-python-headless>=4.8",
   "numpy>=2.0",
   "librosa>=0.11",

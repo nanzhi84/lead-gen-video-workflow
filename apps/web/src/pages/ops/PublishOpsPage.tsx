@@ -21,7 +21,7 @@ import {
   type PublishAccount,
   type PublishClient,
   type PublishPlatform,
-  type PublishSessionStatus,
+  type PublishLoginState,
 } from "../../api/client";
 import { QrLoginDialog } from "../../components/publish/QrLoginDialog";
 import { TimeText } from "../../components/TimeText";
@@ -42,16 +42,16 @@ const platformLabels = Object.fromEntries(platformOptions.map((item) => [item.va
   string
 >;
 
-const sessionLabels: Record<PublishSessionStatus, string> = {
-  active: "已登录",
-  expired: "已失效",
-  never_logged_in: "未登录",
+const loginStateLabels: Record<PublishLoginState, string> = {
+  logged_in: "已登录",
+  logged_out: "需重新登录",
+  unknown: "待小V猫连接",
 };
 
-const sessionBadgeClasses: Record<PublishSessionStatus, string> = {
-  active: "bg-status-success/15 text-status-success",
-  expired: "bg-status-error/15 text-status-error",
-  never_logged_in: "bg-black/5 text-text-tertiary",
+const loginStateBadgeClasses: Record<PublishLoginState, string> = {
+  logged_in: "bg-status-success/15 text-status-success",
+  logged_out: "bg-status-error/15 text-status-error",
+  unknown: "bg-black/5 text-text-tertiary",
 };
 
 function compareNullable(a?: string | null, b?: string | null) {
@@ -66,10 +66,10 @@ function PlatformBadge({ platform }: { platform: PublishPlatform }) {
   );
 }
 
-function SessionBadge({ status }: { status: PublishSessionStatus }) {
+function LoginStateBadge({ state }: { state: PublishLoginState }) {
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${sessionBadgeClasses[status]}`}>
-      {sessionLabels[status]}
+    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${loginStateBadgeClasses[state]}`}>
+      {loginStateLabels[state]}
     </span>
   );
 }
@@ -100,22 +100,9 @@ function HealthTile({
   );
 }
 
-function sessionTimeLabel(account: PublishAccount) {
-  if (account.last_validated_at) {
-    return (
-      <>
-        最近校验 <TimeText value={account.last_validated_at} />
-      </>
-    );
-  }
-  if (account.session_expires_at) {
-    return (
-      <>
-        会话到期 <TimeText value={account.session_expires_at} />
-      </>
-    );
-  }
-  return "暂无校验记录";
+function loginStateHint(account: PublishAccount) {
+  if (account.login_state === "unknown") return "登录态待小V猫连接";
+  return "登录态实时来自小V猫";
 }
 
 export default function PublishOpsPage() {
@@ -179,14 +166,14 @@ export default function PublishOpsPage() {
     return rows;
   }, [accountsQuery.data?.items, clientById]);
 
-  const sessionCounts = useMemo(() => {
-    const counts: Record<PublishSessionStatus, number> = {
-      active: 0,
-      expired: 0,
-      never_logged_in: 0,
+  const loginCounts = useMemo(() => {
+    const counts: Record<PublishLoginState, number> = {
+      logged_in: 0,
+      logged_out: 0,
+      unknown: 0,
     };
     accountRows.forEach((account) => {
-      counts[account.session_status] += 1;
+      counts[account.login_state] += 1;
     });
     return counts;
   }, [accountRows]);
@@ -243,7 +230,7 @@ export default function PublishOpsPage() {
   const validateSession = useMutation({
     mutationFn: (account: PublishAccount) => api.publishOps.validateSession(account.id),
     onSuccess: async (response) => {
-      toast.success("会话已校验", sessionLabels[response.session_status]);
+      toast.success("登录态已校验", loginStateLabels[response.login_state]);
       await invalidateAccounts();
     },
     onError: (error) => toast.error("会话校验失败", error),
@@ -258,7 +245,7 @@ export default function PublishOpsPage() {
       : (activeClients[0]?.id ?? "");
 
   function primaryAction(account: PublishAccount) {
-    if (account.session_status === "active") {
+    if (account.login_state === "logged_in") {
       validateSession.mutate(account);
     } else {
       setLoginAccount(account);
@@ -266,10 +253,10 @@ export default function PublishOpsPage() {
   }
 
   function primaryActionMeta(account: PublishAccount) {
-    if (account.session_status === "active") {
+    if (account.login_state === "logged_in") {
       return { label: "校验", icon: CheckCircle2, className: "btn-secondary compactButton" };
     }
-    if (account.session_status === "expired") {
+    if (account.login_state === "logged_out") {
       return { label: "重新登录", icon: RefreshCw, className: "btn-danger compactButton" };
     }
     return { label: "登录", icon: LogIn, className: "btn-secondary compactButton" };
@@ -286,25 +273,26 @@ export default function PublishOpsPage() {
         </div>
       </header>
 
-      <section className={`card grid gap-4 p-5 ${sessionCounts.expired > 0 ? "border-status-error/35" : ""}`}>
+      <section className={`card grid gap-4 p-5 ${loginCounts.logged_out > 0 ? "border-status-error/35" : ""}`}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <RadioTower className="h-5 w-5 text-accent" />
-            <h2 className="text-lg font-semibold text-text-primary">会话健康</h2>
+            <h2 className="text-lg font-semibold text-text-primary">登录健康</h2>
+            <span className="text-xs text-text-tertiary">登录态实时来自小V猫</span>
           </div>
-          {sessionCounts.expired > 0 ? (
+          {loginCounts.logged_out > 0 ? (
             <span className="inline-flex items-center gap-1.5 rounded-full bg-status-error/10 px-3 py-1 text-sm font-medium text-status-error">
               <AlertTriangle className="h-4 w-4" />
-              {sessionCounts.expired} 个账号需要重新登录
+              {loginCounts.logged_out} 个账号需要重新登录
             </span>
           ) : null}
         </div>
         <div className="grid gap-3 md:grid-cols-5">
           <HealthTile label="客户数" value={clientOptions.length} detail={includeArchived ? "含已归档客户" : "活跃客户"} />
           <HealthTile label="账号数" value={accountRows.length} detail={includeArchived ? "含已归档账号" : "活跃账号"} />
-          <HealthTile label="已登录" value={sessionCounts.active} tone="success" />
-          <HealthTile label="已失效" value={sessionCounts.expired} tone={sessionCounts.expired > 0 ? "danger" : "neutral"} />
-          <HealthTile label="未登录" value={sessionCounts.never_logged_in} />
+          <HealthTile label="已登录" value={loginCounts.logged_in} tone="success" />
+          <HealthTile label="需重登" value={loginCounts.logged_out} tone={loginCounts.logged_out > 0 ? "danger" : "neutral"} />
+          <HealthTile label="待小V猫" value={loginCounts.unknown} />
         </div>
       </section>
 
@@ -406,9 +394,9 @@ export default function PublishOpsPage() {
                   ) : null}
                 </div>
                 <div>
-                  <span className="mb-1 block text-xs font-semibold text-text-tertiary lg:hidden">会话状态</span>
-                  <SessionBadge status={account.session_status} />
-                  <p className="mt-1 text-xs text-text-tertiary">{sessionTimeLabel(account)}</p>
+                  <span className="mb-1 block text-xs font-semibold text-text-tertiary lg:hidden">登录状态</span>
+                  <LoginStateBadge state={account.login_state} />
+                  <p className="mt-1 text-xs text-text-tertiary">{loginStateHint(account)}</p>
                 </div>
                 <div className="rowActions">
                   <button
@@ -417,7 +405,7 @@ export default function PublishOpsPage() {
                     onClick={() => primaryAction(account)}
                     disabled={validateSession.isPending || account.status === "archived"}
                   >
-                    {validateSession.isPending && account.session_status === "active" ? (
+                    {validateSession.isPending && account.login_state === "logged_in" ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       <ActionIcon className="h-4 w-4" />

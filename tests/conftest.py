@@ -31,6 +31,11 @@ os.environ.setdefault("CUTAGENT_DISABLE_BACKGROUND_DISPATCHER", "1")
 # sandbox fallback (fail loudly when no real provider is armed); the suite opts
 # in so those fixtures keep exercising the sandbox path.
 os.environ.setdefault("CUTAGENT_ALLOW_SANDBOX_FALLBACK", "1")
+# The production default publish adapter is the 小V猫 CDP adapter, which honestly
+# fails without a live 小V猫 (no desktop app in CI). The suite exercises the publish
+# *flow* deterministically via the sandbox adapter; production selects xiaovmao.cdp
+# by leaving this unset.
+os.environ.setdefault("CUTAGENT_PUBLISH_ADAPTER", "sandbox.publish")
 
 
 class _ASGISyncTestClient:

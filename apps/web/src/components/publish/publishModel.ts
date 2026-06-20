@@ -33,7 +33,6 @@ export const PLATFORM_OPTIONS = [
   { value: "kuaishou", label: "快手" },
   { value: "shipinhao", label: "视频号" },
   { value: "xiaohongshu", label: "小红书" },
-  { value: "bilibili", label: "B站" },
 ] as const;
 
 const TITLE_LIMITS: Record<string, number> = {
@@ -41,7 +40,6 @@ const TITLE_LIMITS: Record<string, number> = {
   kuaishou: 16,
   shipinhao: 16,
   xiaohongshu: 16,
-  bilibili: 30,
 };
 
 export const defaultBatchDefaults: BatchDefaults = {

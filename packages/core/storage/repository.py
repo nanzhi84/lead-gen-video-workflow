@@ -217,9 +217,6 @@ class Repository:
         self.clients: dict[str, Client] = {}
         self.publish_accounts: dict[str, PublishAccount] = {}
         self.case_publish_targets: dict[str, CasePublishTarget] = {}
-        # account_id -> SecretStore ref for the encrypted browser session (memory backend);
-        # the session payload itself lives in the SecretStore, never here.
-        self.publish_account_sessions: dict[str, str] = {}
         self.cost_rollups: dict[str, CostRollup] = {}
         self.yield_events: dict[str, object] = {}
         self.budgets: dict[str, Budget] = {}

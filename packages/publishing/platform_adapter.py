@@ -6,11 +6,9 @@ default implementation: an in-process state-machine adapter that walks the
 publish_item/publish_batch lifecycle and records ``PublishAttempt`` rows without
 touching any external platform.
 
-``BrowserPublishAdapter`` (``adapter_id="browser.playwright"``) registers
-best-effort browser upload paths for 抖音/视频号/快手/小红书, but remains
-UNVERIFIED and returns failure until live success detection exists. ``select_adapter``
-chooses the adapter from an explicit override, then the ``CUTAGENT_PUBLISH_ADAPTER``
-feature flag, defaulting to sandbox so production stays a safe no-op.
+``select_adapter`` chooses the adapter from an explicit override, then the
+``CUTAGENT_PUBLISH_ADAPTER`` feature flag, defaulting to the 小V猫 CDP adapter.
+小V猫/CDP failures are explicit adapter failures, never fabricated successes.
 """
 
 from __future__ import annotations
@@ -19,12 +17,28 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Protocol
+from typing import Protocol
 
 from packages.core.contracts import PlatformAccount
 
 SANDBOX_ADAPTER_ID = "sandbox.publish"
+
+# 小V猫 CDP adapter constants. ``*_KEY_MAP`` maps a generic platform id to the
+# platform key 小V猫 exposes via ``CatBridge``; ``*_NAME_MAP`` to its Chinese name.
+# Only the 4 supported platforms (no bilibili) — see migration spec decision 4.
+XIAOVMAO_ADAPTER_ID = "xiaovmao.cdp"
+XIAOVMAO_PLATFORM_KEY_MAP = {
+    "douyin": "Douyin",
+    "kuaishou": "KuaiShou",
+    "shipinhao": "Channels",
+    "xiaohongshu": "XiaoHongShu",
+}
+XIAOVMAO_PLATFORM_NAME_MAP = {
+    "douyin": "抖音",
+    "kuaishou": "快手",
+    "shipinhao": "视频号",
+    "xiaohongshu": "小红书",
+}
 
 
 @dataclass(frozen=True)
@@ -39,8 +53,7 @@ class PublishPayload:
     account_group: str | None = None
     account_id: str | None = None
     account_name: str | None = None
-    storage_state_json: str | None = None
-    video_path: str | None = None
+    account_uid: str | None = None  # the exact 小V猫 account uid (xiaovmao_uid) to target
     case_name: str | None = None
     scheduled_at: datetime | None = None
     video_uri: str | None = None
@@ -128,16 +141,21 @@ class SandboxPublishAdapter:
 
 
 @dataclass
-class BrowserPublishAdapter:
-    """UNVERIFIED Playwright browser upload adapter.
+class XiaoVmaoPublishAdapter:
+    """经 CDP 驱动小V猫桌面端发布（``adapter_id="xiaovmao.cdp"``）。
 
-    This adapter is intentionally conservative: it dispatches to platform-specific
-    upload paths and returns failure unless all account/session/video inputs are
-    present. The DOM automation has not been verified against the live platforms,
-    so it does not fabricate success after best-effort browser interactions.
+    账号经小V猫的 ``CatBridge`` 实时读取，发布把成片+文案注入小V猫的发布表单，
+    由小V猫去发各平台。CDP host/port 经 ``CUTAGENT_XIAOVMAO_CDP_HOST`` /
+    ``CUTAGENT_XIAOVMAO_CDP_PORT`` 配置（默认 ``127.0.0.1:9222``，与小V猫同机）。
+    小V猫不可达时**显式失败、绝不伪造成功**。
     """
 
-    adapter_id: str = "browser.playwright"
+    adapter_id: str = XIAOVMAO_ADAPTER_ID
+
+    def _host_port(self) -> tuple[str, int]:
+        host = os.getenv("CUTAGENT_XIAOVMAO_CDP_HOST", "127.0.0.1")
+        port = int(os.getenv("CUTAGENT_XIAOVMAO_CDP_PORT", "9222"))
+        return host, port
 
     def probe_accounts(
         self,
@@ -145,272 +163,99 @@ class BrowserPublishAdapter:
         account_group: str | None = None,
         case_name: str | None = None,
     ) -> tuple[list[PlatformAccount], bool, str | None]:
-        return [], False, "Browser publish adapter is UNVERIFIED and does not probe accounts."
+        from packages.publishing.connectors.xiaovmao_cdp import probe_xiaovmao_accounts
+
+        host, port = self._host_port()
+        return probe_xiaovmao_accounts(
+            host=host, port=port, account_group=account_group, case_name=case_name
+        )
 
     def publish(self, payload: PublishPayload) -> PublishOutcome:
-        missing = [
-            field_name
-            for field_name, value in (
-                ("account_id", payload.account_id),
-                ("storage_state_json", payload.storage_state_json),
-                ("video_path", payload.video_path),
-            )
-            if not value
-        ]
-        if missing:
-            return self._failure(
-                payload,
-                f"publish.browser_unavailable: missing {', '.join(missing)}.",
-            )
-        platform = payload.platforms[0] if payload.platforms else None
-        # Dispatch to supported browser handlers; each handler still returns
-        # failure until success detection exists.
-        handlers = {
-            "douyin": self._publish_douyin,
-            "shipinhao": self._publish_shipinhao,
-            "kuaishou": self._publish_kuaishou,
-            "xiaohongshu": self._publish_xiaohongshu,
-        }
-        handler = handlers.get(platform)
-        if handler is None:
-            return self._failure(
-                payload,
-                f"publish.browser_unavailable: platform {platform or '<missing>'} not yet supported.",
-            )
-        if not Path(payload.video_path).exists():
-            return self._failure(payload, "publish.browser_unavailable: video_path does not exist.")
+        from packages.publishing.connectors.xiaovmao_cdp import publish_via_xiaovmao
 
         try:
-            from packages.publishing.browser.playwright_driver import _run_async
-
-            return _run_async(handler(payload))
+            host, port = self._host_port()
+            return publish_via_xiaovmao(payload, host=host, port=port)
         except Exception as exc:
-            return self._failure(payload, f"publish.browser_unavailable: {exc}")
+            # 任何 CDP/小V猫错误（不可达、会话断连、JS 异常等）都降级为诚实失败，
+            # 绝不伪造成功，也不让异常冒泡 crash 发布流水线。
+            results = [
+                {"platform": platform, "success": False, "error": str(exc)}
+                for platform in payload.platforms
+            ] or [{"success": False, "error": str(exc)}]
+            return PublishOutcome(
+                success=False,
+                adapter_id=self.adapter_id,
+                results=results,
+                error_message=str(exc),
+            )
 
-    def _failure(self, payload: PublishPayload, message: str) -> PublishOutcome:
-        platform = payload.platforms[0] if payload.platforms else None
-        return PublishOutcome(
-            success=False,
-            adapter_id=self.adapter_id,
-            results=[
-                {
-                    "platform": platform,
-                    "account_id": payload.account_id,
-                    "success": False,
-                    "error": message,
-                }
-            ],
-            error_message=message,
-        )
 
-    async def _publish_douyin(self, payload: PublishPayload) -> PublishOutcome:
-        """UNVERIFIED best-effort Douyin upload; success detection is absent."""
-        import json
-
-        from playwright.async_api import async_playwright
-
-        from packages.publishing.browser.playwright_driver import DESKTOP_UA, _launch_kwargs
-
-        storage_state = json.loads(payload.storage_state_json or "{}")
-        async with async_playwright() as playwright:
-            browser = await playwright.chromium.launch(**_launch_kwargs(headless=True))
-            try:
-                context = await browser.new_context(
-                    user_agent=DESKTOP_UA,
-                    storage_state=storage_state,
-                )
-                page = await context.new_page()
-                await page.goto(
-                    "https://creator.douyin.com/creator-micro/content/upload",
-                    wait_until="domcontentloaded",
-                    timeout=60000,
-                )
-                await page.locator("input[type='file']").first.set_input_files(
-                    payload.video_path,
-                    timeout=60000,
-                )
-                await self._fill_first_available(
-                    page,
-                    ("input[placeholder*='标题']", "textarea[placeholder*='标题']"),
-                    payload.title,
-                )
-                if payload.description:
-                    await self._fill_first_available(
-                        page,
-                        ("textarea[placeholder*='描述']", "textarea"),
-                        payload.description,
-                    )
-            finally:
-                await browser.close()
-        return self._failure(
-            payload,
-            "publish.browser_unavailable: Douyin upload adapter is UNVERIFIED; "
-            "success detection is not implemented; final publish click was skipped.",
-        )
-
-    async def _publish_shipinhao(self, payload: PublishPayload) -> PublishOutcome:
-        """UNVERIFIED best-effort Shipinhao upload; success detection is absent."""
-        import json
-
-        from playwright.async_api import async_playwright
-
-        from packages.publishing.browser.playwright_driver import DESKTOP_UA, _launch_kwargs
-
-        storage_state = json.loads(payload.storage_state_json or "{}")
-        async with async_playwright() as playwright:
-            browser = await playwright.chromium.launch(**_launch_kwargs(headless=True))
-            try:
-                context = await browser.new_context(
-                    user_agent=DESKTOP_UA,
-                    storage_state=storage_state,
-                )
-                page = await context.new_page()
-                await page.goto(
-                    "https://channels.weixin.qq.com/platform/post/create",
-                    wait_until="domcontentloaded",
-                    timeout=60000,
-                )
-                await page.locator("input[type='file']").first.set_input_files(
-                    payload.video_path,
-                    timeout=60000,
-                )
-                await self._fill_first_available(
-                    page,
-                    ("input[placeholder*='标题']", "textarea"),
-                    payload.title,
-                )
-                if payload.description:
-                    await self._fill_first_available(
-                        page,
-                        ("textarea[placeholder*='描述']", "textarea"),
-                        payload.description,
-                    )
-            finally:
-                await browser.close()
-        return self._failure(
-            payload,
-            "publish.browser_unavailable: Shipinhao upload adapter is UNVERIFIED; "
-            "success detection is not implemented; final publish click was skipped.",
-        )
-
-    async def _publish_kuaishou(self, payload: PublishPayload) -> PublishOutcome:
-        """UNVERIFIED best-effort Kuaishou upload; success detection is absent."""
-        import json
-
-        from playwright.async_api import async_playwright
-
-        from packages.publishing.browser.playwright_driver import DESKTOP_UA, _launch_kwargs
-
-        storage_state = json.loads(payload.storage_state_json or "{}")
-        async with async_playwright() as playwright:
-            browser = await playwright.chromium.launch(**_launch_kwargs(headless=True))
-            try:
-                context = await browser.new_context(
-                    user_agent=DESKTOP_UA,
-                    storage_state=storage_state,
-                )
-                page = await context.new_page()
-                await page.goto(
-                    "https://cp.kuaishou.com/article/publish/video",
-                    wait_until="domcontentloaded",
-                    timeout=60000,
-                )
-                await page.locator("input[type='file']").first.set_input_files(
-                    payload.video_path,
-                    timeout=60000,
-                )
-                if payload.description:
-                    await self._fill_first_available(
-                        page,
-                        ("textarea[placeholder*='描述']", "textarea"),
-                        payload.description,
-                    )
-            finally:
-                await browser.close()
-        return self._failure(
-            payload,
-            "publish.browser_unavailable: Kuaishou upload adapter is UNVERIFIED; "
-            "success detection is not implemented; final publish click was skipped.",
-        )
-
-    async def _publish_xiaohongshu(self, payload: PublishPayload) -> PublishOutcome:
-        """UNVERIFIED best-effort Xiaohongshu upload; success detection is absent."""
-        import json
-
-        from playwright.async_api import async_playwright
-
-        from packages.publishing.browser.playwright_driver import DESKTOP_UA, _launch_kwargs
-
-        storage_state = json.loads(payload.storage_state_json or "{}")
-        async with async_playwright() as playwright:
-            browser = await playwright.chromium.launch(**_launch_kwargs(headless=True))
-            try:
-                context = await browser.new_context(
-                    user_agent=DESKTOP_UA,
-                    storage_state=storage_state,
-                )
-                page = await context.new_page()
-                await page.goto(
-                    "https://creator.xiaohongshu.com/publish/publish",
-                    wait_until="domcontentloaded",
-                    timeout=60000,
-                )
-                await page.locator("input[type='file']").first.set_input_files(
-                    payload.video_path,
-                    timeout=60000,
-                )
-                await self._fill_first_available(
-                    page,
-                    ("input[placeholder*='标题']",),
-                    payload.title,
-                )
-                if payload.description:
-                    await self._fill_first_available(
-                        page,
-                        ("textarea[placeholder*='描述']", "textarea"),
-                        payload.description,
-                    )
-            finally:
-                await browser.close()
-        return self._failure(
-            payload,
-            "publish.browser_unavailable: Xiaohongshu upload adapter is UNVERIFIED; "
-            "success detection is not implemented; final publish click was skipped.",
-        )
-
-    async def _fill_first_available(self, page: Any, selectors: tuple[str, ...], value: str) -> None:
-        for selector in selectors:
-            locator = page.locator(selector).first
-            if await locator.count() == 0:
-                continue
-            await locator.fill(value, timeout=10000)
-            return
-
-# Registered publish adapters by id. Browser automation remains opt-in through
-# CUTAGENT_PUBLISH_ADAPTER.
+# Registered publish adapters by id. ``xiaovmao.cdp`` drives the 小V猫 desktop app
+# over CDP; sandbox remains available for explicit tests/dry integrations.
 _PUBLISH_ADAPTERS: dict[str, Callable[[], PublishPlatformAdapter]] = {
     SANDBOX_ADAPTER_ID: SandboxPublishAdapter,
-    "browser.playwright": BrowserPublishAdapter,
+    XIAOVMAO_ADAPTER_ID: XiaoVmaoPublishAdapter,
 }
 
 
 def resolve_adapter_id(explicit: str | None = None) -> str:
-    """Resolve the publish adapter id: explicit override > feature flag > sandbox.
+    """Resolve the publish adapter id: explicit override > feature flag > 小V猫 CDP.
 
-    ``CUTAGENT_PUBLISH_ADAPTER`` selects a production adapter once one is wired.
-    Default is the sandbox adapter so production publishing stays a safe, explicit
-    no-op until a real platform adapter is registered.
+    ``CUTAGENT_PUBLISH_ADAPTER=sandbox.publish`` remains available for tests and
+    local dry integrations. The production default is the 小V猫 CDP adapter; when
+    小V猫 is unavailable it returns an explicit failed outcome.
     """
     if explicit:
         return explicit
-    return os.getenv("CUTAGENT_PUBLISH_ADAPTER") or SANDBOX_ADAPTER_ID
+    return os.getenv("CUTAGENT_PUBLISH_ADAPTER") or XIAOVMAO_ADAPTER_ID
+
+
+@dataclass
+class _UnregisteredPublishAdapter:
+    """Honest-failure adapter for an unknown/misconfigured adapter id — it never
+    fabricates success (the old behaviour silently fell back to a success-returning
+    sandbox adapter, which could mask a CDP misconfiguration as a real publish)."""
+
+    requested_id: str
+
+    @property
+    def adapter_id(self) -> str:
+        return self.requested_id or "unknown"
+
+    def _reason(self) -> str:
+        return f"未注册的发布适配器: {self.requested_id}"
+
+    def probe_accounts(
+        self,
+        *,
+        account_group: str | None = None,
+        case_name: str | None = None,
+    ) -> tuple[list[PlatformAccount], bool, str | None]:
+        return [], False, self._reason()
+
+    def publish(self, payload: PublishPayload) -> PublishOutcome:
+        results = [
+            {"platform": platform, "success": False, "error": self._reason()}
+            for platform in payload.platforms
+        ] or [{"success": False, "error": self._reason()}]
+        return PublishOutcome(
+            success=False, adapter_id=self.adapter_id, results=results, error_message=self._reason()
+        )
 
 
 def select_adapter(explicit: str | None = None) -> PublishPlatformAdapter:
-    """Select a publish adapter by id, defaulting to sandbox.
+    """Select a publish adapter by id, defaulting to the 小V猫 CDP adapter.
 
-    Unknown/unimplemented ids fall back to the sandbox adapter so publishing never
-    silently hits a non-existent adapter.
+    An unknown/misconfigured id NEVER silently falls back to a success-returning
+    adapter: the sandbox no-op is only used when explicitly opted in
+    (``CUTAGENT_ALLOW_SANDBOX_FALLBACK=1`` — tests / dry runs); otherwise an unknown
+    id resolves to an honest-failure adapter.
     """
-    factory = _PUBLISH_ADAPTERS.get(resolve_adapter_id(explicit), SandboxPublishAdapter)
-    return factory()
+    adapter_id = resolve_adapter_id(explicit)
+    factory = _PUBLISH_ADAPTERS.get(adapter_id)
+    if factory is not None:
+        return factory()
+    if os.getenv("CUTAGENT_ALLOW_SANDBOX_FALLBACK") == "1":
+        return SandboxPublishAdapter()
+    return _UnregisteredPublishAdapter(adapter_id)

@@ -31,14 +31,13 @@ def test_run_item_publish_without_targets_calls_adapter_once() -> None:
         adapter,
         base_payload,
         targets=[],
-        resolve_session=lambda _account_id: None,
         resolve_video=lambda: "unused.mp4",
     )
 
     assert outcome.success is True
     assert outcome.external_task_id == "task-single"
     assert per_account_results == []
-    assert adapter.payloads == [base_payload]
+    assert adapter.payloads[0].video_uri == "unused.mp4"
 
 
 def test_run_item_publish_with_targets_publishes_each_account() -> None:
@@ -48,8 +47,7 @@ def test_run_item_publish_with_targets_publishes_each_account() -> None:
     outcome, per_account_results = run_item_publish(
         adapter,
         base_payload,
-        targets=[("acct_1", "Account One"), ("acct_2", "Account Two")],
-        resolve_session=lambda account_id: f'{{"account":"{account_id}"}}',
+        targets=[("acct_1", "Account One", "uid_1"), ("acct_2", "Account Two", "uid_2")],
         resolve_video=lambda: "/tmp/video.mp4",
     )
 
@@ -57,44 +55,26 @@ def test_run_item_publish_with_targets_publishes_each_account() -> None:
     assert outcome.results == per_account_results
     assert [payload.account_id for payload in adapter.payloads] == ["acct_1", "acct_2"]
     assert [payload.account_name for payload in adapter.payloads] == ["Account One", "Account Two"]
-    assert [payload.storage_state_json for payload in adapter.payloads] == [
-        '{"account":"acct_1"}',
-        '{"account":"acct_2"}',
-    ]
+    # the exact 小V猫 account uid is threaded through so multi-account routing is correct
+    assert [payload.account_uid for payload in adapter.payloads] == ["uid_1", "uid_2"]
+    assert [payload.video_uri for payload in adapter.payloads] == ["/tmp/video.mp4", "/tmp/video.mp4"]
     assert {result["external_task_id"] for result in per_account_results} == {
         "task-acct_1",
         "task-acct_2",
     }
 
 
-def test_run_item_publish_missing_session_fails_only_that_account() -> None:
+def test_run_item_publish_uses_existing_payload_video_uri_when_resolve_video_missing() -> None:
     adapter = RecordingAdapter()
-    base_payload = PublishPayload(title="Title", platforms=("douyin",))
+    base_payload = PublishPayload(title="Title", platforms=("douyin",), video_uri="local://video")
 
     outcome, per_account_results = run_item_publish(
         adapter,
         base_payload,
-        targets=[("acct_1", "Account One"), ("acct_2", "Account Two")],
-        resolve_session=lambda account_id: '{"ok":true}' if account_id == "acct_1" else None,
-        resolve_video=lambda: "/tmp/video.mp4",
+        targets=[("acct_1", "Account One", None)],
+        resolve_video=lambda: None,
     )
 
-    assert outcome.success is False
-    assert outcome.error_message
-    assert [payload.account_id for payload in adapter.payloads] == ["acct_1"]
-    assert per_account_results == [
-        {
-            "account_id": "acct_1",
-            "account_name": "Account One",
-            "success": True,
-            "external_task_id": "task-acct_1",
-            "error": None,
-        },
-        {
-            "account_id": "acct_2",
-            "account_name": "Account Two",
-            "success": False,
-            "external_task_id": None,
-            "error": "Missing active browser session.",
-        },
-    ]
+    assert outcome.success is True
+    assert per_account_results[0]["account_id"] == "acct_1"
+    assert adapter.payloads[0].video_uri == "local://video"

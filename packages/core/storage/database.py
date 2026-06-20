@@ -848,14 +848,7 @@ class PublishAccountRow(TimestampMixin, Base):
     platform: Mapped[str] = mapped_column(String, nullable=False)
     account_name: Mapped[str] = mapped_column(String, nullable=False)
     platform_uid: Mapped[str | None] = mapped_column(String)
-    # Reference into the SecretStore for the encrypted browser session (storage_state);
-    # the session payload is NEVER stored in this row.
-    session_secret_ref: Mapped[str | None] = mapped_column(String)
-    session_status: Mapped[str] = mapped_column(
-        String, nullable=False, default="never_logged_in", server_default="never_logged_in"
-    )
-    session_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    last_validated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    xiaovmao_uid: Mapped[str | None] = mapped_column(String)
     status: Mapped[str] = mapped_column(String, nullable=False, default="active", server_default="active")
 
     __table_args__ = (

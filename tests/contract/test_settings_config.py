@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from packages.core.config import Settings, build_settings, get_settings
+from packages.core.config import build_settings
 
 # Every infra env var Settings reads — cleared so we observe the built-in
 # defaults rather than whatever the surrounding process/conftest exported.
@@ -139,10 +139,6 @@ def test_build_settings_reads_env_at_call_time(clean_env, monkeypatch: pytest.Mo
     monkeypatch.setenv("CUTAGENT_OBJECTSTORE_BUCKET", "cutagent-prod")
     assert first.object_store.bucket == "cutagent-local"  # old snapshot unchanged
     assert build_settings().object_store.bucket == "cutagent-prod"
-
-
-def test_get_settings_returns_settings_snapshot(clean_env) -> None:
-    assert isinstance(get_settings(), Settings)
 
 
 def test_settings_is_immutable(clean_env) -> None:

@@ -8,7 +8,7 @@ from packages.core.storage.repository import Repository
 
 def test_in_memory_outbox_writer_is_idempotent_by_dedupe_key() -> None:
     repository = Repository()
-    writer = OutboxWriter.in_memory(repository)
+    writer = OutboxWriter(repository)
     payload = {
         "event_id": "evt_run_1",
         "run_id": "run_1",
@@ -43,7 +43,7 @@ def test_in_memory_outbox_writer_is_idempotent_by_dedupe_key() -> None:
 
 def test_in_memory_outbox_replay_is_stably_ordered_by_created_at_and_id() -> None:
     repository = Repository()
-    writer = OutboxWriter.in_memory(repository)
+    writer = OutboxWriter(repository)
     now = datetime(2026, 6, 11, tzinfo=timezone.utc)
 
     later = writer.write(

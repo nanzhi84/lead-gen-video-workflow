@@ -15,10 +15,6 @@ class OutboxWriter:
     def __init__(self, repository: InMemoryOutboxStore) -> None:
         self.repository = repository
 
-    @classmethod
-    def in_memory(cls, repository: InMemoryOutboxStore) -> "OutboxWriter":
-        return cls(repository)
-
     def write(
         self,
         *,

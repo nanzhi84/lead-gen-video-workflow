@@ -90,12 +90,6 @@ def _money_amount(payload: dict | None) -> Decimal:
         return Decimal("0")
 
 
-def _optional_money_amount(payload: dict | None) -> Decimal | None:
-    if not payload:
-        return None
-    return _money_amount(payload)
-
-
 def _money_currency(payload: dict | None) -> str:
     if not payload:
         return "CNY"
@@ -327,7 +321,7 @@ class SqlAlchemyOpsRepository:
         invocations = [
             InvocationCost(
                 estimated_amount=_money_amount(estimated_cost),
-                actual_amount=_optional_money_amount(actual_cost),
+                actual_amount=_money_amount(actual_cost) if actual_cost else None,
                 currency=_money_currency(estimated_cost),
                 provider_id=provider_id,
                 model_id=model_id,

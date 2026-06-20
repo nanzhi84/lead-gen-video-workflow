@@ -16,14 +16,13 @@ so it is trivially unit-testable with ``httpx.MockTransport``.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Protocol, runtime_checkable
+from typing import Protocol
 
 import httpx
 
 from packages.core.contracts import ProviderBalanceItem, ProviderProfile
 
 
-@runtime_checkable
 class BalancePoller(Protocol):
     """One provider's balance adapter (a plugin)."""
 

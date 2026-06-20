@@ -579,15 +579,6 @@ def build_settings() -> Settings:
     )
 
 
-def get_settings() -> Settings:
-    """Accessor returning a freshly-built infra ``Settings`` snapshot.
-
-    Provided for symmetry with the genesis DI conventions. Prefer reading
-    ``app.state.settings`` inside request handlers; reach for ``get_settings()``
-    only in standalone/CLI contexts that lack an ``app.state``."""
-    return build_settings()
-
-
 def sandbox_fallback_allowed() -> bool:
     """Whether silent fallback to the seeded sandbox providers is permitted.
 

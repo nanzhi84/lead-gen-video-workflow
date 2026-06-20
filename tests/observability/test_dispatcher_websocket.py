@@ -15,7 +15,7 @@ def test_outbox_dispatcher_publishes_pending_events_in_stable_order() -> None:
     repository = Repository()
     hub = InProcessFanoutHub()
     dispatcher = OutboxDispatcher(repository=repository, hub=hub)
-    writer = OutboxWriter.in_memory(repository)
+    writer = OutboxWriter(repository)
     created_at = datetime(2026, 6, 11, tzinfo=timezone.utc)
 
     writer.write(
@@ -58,7 +58,7 @@ def test_run_websocket_replays_history_and_receives_dispatched_events() -> None:
         )
         assert login.status_code == 200, login.text
         repository = client.app.state.repository
-        writer = OutboxWriter.in_memory(repository)
+        writer = OutboxWriter(repository)
         writer.write(
             topic="workflow.run.updated",
             aggregate_type="run",

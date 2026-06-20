@@ -11,7 +11,7 @@ from .yield_rates import compute_yield_rates
 from .cost_metrics import FunnelCounts, InvocationCost, compute_cost_metrics
 from .budget_evaluation import SpendRecord, evaluate_budget, period_start
 from .budget_guard import BudgetEnforcementGuard
-from .failure_taxonomy import classify_error_code, classify_funnel_event
+from .failure_taxonomy import classify_error_code
 from .sqlalchemy_repository import SqlAlchemyOpsRepository
 
 __all__ = [
@@ -30,5 +30,4 @@ __all__ = [
     "SpendRecord",
     "BudgetEnforcementGuard",
     "classify_error_code",
-    "classify_funnel_event",
 ]

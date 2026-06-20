@@ -39,12 +39,6 @@ class PublishCopyContext:
     script: str
     case_name: str | None = None
     description: str | None = None
-    product_name: str | None = None
-    industry: str | None = None
-    target_audience: str | None = None
-    key_selling_points: str | None = None
-    brand_voice: str | None = None
-    ip_persona: str | None = None
     title_limit: int | None = None
 
 

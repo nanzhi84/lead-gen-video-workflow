@@ -383,7 +383,6 @@ def replay_sqlalchemy_outbox(
     *,
     aggregate_type: str,
     aggregate_id: str,
-    since_id: str | None = None,
 ) -> list[dict[str, Any]]:
     with session_factory() as session:
         rows = list(
@@ -394,10 +393,6 @@ def replay_sqlalchemy_outbox(
                 .order_by(OutboxEventRow.created_at, OutboxEventRow.id)
             )
         )
-    if since_id is not None:
-        cursor = next(((row.created_at, row.id) for row in rows if row.id == since_id), None)
-        if cursor is not None:
-            rows = [row for row in rows if (row.created_at, row.id) > cursor]
     return [row.payload for row in rows if isinstance(row.payload, dict)]
 
 

@@ -59,6 +59,8 @@ def test_build_tracks_prefers_explicit_frame_grid_and_falls_back_to_seconds():
     assert tracks[1].track_id == "broll"
     assert tracks[1].timeline_start_frame == 25
     assert tracks[1].timeline_end_frame == 50
+    assert tracks[1].pad_start == 0.0
+    assert tracks[1].pad_end == 0.0
 
 
 def test_align_broll_end_snaps_to_nearby_portrait_cut():
@@ -93,11 +95,13 @@ def test_align_broll_end_snaps_to_nearby_portrait_cut():
     assert broll["timeline_start_frame"] == 90
     assert broll["timeline_end_frame"] == 150
     assert broll["source_start_frame"] == 90
-    assert broll["source_end_frame"] == 150
+    assert broll["source_end_frame"] == 147
     assert broll["end_sec"] == 5.0
+    assert broll.get("pad_start", 0.0) == 0.0
+    assert broll["pad_end"] == 0.1
 
 
-def test_align_broll_start_snaps_back_to_nearby_portrait_cut_without_frame_gap():
+def test_align_broll_start_does_not_snap_when_required_head_pad_is_visible():
     raw_segments = [
         _segment(
             track_id="portrait",
@@ -130,14 +134,15 @@ def test_align_broll_start_snaps_back_to_nearby_portrait_cut_without_frame_gap()
     aligned = align_broll_to_portrait_cuts(raw_segments, fps=30, max_gap_frames=15)
     broll = next(segment for segment in aligned if segment["track_id"] == "broll")
 
-    assert broll["timeline_start_frame"] == 1844
-    assert broll["timeline_end_frame"] == 2037
-    assert broll["source_start_frame"] == 533
-    assert broll["source_end_frame"] == 726
-    assert broll["start_sec"] == 61.467
+    assert broll.get("timeline_start_frame") is None
+    assert broll.get("timeline_end_frame") is None
+    assert broll.get("source_start_frame") is None
+    assert broll.get("source_end_frame") is None
+    assert broll.get("pad_start", 0.0) == 0.0
+    assert broll.get("pad_end", 0.0) == 0.0
 
 
-def test_broll_start_snaps_to_portrait_head_when_visible_aroll_head_is_too_short():
+def test_broll_start_does_not_snap_to_portrait_head_when_pad_exceeds_limit():
     raw_segments = [
         _segment(
             track_id="portrait",
@@ -163,13 +168,15 @@ def test_broll_start_snaps_to_portrait_head_when_visible_aroll_head_is_too_short
     )
     broll = next(segment for segment in aligned if segment["track_id"] == "broll")
 
-    assert broll["timeline_start_frame"] == 0
-    assert broll["timeline_end_frame"] == 150
-    assert broll["source_start_frame"] == 90
-    assert broll["source_end_frame"] == 240
+    assert broll.get("timeline_start_frame") is None
+    assert broll.get("timeline_end_frame") is None
+    assert broll.get("source_start_frame") is None
+    assert broll.get("source_end_frame") is None
+    assert broll.get("pad_start", 0.0) == 0.0
+    assert broll.get("pad_end", 0.0) == 0.0
 
 
-def test_broll_end_snaps_to_portrait_tail_when_visible_aroll_tail_is_too_short():
+def test_broll_end_does_not_snap_to_portrait_tail_when_pad_exceeds_limit():
     raw_segments = [
         _segment(
             track_id="portrait",
@@ -195,13 +202,15 @@ def test_broll_end_snaps_to_portrait_tail_when_visible_aroll_tail_is_too_short()
     )
     broll = next(segment for segment in aligned if segment["track_id"] == "broll")
 
-    assert broll["timeline_start_frame"] == 120
-    assert broll["timeline_end_frame"] == 300
-    assert broll["source_start_frame"] == 360
-    assert broll["source_end_frame"] == 540
+    assert broll.get("timeline_start_frame") is None
+    assert broll.get("timeline_end_frame") is None
+    assert broll.get("source_start_frame") is None
+    assert broll.get("source_end_frame") is None
+    assert broll.get("pad_start", 0.0) == 0.0
+    assert broll.get("pad_end", 0.0) == 0.0
 
 
-def test_broll_covers_whole_portrait_shot_when_both_aroll_residuals_are_too_short():
+def test_broll_does_not_cover_whole_portrait_shot_when_pads_exceed_limit():
     raw_segments = [
         _segment(
             track_id="portrait",
@@ -227,10 +236,12 @@ def test_broll_covers_whole_portrait_shot_when_both_aroll_residuals_are_too_shor
     )
     broll = next(segment for segment in aligned if segment["track_id"] == "broll")
 
-    assert broll["timeline_start_frame"] == 0
-    assert broll["timeline_end_frame"] == 300
-    assert broll["source_start_frame"] == 90
-    assert broll["source_end_frame"] == 390
+    assert broll.get("timeline_start_frame") is None
+    assert broll.get("timeline_end_frame") is None
+    assert broll.get("source_start_frame") is None
+    assert broll.get("source_end_frame") is None
+    assert broll.get("pad_start", 0.0) == 0.0
+    assert broll.get("pad_end", 0.0) == 0.0
 
 
 def test_broll_keeps_interior_window_when_visible_aroll_residuals_are_long_enough():
@@ -263,7 +274,7 @@ def test_broll_keeps_interior_window_when_visible_aroll_residuals_are_long_enoug
     assert broll.get("timeline_end_frame") is None
 
 
-def test_broll_is_dropped_when_short_aroll_head_cannot_be_filled_from_source():
+def test_broll_expansion_does_not_pull_source_when_residual_equals_threshold():
     raw_segments = [
         _segment(
             track_id="portrait",
@@ -277,9 +288,126 @@ def test_broll_is_dropped_when_short_aroll_head_cannot_be_filled_from_source():
             track_id="broll",
             segment_id="broll_1",
             start_sec=2.0,
+            end_sec=8.0,
+        )
+        | {"source_start_sec": 5.0, "source_end_sec": 11.0},
+    ]
+
+    aligned = align_broll_to_portrait_cuts(raw_segments, fps=30)
+    broll = next(segment for segment in aligned if segment["track_id"] == "broll")
+
+    assert broll.get("timeline_start_frame") is None
+    assert broll.get("timeline_end_frame") is None
+    assert broll.get("source_start_frame") is None
+    assert broll.get("source_end_frame") is None
+    assert broll.get("pad_start", 0.0) == 0.0
+    assert broll.get("pad_end", 0.0) == 0.0
+
+
+def test_broll_head_residual_is_absorbed_with_pad_not_source_pull_when_safe():
+    raw_segments = [
+        _segment(
+            track_id="portrait",
+            segment_id="portrait_1",
+            start_sec=0.0,
+            end_sec=10.0,
+            timeline_start_frame=0,
+            timeline_end_frame=300,
+        ),
+        _segment(
+            track_id="broll",
+            segment_id="broll_1",
+            start_sec=0.1,
+            end_sec=8.0,
+        )
+        | {"source_start_sec": 5.0, "source_end_sec": 12.9},
+    ]
+
+    aligned = align_broll_to_portrait_cuts(raw_segments, fps=30)
+    broll = next(segment for segment in aligned if segment["track_id"] == "broll")
+
+    assert broll["timeline_start_frame"] == 0
+    assert broll["timeline_end_frame"] == 240
+    assert broll["source_start_frame"] == 150
+    assert broll["source_end_frame"] == 387
+    assert broll["pad_start"] == 0.1
+    assert broll.get("pad_end", 0.0) == 0.0
+
+
+def test_broll_short_residual_is_not_absorbed_when_required_pad_is_visible():
+    raw_segments = [
+        _segment(
+            track_id="portrait",
+            segment_id="portrait_1",
+            start_sec=0.0,
+            end_sec=10.0,
+            timeline_start_frame=0,
+            timeline_end_frame=300,
+        ),
+        _segment(
+            track_id="broll",
+            segment_id="broll_1",
+            start_sec=1.5,
+            end_sec=8.0,
+        )
+        | {"source_start_sec": 5.0, "source_end_sec": 11.5},
+    ]
+
+    aligned = align_broll_to_portrait_cuts(raw_segments, fps=30)
+    broll = next(segment for segment in aligned if segment["track_id"] == "broll")
+
+    assert broll.get("timeline_start_frame") is None
+    assert broll.get("source_start_frame") is None
+    assert broll.get("pad_start", 0.0) == 0.0
+
+
+def test_broll_can_cover_whole_portrait_shot_with_safe_head_and_tail_pad():
+    raw_segments = [
+        _segment(
+            track_id="portrait",
+            segment_id="portrait_1",
+            start_sec=0.0,
+            end_sec=3.0,
+            timeline_start_frame=0,
+            timeline_end_frame=90,
+        ),
+        _segment(
+            track_id="broll",
+            segment_id="broll_1",
+            start_sec=0.1,
+            end_sec=2.9,
+        )
+        | {"source_start_sec": 5.0, "source_end_sec": 7.8},
+    ]
+
+    aligned = align_broll_to_portrait_cuts(raw_segments, fps=30)
+    broll = next(segment for segment in aligned if segment["track_id"] == "broll")
+
+    assert broll["timeline_start_frame"] == 0
+    assert broll["timeline_end_frame"] == 90
+    assert broll["source_start_frame"] == 150
+    assert broll["source_end_frame"] == 234
+    assert broll["pad_start"] == 0.1
+    assert broll["pad_end"] == 0.1
+
+
+def test_broll_safe_head_pad_does_not_require_source_headroom():
+    raw_segments = [
+        _segment(
+            track_id="portrait",
+            segment_id="portrait_1",
+            start_sec=0.0,
+            end_sec=10.0,
+            timeline_start_frame=0,
+            timeline_end_frame=300,
+        ),
+        _segment(
+            track_id="broll",
+            segment_id="broll_1",
+            start_sec=0.1,
             end_sec=5.0,
         )
-        | {"source_start_sec": 1.0, "source_end_sec": 4.0},
+        | {"source_start_sec": 0.0, "source_end_sec": 4.9},
     ]
 
     aligned = align_broll_to_portrait_cuts(
@@ -288,7 +416,14 @@ def test_broll_is_dropped_when_short_aroll_head_cannot_be_filled_from_source():
         min_visible_aroll_frames=90,
     )
 
-    assert [segment for segment in aligned if segment["track_id"] == "broll"] == []
+    broll = next(segment for segment in aligned if segment["track_id"] == "broll")
+
+    assert broll["timeline_start_frame"] == 0
+    assert broll["timeline_end_frame"] == 150
+    assert broll["source_start_frame"] == 0
+    assert broll["source_end_frame"] == 147
+    assert broll["pad_start"] == 0.1
+    assert broll.get("pad_end", 0.0) == 0.0
 
 
 def test_validate_timeline_reports_valid_grid_for_portrait_and_broll_tracks():

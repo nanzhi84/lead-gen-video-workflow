@@ -39,6 +39,8 @@ def _broll_segments_from_timeline(timeline: dict, broll_plan: dict, fps: int) ->
         end_frame = int(track.get("timeline_end_frame") or 0)
         source_start_frame = track.get("source_start_frame")
         source_end_frame = track.get("source_end_frame")
+        pad_start = float(track.get("pad_start", original.get("pad_start", 0)) or 0)
+        pad_end = float(track.get("pad_end", original.get("pad_end", 0)) or 0)
         if source_start_frame is None:
             source_start_frame = to_frame(float(original.get("source_start", 0) or 0), fps)
         if source_end_frame is None:
@@ -55,6 +57,8 @@ def _broll_segments_from_timeline(timeline: dict, broll_plan: dict, fps: int) ->
                 "end_sec": end_frame / fps,
                 "source_start": source_start_frame / fps,
                 "source_end": source_end_frame / fps,
+                "pad_start": pad_start,
+                "pad_end": pad_end,
             }
         )
         rendered_segments.append(original)

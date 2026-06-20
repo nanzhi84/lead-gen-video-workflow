@@ -50,6 +50,8 @@ def run(ctx: NodeContext) -> NodeOutput:
                 "timeline_end_frame": int(end_frame) if end_frame is not None else None,
                 "source_start_frame": int(source_start_frame) if source_start_frame is not None else None,
                 "source_end_frame": int(source_end_frame) if source_end_frame is not None else None,
+                "pad_start": float(segment.get("pad_start", 0) or 0),
+                "pad_end": float(segment.get("pad_end", 0) or 0),
             }
         )
     for index, segment in enumerate(broll.get("segments", [])):
@@ -66,6 +68,8 @@ def run(ctx: NodeContext) -> NodeOutput:
                 "timeline_end_frame": None,
                 "source_start_frame": None,
                 "source_end_frame": None,
+                "pad_start": float(segment.get("pad_start", 0) or 0),
+                "pad_end": float(segment.get("pad_end", 0) or 0),
             }
         )
 

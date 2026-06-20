@@ -70,6 +70,11 @@ def _to_frame(seconds: float, fps: int) -> int:
     return max(0, int(math.floor(float(seconds) * fps + 0.5)))
 
 
+def _format_filter_seconds(seconds: float) -> str:
+    text = f"{max(0.0, float(seconds)):.6f}".rstrip("0").rstrip(".")
+    return text or "0"
+
+
 def validate_rendered_output(
     output_path: Path,
     *,
@@ -437,7 +442,7 @@ def render_video_timeline(
         "-i",
         str(main_path),
     ]
-    overlay_inputs: list[tuple[dict, Path, int, int, int, int]] = []
+    overlay_inputs: list[tuple[dict, Path, int, int, int, int, float, float]] = []
     for segment in broll_segments:
         source_artifact = source_artifact_for_asset(segment.get("asset_id"))
         source_path = artifact_path(source_artifact)
@@ -467,6 +472,8 @@ def render_video_timeline(
             if segment.get("timeline_end_frame") is not None
             else _to_frame(timeline_end, fps)
         )
+        pad_start = max(0.0, float(segment.get("pad_start", 0) or 0))
+        pad_end = max(0.0, float(segment.get("pad_end", 0) or 0))
         source_duration_frames = _to_frame(source_duration, fps)
         if source_start_frame < 0 or source_end_frame <= source_start_frame or source_end_frame > source_duration_frames:
             raise NodeExecutionError(ErrorCode.render_invalid_timeline, "B-roll source window is out of bounds.")
@@ -480,6 +487,8 @@ def render_video_timeline(
                 source_end_frame,
                 timeline_start_frame,
                 timeline_end_frame,
+                pad_start,
+                pad_end,
             )
         )
         args.extend(["-i", str(source_path)])
@@ -499,10 +508,17 @@ def render_video_timeline(
         source_end_frame,
         timeline_start_frame,
         timeline_end_frame,
+        pad_start,
+        pad_end,
     ) in enumerate(overlay_inputs, start=1):
         timeline_window_frames = timeline_end_frame - timeline_start_frame
         overlay_label = f"ov{index}"
         next_label = f"base{index}"
+        explicit_padding = ""
+        if pad_start > 0:
+            explicit_padding += f"tpad=start_duration={_format_filter_seconds(pad_start)}:start_mode=clone,"
+        if pad_end > 0:
+            explicit_padding += f"tpad=stop_duration={_format_filter_seconds(pad_end)}:stop_mode=clone,"
         filters.append(
             (
                 f"[{index}:v]fps={fps},"
@@ -510,6 +526,7 @@ def render_video_timeline(
                 "setpts=PTS-STARTPTS,"
                 f"scale={width}:{height}:force_original_aspect_ratio=increase,"
                 f"crop={width}:{height},setsar=1,"
+                f"{explicit_padding}"
                 f"tpad=stop_mode=clone:stop={timeline_window_frames},"
                 f"trim=start_frame=0:end_frame={timeline_window_frames},"
                 f"setpts=PTS-STARTPTS+{timeline_start_frame}/{fps}/TB[{overlay_label}]"

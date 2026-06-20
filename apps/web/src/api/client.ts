@@ -222,6 +222,19 @@ export const api = {
         { method: "PATCH", body: payload, idempotencyKey: createIdempotencyKey("registration_code_patch") },
       ),
   },
+  me: {
+    getGenerationDefaults: () =>
+      fetchJson<JsonResponse<operations["get_generation_defaults_api_auth_me_generation_defaults_get"]>>(
+        "/api/auth/me/generation-defaults",
+      ),
+    putGenerationDefaults: (
+      payload: JsonRequest<operations["put_generation_defaults_api_auth_me_generation_defaults_put"]>,
+    ) =>
+      fetchJson<JsonResponse<operations["put_generation_defaults_api_auth_me_generation_defaults_put"]>>(
+        "/api/auth/me/generation-defaults",
+        { method: "PUT", body: payload, idempotencyKey: createIdempotencyKey("generation_defaults") },
+      ),
+  },
   cases: {
     list: (query: QueryParams<operations["list_cases_api_cases_get"]> = {}) =>
       fetchJson<JsonResponse<operations["list_cases_api_cases_get"]>>("/api/cases", { query }).then((res) => ({
@@ -499,6 +512,14 @@ export const api = {
     ) =>
       fetchJson<JsonResponse<operations["create_digital_human_job_api_jobs_digital_human_video_post"]>>(
         "/api/jobs/digital-human-video",
+        { method: "POST", body: payload, idempotencyKey },
+      ),
+    createDigitalHumanVideoBatch: (
+      payload: JsonRequest<operations["create_digital_human_batch_api_jobs_digital_human_video_batch_post"]>,
+      idempotencyKey = createIdempotencyKey("video_batch"),
+    ) =>
+      fetchJson<JsonResponse<operations["create_digital_human_batch_api_jobs_digital_human_video_batch_post"]>>(
+        "/api/jobs/digital-human-video/batch",
         { method: "POST", body: payload, idempotencyKey },
       ),
   },
@@ -811,3 +832,7 @@ export type OpsDashboardVm = components["schemas"]["OpsDashboardVm"];
 export type ProviderUsageReport = components["schemas"]["ProviderUsageReport"];
 export type YieldFunnelEvent = components["schemas"]["YieldFunnelEvent"];
 export type YieldFunnelResponse = components["schemas"]["YieldFunnelResponse"];
+export type UserGenerationDefaults = components["schemas"]["UserGenerationDefaults"];
+export type BatchDigitalHumanVideoRequest = components["schemas"]["BatchDigitalHumanVideoRequest"];
+export type BatchGenerationResponse = components["schemas"]["BatchGenerationResponse"];
+export type BatchItemResult = components["schemas"]["BatchItemResult"];

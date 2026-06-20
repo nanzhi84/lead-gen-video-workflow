@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, Info, Link2, Loader2, Play } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
@@ -17,12 +17,17 @@ import {
 import {
   STORAGE_KEY,
   loadStoredForm,
+  mapDefaultsToForm,
+  mapFormToDefaults,
   steps,
   validateAll,
   validateStep,
   type FormState,
   type StudioStep,
 } from "../../components/studio-create/studioCreateModel";
+import { SaveDefaultsButton } from "../../components/studio-create/SaveDefaultsButton";
+import { BatchScriptsModal } from "../../components/studio-create/BatchScriptsModal";
+import { buildBatchRequest, summarizeBatchResults, type BatchScriptInput } from "../../components/studio-create/batchModel";
 import { CandidatePoolModal } from "../../components/script-tools/CandidatePoolModal";
 import { ScriptGenerateModal } from "../../components/script-tools/ScriptGenerateModal";
 import { ScriptHistoryModal } from "../../components/script-tools/ScriptHistoryModal";
@@ -40,6 +45,7 @@ export default function StudioCreatePage() {
   const { caseId = "" } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const toast = useToast();
   const [step, setStep] = useState<StudioStep>(0);
   const [form, setForm] = useState<FormState>(loadStoredForm);
@@ -47,6 +53,9 @@ export default function StudioCreatePage() {
   const [scriptToolMode, setScriptToolMode] = useState<ScriptToolMode>("generate");
   const [scriptGenerateOpen, setScriptGenerateOpen] = useState(false);
   const [candidatePoolOpen, setCandidatePoolOpen] = useState(false);
+  const [batchScriptsOpen, setBatchScriptsOpen] = useState(false);
+  const [defaultsJustSaved, setDefaultsJustSaved] = useState(false);
+  const hydratedDefaults = useRef(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [referenceUrl, setReferenceUrl] = useState("");
   const [referenceSourceTitle, setReferenceSourceTitle] = useState<string | null>(null);
@@ -61,6 +70,31 @@ export default function StudioCreatePage() {
   const voices = useQuery({
     queryKey: ["voices"],
     queryFn: () => api.voices.list(),
+  });
+  const generationDefaults = useQuery({
+    queryKey: ["me", "generation-defaults"],
+    queryFn: () => api.me.getGenerationDefaults(),
+  });
+
+  // Hydrate the form from server-side "my defaults" once, on first load.
+  // localStorage is the offline fallback; the server value wins when present.
+  // Never overwrite an adopted-script handoff (which carries content the user
+  // just chose), and don't re-run after the user has started editing.
+  useEffect(() => {
+    if (hydratedDefaults.current || !generationDefaults.data || adoptedAgentScript) return;
+    hydratedDefaults.current = true;
+    setForm((current) => mapDefaultsToForm(generationDefaults.data, current));
+  }, [generationDefaults.data, adoptedAgentScript]);
+
+  const saveDefaults = useMutation({
+    mutationFn: () => api.me.putGenerationDefaults(mapFormToDefaults(form)),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(["me", "generation-defaults"], saved);
+      setDefaultsJustSaved(true);
+      window.setTimeout(() => setDefaultsJustSaved(false), 2000);
+      toast.success("已保存为我的默认", "下次进入工作台会自动套用");
+    },
+    onError: (error: ApiError) => toast.error("保存默认失败", error),
   });
 
   const voiceOptions = useMemo(() => voices.data?.items.filter((voice) => voice.enabled) ?? [], [voices.data?.items]);
@@ -217,23 +251,33 @@ export default function StudioCreatePage() {
   }
 
   const batchCreateJobs = useMutation({
-    mutationFn: async (items: ScriptToolItem[]) => {
-      const created = [];
-      for (const item of items) {
-        created.push(await api.jobs.createDigitalHumanVideo(buildJobPayload(item.script, item.title)));
-      }
-      return created;
-    },
-    onSuccess: (items) => {
-      const firstRun = items[0]?.initial_run?.id;
-      toast.success("批量出片已提交", `${items.length} 个任务`);
+    mutationFn: (inputs: BatchScriptInput[]) =>
+      api.jobs.createDigitalHumanVideoBatch(buildBatchRequest(caseId, inputs, true)),
+    onSuccess: (response) => {
+      const { created, failed, firstRunId } = summarizeBatchResults(response.results);
       setCandidatePoolOpen(false);
-      window.setTimeout(() => {
-        navigate(firstRun ? `${routes.caseOutputs(caseId)}?run=${encodeURIComponent(firstRun)}` : routes.caseOutputs(caseId));
-      }, 1000);
+      setBatchScriptsOpen(false);
+      if (failed > 0) {
+        toast.warning("批量出片部分成功", `${created} 成功 · ${failed} 失败`);
+      } else {
+        toast.success("批量出片已提交", `${created} 个任务`);
+      }
+      if (created > 0) {
+        window.setTimeout(() => {
+          navigate(
+            firstRunId
+              ? `${routes.caseOutputs(caseId)}?run=${encodeURIComponent(firstRunId)}`
+              : routes.caseOutputs(caseId),
+          );
+        }, 1000);
+      }
     },
     onError: (error: ApiError) => setFormError(error),
   });
+
+  function batchFromScriptItems(items: ScriptToolItem[]) {
+    batchCreateJobs.mutate(items.map((item) => ({ script: item.script, title: item.title })));
+  }
 
   function goToStep(next: StudioStep) {
     if (next <= step) {
@@ -277,6 +321,16 @@ export default function StudioCreatePage() {
         <div>
           <h1>{caseDetail.data?.name ?? "创作"}</h1>
           <p>{caseDetail.data?.product || caseDetail.data?.industry || "按步骤完成脚本、模板、成片配置与后处理。"}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button className="btn-secondary text-sm" type="button" onClick={() => setBatchScriptsOpen(true)}>
+            批量脚本
+          </button>
+          <SaveDefaultsButton
+            isSaving={saveDefaults.isPending}
+            justSaved={defaultsJustSaved}
+            onSave={() => saveDefaults.mutate()}
+          />
         </div>
       </header>
       <StudioTabs caseId={caseId} />
@@ -440,7 +494,13 @@ export default function StudioCreatePage() {
         }}
         onRemove={scriptToolbox.removeCandidate}
         onClear={scriptToolbox.clearCandidates}
-        onBatchCreate={(items) => batchCreateJobs.mutate(items)}
+        onBatchCreate={(items) => batchFromScriptItems(items)}
+      />
+      <BatchScriptsModal
+        isOpen={batchScriptsOpen}
+        isSubmitting={batchCreateJobs.isPending}
+        onClose={() => setBatchScriptsOpen(false)}
+        onSubmit={(inputs) => batchCreateJobs.mutate(inputs)}
       />
       <ScriptHistoryModal isOpen={historyOpen} history={scriptToolbox.history} onClose={() => setHistoryOpen(false)} onInsert={insertHistoryItem} />
     </section>

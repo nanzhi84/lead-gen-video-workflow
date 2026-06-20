@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, BarChart3, RefreshCw, Sparkles } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { ArrowRight, BarChart3, Bell, BellOff, RefreshCw, Sparkles } from "lucide-react";
+import { useEffect, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
 import { api, type RunCard } from "../api/client";
 import { ErrorState } from "../components/State";
@@ -10,6 +10,7 @@ import { OverviewStatCards } from "../components/overview/OverviewStatCards";
 import { RecentRunsList } from "../components/overview/RecentRunsList";
 import { buildOverviewStats, sortRecentRuns } from "../components/overview/overviewModel";
 import { usePageVisible } from "../hooks/usePageVisible";
+import { useTaskNotifications } from "../hooks/useTaskNotifications";
 import { shortId } from "../lib/format";
 import { routes } from "../routes";
 
@@ -38,6 +39,14 @@ export default function OverviewPage() {
   const runs = recentRuns.data ?? [];
   const stats = buildOverviewStats(dashboard.data, runs);
 
+  // System notifications (fire regardless of focus, batch transitions merged
+  // into one). Permission is requested only via the toggle's click handler.
+  const notificationRuns = useMemo(
+    () => runs.map((run) => ({ runId: run.runId, title: run.title, status: run.status })),
+    [runs],
+  );
+  const notifications = useTaskNotifications({ runs: notificationRuns });
+
   useEffect(() => {
     if (!recentRuns.data) return;
     const previous = previousStatuses.current;
@@ -52,6 +61,18 @@ export default function OverviewPage() {
     });
   }, [recentRuns.data, toast]);
 
+  async function toggleNotifications() {
+    const next = !notifications.enabled;
+    const resolved = await notifications.toggle(next);
+    if (next && resolved === "unsupported") {
+      toast.warning("当前浏览器不支持系统通知", "已保留页内提醒");
+    } else if (next && resolved === "denied") {
+      toast.warning("通知权限被拒绝", "可在浏览器站点设置中开启，页内提醒仍生效");
+    } else if (next && resolved === "granted") {
+      toast.success("已开启完成通知", "任务结束时会弹出系统通知");
+    }
+  }
+
   function refreshAll() {
     void queryClient.invalidateQueries({ queryKey: ["ops", "dashboard"] });
     void queryClient.invalidateQueries({ queryKey: ["overview", "recent-runs"] });
@@ -65,6 +86,17 @@ export default function OverviewPage() {
           <p className="mt-1 text-sm text-text-secondary">任务运行、成本用量和生产状态概览</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {notifications.supported ? (
+            <button
+              className="btn-secondary text-sm"
+              type="button"
+              onClick={toggleNotifications}
+              title={notifications.enabled ? "关闭完成时的系统通知" : "任务完成时通过系统通知提醒我"}
+            >
+              {notifications.enabled ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
+              {notifications.enabled ? "完成时通知我" : "开启完成通知"}
+            </button>
+          ) : null}
           <button className="btn-secondary text-sm" type="button" onClick={refreshAll}>
             <RefreshCw className={`h-4 w-4 ${dashboard.isFetching || recentRuns.isFetching ? "animate-spin" : ""}`} />
             刷新

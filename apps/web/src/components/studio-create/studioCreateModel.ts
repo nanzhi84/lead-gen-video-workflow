@@ -1,3 +1,7 @@
+import type { components } from "../../api/schema";
+
+export type UserGenerationDefaults = components["schemas"]["UserGenerationDefaults"];
+
 export type StudioStep = 0 | 1 | 2 | 3 | 4;
 
 export type LipSyncPreset = "balanced" | "large_motion" | "strict_face" | "audio_priority";
@@ -33,7 +37,7 @@ export type FormState = {
 
 export const STORAGE_KEY = "m6ar_studio_create_preferences_v1";
 
-const defaultForm: FormState = {
+export const defaultForm: FormState = {
   title: "",
   script: "先指出内容生产低效。再展示 Case Memory 如何复用经验。最后推动发布复盘。",
   scriptVersionId: null,
@@ -150,4 +154,117 @@ export function subtitleLabel(value: FormState["subtitleStyle"]) {
   if (value === "movie") return "电影风";
   if (value === "youshe_title_black") return "标题黑风";
   return "抖音风";
+}
+
+const SUBTITLE_STYLES: FormState["subtitleStyle"][] = [
+  "douyin",
+  "clean",
+  "variety",
+  "news",
+  "movie",
+  "youshe_title_black",
+];
+const PORTRAIT_MODES: FormState["portraitMode"][] = ["agent", "specific", "sequence"];
+const RHYTHM_PRESETS: FormState["rhythmPreset"][] = ["steady", "balanced", "fast"];
+const COVER_MODES: FormState["coverMode"][] = ["none", "frame", "ai"];
+
+function pickFrom<T extends string>(allowed: T[], value: unknown, fallback: T): T {
+  return allowed.includes(value as T) ? (value as T) : fallback;
+}
+
+/**
+ * Project the user-tunable subset of a Studio `FormState` into the contract
+ * `UserGenerationDefaults` shape (one block per generation aspect). Content
+ * fields (title/script/scriptVersionId) are deliberately excluded — defaults
+ * are preferences, not content.
+ */
+export function mapFormToDefaults(form: FormState): UserGenerationDefaults {
+  return {
+    voice: {
+      voice_id: form.voiceId,
+      speed: form.speed,
+      emotion: form.emotion.trim() || "neutral",
+      volume: 1,
+    },
+    portrait: {
+      template_mode: form.portraitMode,
+      rhythm_preset: form.rhythmPreset,
+      template_sequence_ids: [],
+    },
+    broll: {
+      enabled: form.brollEnabled,
+      max_inserts: form.maxInserts,
+      min_segment_duration: 3,
+    },
+    subtitle: {
+      enabled: form.subtitleEnabled,
+      style_preset: form.subtitleStyle,
+      font_size: form.subtitleSize,
+    },
+    bgm: {
+      enabled: form.bgmEnabled,
+      volume: form.bgmVolume,
+      auto_mix: form.bgmAutoMix,
+    },
+    cover: {
+      mode: form.coverMode,
+    },
+    lipsync: {
+      enabled: form.lipsyncEnabled,
+      provider_profile_id: "runninghub.heygem.prod",
+      video_extension: form.lipsyncVideoExtension,
+      timeout_minutes: form.lipsyncTimeoutMinutes,
+    },
+  };
+}
+
+/**
+ * Hydrate a `FormState` from saved `UserGenerationDefaults`, layering each
+ * present block over a base form (typically `defaultForm` or the current form).
+ * Absent blocks fall back to `base`. Content fields are never touched.
+ */
+export function mapDefaultsToForm(defaults: UserGenerationDefaults, base: FormState): FormState {
+  const next: FormState = { ...base };
+  if (defaults.voice) {
+    if (defaults.voice.voice_id) next.voiceId = defaults.voice.voice_id;
+    next.speed = clampNumber(Number(defaults.voice.speed ?? base.speed), 0.5, 2, base.speed);
+    if (defaults.voice.emotion) next.emotion = defaults.voice.emotion;
+  }
+  if (defaults.portrait) {
+    next.portraitMode = pickFrom(PORTRAIT_MODES, defaults.portrait.template_mode, base.portraitMode);
+    next.rhythmPreset = pickFrom(RHYTHM_PRESETS, defaults.portrait.rhythm_preset, base.rhythmPreset);
+  }
+  if (defaults.broll) {
+    next.brollEnabled = Boolean(defaults.broll.enabled);
+    next.maxInserts = clampNumber(Number(defaults.broll.max_inserts ?? base.maxInserts), 0, 20, base.maxInserts);
+  }
+  if (defaults.subtitle) {
+    next.subtitleEnabled = Boolean(defaults.subtitle.enabled);
+    next.subtitleStyle = pickFrom(SUBTITLE_STYLES, defaults.subtitle.style_preset, base.subtitleStyle);
+    next.subtitleSize = clampNumber(
+      Number(defaults.subtitle.font_size ?? base.subtitleSize),
+      12,
+      96,
+      base.subtitleSize,
+    );
+  }
+  if (defaults.bgm) {
+    next.bgmEnabled = Boolean(defaults.bgm.enabled);
+    next.bgmVolume = clampNumber(Number(defaults.bgm.volume ?? base.bgmVolume), 0, 1, base.bgmVolume);
+    next.bgmAutoMix = Boolean(defaults.bgm.auto_mix);
+  }
+  if (defaults.cover) {
+    next.coverMode = pickFrom(COVER_MODES, defaults.cover.mode, base.coverMode);
+  }
+  if (defaults.lipsync) {
+    next.lipsyncEnabled = Boolean(defaults.lipsync.enabled);
+    next.lipsyncVideoExtension = Boolean(defaults.lipsync.video_extension);
+    next.lipsyncTimeoutMinutes = clampNumber(
+      Number(defaults.lipsync.timeout_minutes ?? base.lipsyncTimeoutMinutes),
+      5,
+      90,
+      base.lipsyncTimeoutMinutes,
+    );
+  }
+  return next;
 }

@@ -281,15 +281,6 @@ class SqlAlchemyCaseRubricRepository:
             row = self._active_rubric_row(session, case_id)
             return case_rubric_row_to_contract(row) if row is not None else None
 
-    def list_rubrics(self, case_id: str) -> list[CaseRubric]:
-        with self.session_factory() as session:
-            statement = (
-                select(CaseRubricRow)
-                .where(CaseRubricRow.case_id == case_id)
-                .order_by(CaseRubricRow.version.desc())
-            )
-            return [case_rubric_row_to_contract(row) for row in session.scalars(statement)]
-
     def _active_rubric_row(self, session: Session, case_id: str) -> CaseRubricRow | None:
         statement = (
             select(CaseRubricRow)
@@ -298,24 +289,6 @@ class SqlAlchemyCaseRubricRepository:
             .order_by(CaseRubricRow.version.desc())
         )
         return session.scalars(statement).first()
-
-    def supersede_active(self, case_id: str) -> None:
-        with self.session_factory() as session:
-            row = self._active_rubric_row(session, case_id)
-            if row is None:
-                return
-            assert_transition("case_rubric", row.status, "superseded")
-            row.status = "superseded"
-            row.updated_at = utcnow()
-            session.commit()
-
-    def add_rubric(self, card: CaseRubric) -> CaseRubric:
-        with self.session_factory() as session:
-            row = _case_rubric_to_row(card)
-            session.add(row)
-            session.commit()
-            session.refresh(row)
-            return case_rubric_row_to_contract(row)
 
     def accept_bump(self, case_id: str, proposal_id: str) -> CaseRubric:
         with self.session_factory() as session:

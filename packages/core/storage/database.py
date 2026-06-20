@@ -760,6 +760,11 @@ class FinishedVideoRow(TimestampMixin, Base):
     id: Mapped[str] = mapped_column(String, primary_key=True)
     case_id: Mapped[str] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"), nullable=False)
     run_id: Mapped[str | None] = mapped_column(ForeignKey("workflow_runs.id"))
+    # Creator-based isolation owner (migration 0018). Nullable FK; orphan rows
+    # (no run linkage) stay NULL and are admin-only.
+    owner_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     title: Mapped[str] = mapped_column(String, nullable=False)
     video_number: Mapped[str | None] = mapped_column(String)
     video_artifact: Mapped[dict] = mapped_column(JSONB, nullable=False)
@@ -883,6 +888,11 @@ class YieldFunnelEventRow(TimestampMixin, Base):
     finished_video_id: Mapped[str | None] = mapped_column(ForeignKey("finished_videos.id", ondelete="SET NULL"))
     publish_package_id: Mapped[str | None] = mapped_column(ForeignKey("publish_packages.id", ondelete="SET NULL"))
     publish_attempt_id: Mapped[str | None] = mapped_column(ForeignKey("publish_attempts.id", ondelete="SET NULL"))
+    # Creator-based isolation owner (migration 0018). Nullable FK; orphan rows
+    # (no run/job/finished_video linkage) stay NULL and are admin-only.
+    owner_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     event_type: Mapped[str] = mapped_column(String, nullable=False)
     event_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     dedupe_key: Mapped[str] = mapped_column(String, nullable=False, unique=True)

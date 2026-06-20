@@ -579,7 +579,7 @@ class SqlAlchemyOpsRepository:
             session.refresh(row)
             return alert_row_to_contract(row)
 
-    # ----- §9.2 ops_alert_rules CRUD + §9.8 evaluation engine -----
+    # ----- §9.2 ops_alert_rules CRUD -----
 
     def list_alert_rules(self, *, limit: int = 50) -> list[OpsAlertRule]:
         with self.session_factory() as session:

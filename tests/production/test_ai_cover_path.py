@@ -392,11 +392,11 @@ def test_seeded_image_profile_is_gated_without_an_active_secret(tmp_path):
     )
 
     # Freshly seeded, no secret activated -> paid AI cover path is NOT armed.
-    assert adapter._image_cover_profile_id(request) is None
+    assert adapter.provider_profiles.image_cover_profile_id(request) is None
 
     # Activating the seeded profile's secret is the decisive switch that arms it.
     secret_store.put("openai-image-key", secret_ref="openai_image_prod.secret")
-    assert adapter._image_cover_profile_id(request) == "openai.image.prod"
+    assert adapter.provider_profiles.image_cover_profile_id(request) == "openai.image.prod"
 
 
 def test_export_finished_video_declared_as_provider_side_effect_node():

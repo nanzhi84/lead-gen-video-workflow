@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from sqlalchemy import or_, select
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session
 
 from packages.core.contracts import (
     ApprovePromptVersionRequest,
@@ -31,6 +31,7 @@ from packages.core.storage.database import (
     PromptTemplateRow,
     PromptVersionRow,
 )
+from packages.core.storage.base_repository import BaseRepository
 from packages.core.storage.prompt_groups import prompt_variable_hints
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
@@ -98,9 +99,7 @@ def prompt_experiment_row_to_contract(row: PromptExperimentRow) -> PromptExperim
     )
 
 
-class SqlAlchemyPromptRuntimeRepository:
-    def __init__(self, session_factory: sessionmaker[Session]) -> None:
-        self.session_factory = session_factory
+class SqlAlchemyPromptRuntimeRepository(BaseRepository):
 
     def resolve_published_version(
         self,
@@ -146,9 +145,7 @@ class SqlAlchemyPromptRuntimeRepository:
             return prompt_template_row_to_contract(template)
 
 
-class SqlAlchemyPromptRepository:
-    def __init__(self, session_factory: sessionmaker[Session]) -> None:
-        self.session_factory = session_factory
+class SqlAlchemyPromptRepository(BaseRepository):
 
     def list_templates(
         self,

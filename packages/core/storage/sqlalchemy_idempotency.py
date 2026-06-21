@@ -2,14 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy.orm import Session, sessionmaker
-
+from packages.core.storage.base_repository import BaseRepository
 from packages.core.storage.database import IdempotencyRecordRow
 
 
-class SqlAlchemyIdempotencyRepository:
-    def __init__(self, session_factory: sessionmaker[Session]) -> None:
-        self.session_factory = session_factory
+class SqlAlchemyIdempotencyRepository(BaseRepository):
 
     def get(self, *, key: str, method: str, path: str, now: datetime) -> dict | None:
         with self.session_factory() as session:

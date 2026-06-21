@@ -100,19 +100,19 @@ class NodeContext:
         return self.adapter._artifact_path(artifact)
 
     def first_available_provider_profile(self, capability: str, *, include_sandbox: bool = True):
-        return self.adapter._first_available_provider_profile(capability, include_sandbox=include_sandbox)
+        return self.adapter.provider_profiles.first_available(capability, include_sandbox=include_sandbox)
 
     def tts_provider_profile_id(self, request: DigitalHumanVideoRequest) -> str:
-        return self.adapter._tts_provider_profile_id(request)
+        return self.adapter.provider_profiles.tts_profile_id(request)
 
     def image_cover_profile_id(self, request: DigitalHumanVideoRequest) -> str | None:
-        return self.adapter._image_cover_profile_id(request)
+        return self.adapter.provider_profiles.image_cover_profile_id(request)
 
     def resolve_lipsync_profile(self, request: DigitalHumanVideoRequest):
-        return self.adapter._resolve_lipsync_profile(request)
+        return self.adapter.provider_profiles.resolve_lipsync(request)
 
     def select_lipsync_fallback_profile(self, current_profile, error_message: str):
-        return self.adapter._select_lipsync_fallback_profile(current_profile, error_message)
+        return self.adapter.provider_profiles.select_lipsync_fallback(current_profile, error_message)
 
     def narration_units_from_segments(
         self,

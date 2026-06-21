@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import logging
-import os
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from packages.core.config.settings import build_providers_settings
 from packages.core.contracts import DegradationNotice, ErrorCode, ProviderError
 from packages.ops.provider_usage_metrics import (
     ProviderProfileHealthMetrics,
@@ -14,16 +14,14 @@ from packages.ops.provider_usage_metrics import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_ERROR_RATE_THRESHOLD = 0.5
-DEFAULT_WINDOW_HOURS = 24
-
 
 class ProviderCircuitBreaker:
     def __init__(self, session_factory: sessionmaker[Session]) -> None:
         self.session_factory = session_factory
 
     def evaluate(self, *, call: object, invocation: object) -> ProviderError | None:
-        if os.getenv("CUTAGENT_PROVIDER_CIRCUIT_BREAKER") != "1":
+        settings = build_providers_settings()
+        if not settings.circuit_breaker_enabled:
             return None
         provider_profile_id = str(
             getattr(invocation, "provider_profile_id", None)
@@ -31,8 +29,8 @@ class ProviderCircuitBreaker:
         )
         if not provider_profile_id:
             return None
-        threshold = _float_env("CUTAGENT_PROVIDER_CIRCUIT_ERROR_RATE", DEFAULT_ERROR_RATE_THRESHOLD)
-        window_hours = _int_env("CUTAGENT_PROVIDER_CIRCUIT_WINDOW", DEFAULT_WINDOW_HOURS)
+        threshold = settings.circuit_error_rate_threshold
+        window_hours = settings.circuit_window_hours
         metrics = sqlalchemy_provider_profile_health_metrics(
             self.session_factory,
             window_hours=window_hours,
@@ -92,19 +90,3 @@ def _degradation_notice(
             "window_hours": health.window_hours,
         },
     )
-
-
-def _float_env(name: str, default: float) -> float:
-    try:
-        value = float(os.getenv(name, ""))
-    except ValueError:
-        return default
-    return min(max(value, 0.0), 1.0)
-
-
-def _int_env(name: str, default: int) -> int:
-    try:
-        value = int(os.getenv(name, ""))
-    except ValueError:
-        return default
-    return max(1, value)

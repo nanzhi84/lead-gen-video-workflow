@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from collections.abc import Iterable
 from dataclasses import dataclass
 from decimal import Decimal
@@ -23,6 +22,7 @@ from packages.core.contracts import (
     zero_money,
     utcnow,
 )
+from packages.core.config.settings import build_providers_settings
 from packages.core.contracts.state_machines import assert_transition
 from packages.core.observability import record_provider_invocation
 from packages.core.storage import ObjectStore, get_object_store
@@ -392,7 +392,7 @@ class ProviderGateway:
         # post-persist. It is OFF by default so test fixtures / seeds that
         # construct profiles directly with synthetic hosts keep working; enable in
         # production via CUTAGENT_ENFORCE_PROVIDER_HOST_ALLOWLIST=1.
-        if os.getenv("CUTAGENT_ENFORCE_PROVIDER_HOST_ALLOWLIST") == "1":
+        if build_providers_settings().enforce_host_allowlist:
             from packages.ai.netpolicy import assert_options_hosts_allowed
 
             try:

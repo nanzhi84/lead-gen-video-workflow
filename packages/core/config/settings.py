@@ -79,6 +79,47 @@ def _env_bool_optional(name: str) -> bool | None:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _env_positive_int(name: str, default: int) -> int:
+    """Parse a positive int env var; unset / non-integer / non-positive -> default.
+
+    Mirrors the previous provider-limiter ``_max_inflight``/``_max_qps`` reads,
+    which fell back to the default rather than disabling backpressure. This is
+    intentionally more lenient than :func:`_env_int` (which raises on a
+    set-but-invalid value)."""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
+
+def _env_unit_float(name: str, default: float) -> float:
+    """Parse a float env var clamped to ``[0.0, 1.0]``; unset / invalid -> default.
+
+    Mirrors the previous circuit-breaker ``_float_env``: an unset or unparseable
+    value falls back to ``default``; a valid value is clamped to the unit interval."""
+    try:
+        value = float(os.getenv(name, ""))
+    except ValueError:
+        return default
+    return min(max(value, 0.0), 1.0)
+
+
+def _env_min_int(name: str, default: int, *, minimum: int = 1) -> int:
+    """Parse an int env var floored at ``minimum``; unset / invalid -> default.
+
+    Mirrors the previous circuit-breaker ``_int_env``: an unset or unparseable
+    value falls back to ``default``; a valid value is floored at ``minimum``."""
+    try:
+        value = int(os.getenv(name, ""))
+    except ValueError:
+        return default
+    return max(minimum, value)
+
+
 def _default_ephemeral_local_path() -> str:
     """Default ephemeral object-store root under the OS temp dir.
 
@@ -364,6 +405,58 @@ class LearningSettings(BaseModel):
     bump_consistency_floor: float = 0.6
 
 
+class ProvidersSettings(BaseModel):
+    """Provider gateway backpressure, circuit breaker, and outbound-host policy
+    (``settings.providers.*``).
+
+    Infra/policy knobs (NOT secrets) previously read via scattered ``os.getenv``
+    in ``packages/ai/gateway/provider_limiter.py``, ``packages/ai/netpolicy.py``,
+    ``packages/ai/gateway/provider_gateway.py`` and
+    ``packages/ops/circuit_breaker.py``. Defaults are byte-for-byte identical to
+    those call sites, so consolidating them here is behaviour preserving."""
+
+    model_config = ConfigDict(frozen=True)
+
+    # CUTAGENT_PROVIDER_MAX_INFLIGHT: per concurrency_key in-flight cap. Unset or
+    # non-positive falls back to 4 (never disables backpressure).
+    max_inflight: int = 4
+    # CUTAGENT_PROVIDER_MAX_QPS: per-key token-bucket rate (enforced with Redis).
+    max_qps: int = 4
+    # CUTAGENT_PROVIDER_CIRCUIT_BREAKER: "1" enables the provider circuit breaker.
+    circuit_breaker_enabled: bool = False
+    # CUTAGENT_PROVIDER_CIRCUIT_ERROR_RATE: error-rate threshold, clamped to [0,1].
+    circuit_error_rate_threshold: float = 0.5
+    # CUTAGENT_PROVIDER_CIRCUIT_WINDOW: health-metrics window in hours (>= 1).
+    circuit_window_hours: int = 24
+    # CUTAGENT_ALLOWED_API_HOSTS: comma-separated extra outbound hosts appended to
+    # the built-in SSRF allow-list (``netpolicy.DEFAULT_ALLOWED_HOSTS``).
+    allowed_api_hosts: str = ""
+    # CUTAGENT_ENFORCE_PROVIDER_HOST_ALLOWLIST: "1" turns on the opt-in
+    # gateway-level base_url host re-check before the secret is delivered.
+    enforce_host_allowlist: bool = False
+
+
+class PublishingSettings(BaseModel):
+    """Publishing-center integration knobs (``settings.publishing.*``).
+
+    The 小V猫 (XiaoVmao) CDP endpoint the publishing QR-login manager attaches to.
+    Platform sessions live in 小V猫, never in ``SecretStore``/DB, so only the
+    non-secret host/port live here."""
+
+    model_config = ConfigDict(frozen=True)
+
+    # CUTAGENT_XIAOVMAO_CDP_HOST: 小V猫 CDP server host.
+    xiaovmao_cdp_host: str = "127.0.0.1"
+    # CUTAGENT_XIAOVMAO_CDP_PORT: kept raw so unrelated Settings consumers do not
+    # fail while building a snapshot; actual 小V猫 call sites still parse strictly
+    # through the property below, matching the old int(os.getenv(...)) behavior.
+    xiaovmao_cdp_port_raw: str = Field("9222", exclude=True)
+
+    @property
+    def xiaovmao_cdp_port(self) -> int:
+        return int(self.xiaovmao_cdp_port_raw)
+
+
 class Settings(BaseModel):
     """Typed, immutable snapshot of all infrastructure configuration.
 
@@ -384,6 +477,8 @@ class Settings(BaseModel):
     api: ApiSettings = Field(default_factory=ApiSettings)
     balance: BalanceSettings = Field(default_factory=BalanceSettings)
     learning: LearningSettings = Field(default_factory=LearningSettings)
+    providers: ProvidersSettings = Field(default_factory=ProvidersSettings)
+    publishing: PublishingSettings = Field(default_factory=PublishingSettings)
     # Optional shared coordination backend (cross-process limiter / fanout /
     # ephemeral token store). When unset, those layers stay per-process. See
     # packages/ai/gateway/provider_limiter.py and packages/core/observability/events.py.
@@ -391,6 +486,99 @@ class Settings(BaseModel):
 
 
 # Builder: read os.environ once and assemble a Settings snapshot.
+
+
+def build_object_store_settings() -> ObjectStoreSettings:
+    """Build only the object-store settings group.
+
+    This keeps low-level storage initialization independent from unrelated infra
+    knobs such as publishing-center CDP settings while preserving call-time env
+    reads.
+    """
+    return ObjectStoreSettings(
+        tiered=os.getenv("CUTAGENT_OBJECTSTORE_TIERED", "1") != "0",
+        backend=_env_str("CUTAGENT_OBJECTSTORE_BACKEND", "local").lower(),
+        bucket=_env_str("CUTAGENT_OBJECTSTORE_BUCKET", "cutagent-local"),
+        materials_bucket=_env_str("CUTAGENT_OBJECTSTORE_MATERIALS_BUCKET", ""),
+        read_buckets=tuple(
+            b.strip()
+            for b in _env_str("CUTAGENT_OBJECTSTORE_READ_BUCKETS", "").split(",")
+            if b.strip()
+        ),
+        local_path=_env_str("CUTAGENT_LOCAL_OBJECTSTORE_PATH", ".data/objectstore"),
+        s3=S3TransportSettings(
+            endpoint_url=_env_str(
+                "CUTAGENT_OBJECTSTORE_ENDPOINT", "http://127.0.0.1:9000"
+            ),
+            access_key=_env_str("CUTAGENT_OBJECTSTORE_ACCESS_KEY", ""),
+            secret_key=_env_str("CUTAGENT_OBJECTSTORE_SECRET_KEY", ""),
+            region_name=_env_str("CUTAGENT_OBJECTSTORE_REGION", "us-east-1"),
+            addressing_style=_env_str("CUTAGENT_OBJECTSTORE_ADDRESSING_STYLE", "path"),
+            multipart_threshold_mb=_env_int(
+                "CUTAGENT_OBJECTSTORE_MULTIPART_THRESHOLD_MB", 8
+            ),
+            multipart_chunk_mb=_env_int("CUTAGENT_OBJECTSTORE_MULTIPART_CHUNK_MB", 8),
+            max_concurrency=_env_int("CUTAGENT_OBJECTSTORE_MAX_CONCURRENCY", 4),
+            connect_timeout=_env_int("CUTAGENT_OBJECTSTORE_CONNECT_TIMEOUT", 10),
+            read_timeout=_env_int("CUTAGENT_OBJECTSTORE_READ_TIMEOUT", 120),
+            max_attempts=_env_int("CUTAGENT_OBJECTSTORE_MAX_ATTEMPTS", 5),
+        ),
+        ephemeral=EphemeralObjectStoreSettings(
+            backend=_env_str("CUTAGENT_EPHEMERAL_OBJECTSTORE_BACKEND", "local").lower(),
+            bucket=_env_str(
+                "CUTAGENT_EPHEMERAL_OBJECTSTORE_BUCKET", "cutagent-ephemeral"
+            ),
+            local_path=_env_str(
+                "CUTAGENT_OBJECTSTORE_EPHEMERAL_PATH",
+                _default_ephemeral_local_path(),
+            ),
+            endpoint_url=_env_str(
+                "CUTAGENT_EPHEMERAL_OBJECTSTORE_ENDPOINT", "http://127.0.0.1:9000"
+            ),
+            access_key=_env_str("CUTAGENT_EPHEMERAL_OBJECTSTORE_ACCESS_KEY", ""),
+            secret_key=_env_str("CUTAGENT_EPHEMERAL_OBJECTSTORE_SECRET_KEY", ""),
+            region_name=_env_str("CUTAGENT_EPHEMERAL_OBJECTSTORE_REGION", "us-east-1"),
+            addressing_style=_env_str(
+                "CUTAGENT_EPHEMERAL_OBJECTSTORE_ADDRESSING_STYLE", "path"
+            ),
+        ),
+    )
+
+
+def build_workflow_settings() -> WorkflowSettings:
+    return WorkflowSettings(
+        runtime=_env_str("CUTAGENT_WORKFLOW_RUNTIME", "local").lower(),
+        temporal_address=_env_str("CUTAGENT_TEMPORAL_ADDRESS", "127.0.0.1:7233"),
+        temporal_namespace=_env_str("CUTAGENT_TEMPORAL_NAMESPACE", "default"),
+        temporal_task_queue=_env_str(
+            "CUTAGENT_TEMPORAL_TASK_QUEUE", "cutagent-production"
+        ),
+    )
+
+
+def build_providers_settings() -> ProvidersSettings:
+    return ProvidersSettings(
+        max_inflight=_env_positive_int("CUTAGENT_PROVIDER_MAX_INFLIGHT", 4),
+        max_qps=_env_positive_int("CUTAGENT_PROVIDER_MAX_QPS", 4),
+        circuit_breaker_enabled=os.getenv("CUTAGENT_PROVIDER_CIRCUIT_BREAKER") == "1",
+        circuit_error_rate_threshold=_env_unit_float(
+            "CUTAGENT_PROVIDER_CIRCUIT_ERROR_RATE", 0.5
+        ),
+        circuit_window_hours=_env_min_int("CUTAGENT_PROVIDER_CIRCUIT_WINDOW", 24),
+        allowed_api_hosts=_env_str("CUTAGENT_ALLOWED_API_HOSTS", ""),
+        enforce_host_allowlist=os.getenv("CUTAGENT_ENFORCE_PROVIDER_HOST_ALLOWLIST") == "1",
+    )
+
+
+def build_publishing_settings() -> PublishingSettings:
+    return PublishingSettings(
+        xiaovmao_cdp_host=_env_str("CUTAGENT_XIAOVMAO_CDP_HOST", "127.0.0.1"),
+        xiaovmao_cdp_port_raw=_env_str("CUTAGENT_XIAOVMAO_CDP_PORT", "9222"),
+    )
+
+
+def build_redis_url() -> str | None:
+    return os.getenv("CUTAGENT_REDIS_URL")
 
 
 def build_settings() -> Settings:
@@ -409,68 +597,8 @@ def build_settings() -> Settings:
             pool_recycle=_env_int_blank_default("CUTAGENT_DB_POOL_RECYCLE", 1800),
             pool_timeout=_env_int_blank_default("CUTAGENT_DB_POOL_TIMEOUT", 30),
         ),
-        object_store=ObjectStoreSettings(
-            tiered=os.getenv("CUTAGENT_OBJECTSTORE_TIERED", "1") != "0",
-            backend=_env_str("CUTAGENT_OBJECTSTORE_BACKEND", "local").lower(),
-            bucket=_env_str("CUTAGENT_OBJECTSTORE_BUCKET", "cutagent-local"),
-            materials_bucket=_env_str("CUTAGENT_OBJECTSTORE_MATERIALS_BUCKET", ""),
-            read_buckets=tuple(
-                b.strip()
-                for b in _env_str("CUTAGENT_OBJECTSTORE_READ_BUCKETS", "").split(",")
-                if b.strip()
-            ),
-            local_path=_env_str("CUTAGENT_LOCAL_OBJECTSTORE_PATH", ".data/objectstore"),
-            s3=S3TransportSettings(
-                endpoint_url=_env_str(
-                    "CUTAGENT_OBJECTSTORE_ENDPOINT", "http://127.0.0.1:9000"
-                ),
-                access_key=_env_str("CUTAGENT_OBJECTSTORE_ACCESS_KEY", ""),
-                secret_key=_env_str("CUTAGENT_OBJECTSTORE_SECRET_KEY", ""),
-                region_name=_env_str("CUTAGENT_OBJECTSTORE_REGION", "us-east-1"),
-                addressing_style=_env_str(
-                    "CUTAGENT_OBJECTSTORE_ADDRESSING_STYLE", "path"
-                ),
-                multipart_threshold_mb=_env_int(
-                    "CUTAGENT_OBJECTSTORE_MULTIPART_THRESHOLD_MB", 8
-                ),
-                multipart_chunk_mb=_env_int("CUTAGENT_OBJECTSTORE_MULTIPART_CHUNK_MB", 8),
-                max_concurrency=_env_int("CUTAGENT_OBJECTSTORE_MAX_CONCURRENCY", 4),
-                connect_timeout=_env_int("CUTAGENT_OBJECTSTORE_CONNECT_TIMEOUT", 10),
-                read_timeout=_env_int("CUTAGENT_OBJECTSTORE_READ_TIMEOUT", 120),
-                max_attempts=_env_int("CUTAGENT_OBJECTSTORE_MAX_ATTEMPTS", 5),
-            ),
-            ephemeral=EphemeralObjectStoreSettings(
-                backend=_env_str(
-                    "CUTAGENT_EPHEMERAL_OBJECTSTORE_BACKEND", "local"
-                ).lower(),
-                bucket=_env_str(
-                    "CUTAGENT_EPHEMERAL_OBJECTSTORE_BUCKET", "cutagent-ephemeral"
-                ),
-                local_path=_env_str(
-                    "CUTAGENT_OBJECTSTORE_EPHEMERAL_PATH",
-                    _default_ephemeral_local_path(),
-                ),
-                endpoint_url=_env_str(
-                    "CUTAGENT_EPHEMERAL_OBJECTSTORE_ENDPOINT", "http://127.0.0.1:9000"
-                ),
-                access_key=_env_str("CUTAGENT_EPHEMERAL_OBJECTSTORE_ACCESS_KEY", ""),
-                secret_key=_env_str("CUTAGENT_EPHEMERAL_OBJECTSTORE_SECRET_KEY", ""),
-                region_name=_env_str(
-                    "CUTAGENT_EPHEMERAL_OBJECTSTORE_REGION", "us-east-1"
-                ),
-                addressing_style=_env_str(
-                    "CUTAGENT_EPHEMERAL_OBJECTSTORE_ADDRESSING_STYLE", "path"
-                ),
-            ),
-        ),
-        workflow=WorkflowSettings(
-            runtime=_env_str("CUTAGENT_WORKFLOW_RUNTIME", "local").lower(),
-            temporal_address=_env_str("CUTAGENT_TEMPORAL_ADDRESS", "127.0.0.1:7233"),
-            temporal_namespace=_env_str("CUTAGENT_TEMPORAL_NAMESPACE", "default"),
-            temporal_task_queue=_env_str(
-                "CUTAGENT_TEMPORAL_TASK_QUEUE", "cutagent-production"
-            ),
-        ),
+        object_store=build_object_store_settings(),
+        workflow=build_workflow_settings(),
         auth=AuthSettings(
             registration_open=_env_str("CUTAGENT_REGISTRATION_OPEN", "true").lower()
             == "true",
@@ -570,7 +698,9 @@ def build_settings() -> Settings:
                 "CUTAGENT_LEARNING_BUMP_CONSISTENCY_FLOOR", 0.6
             ),
         ),
-        redis_url=os.getenv("CUTAGENT_REDIS_URL"),
+        providers=build_providers_settings(),
+        publishing=build_publishing_settings(),
+        redis_url=build_redis_url(),
     )
 
 

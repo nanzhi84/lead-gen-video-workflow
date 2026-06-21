@@ -11,6 +11,7 @@ from packages.core.contracts import (
     SecretPreview,
     utcnow,
 )
+from packages.core.storage.base_repository import BaseRepository
 from packages.core.storage.database import AuditEventRow, SecretRow
 from packages.core.storage.repository import new_id
 from packages.core.storage.secret_store import SecretCipher, SecretStore
@@ -64,9 +65,9 @@ def secret_row_to_contract(row: SecretRow) -> SecretPreview:
     )
 
 
-class SqlAlchemySecretRepository:
+class SqlAlchemySecretRepository(BaseRepository):
     def __init__(self, session_factory: sessionmaker[Session], secret_store: SecretStore) -> None:
-        self.session_factory = session_factory
+        super().__init__(session_factory)
         self.secret_store = secret_store
         self.cipher = SecretCipher.from_store(secret_store)
 

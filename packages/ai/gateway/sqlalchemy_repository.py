@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session
 
 from packages.core.contracts import (
     CreateProviderProfileRequest,
@@ -33,6 +33,7 @@ from packages.core.storage.database import (
     ProviderProfileRow,
     SecretRow,
 )
+from packages.core.storage.base_repository import BaseRepository
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
 
@@ -146,9 +147,7 @@ def price_item_row_to_contract(row: ProviderPriceItemRow) -> ProviderPriceItem:
     )
 
 
-class SqlAlchemyProviderRuntimeRepository:
-    def __init__(self, session_factory: sessionmaker[Session]) -> None:
-        self.session_factory = session_factory
+class SqlAlchemyProviderRuntimeRepository(BaseRepository):
 
     def get_profile(self, profile_id: str) -> ProviderProfile | None:
         with self.session_factory() as session:
@@ -171,9 +170,7 @@ class SqlAlchemyProviderRuntimeRepository:
             return session.scalar(statement) is not None
 
 
-class SqlAlchemyProviderRepository:
-    def __init__(self, session_factory: sessionmaker[Session]) -> None:
-        self.session_factory = session_factory
+class SqlAlchemyProviderRepository(BaseRepository):
 
     def list_profiles(
         self,

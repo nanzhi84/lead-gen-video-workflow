@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session
 
 from packages.core.contracts import CaseDetail, CaseListItem, CreateCaseRequest, PatchCaseRequest, utcnow
 from packages.core.storage.database import (
@@ -12,6 +12,7 @@ from packages.core.storage.database import (
     ScriptVersionRow,
     WorkflowRunRow,
 )
+from packages.core.storage.base_repository import BaseRepository
 from packages.core.storage.repository import new_id
 
 ACTIVE_RUN_STATUSES = {"created", "admitted", "running", "cancelling"}
@@ -62,10 +63,7 @@ def case_row_to_list_item(row: CaseRow, counts: dict[str, int] | None = None) ->
     )
 
 
-class SqlAlchemyCaseRepository:
-    def __init__(self, session_factory: sessionmaker[Session]) -> None:
-        self.session_factory = session_factory
-
+class SqlAlchemyCaseRepository(BaseRepository):
     def list_cases(
         self,
         *,

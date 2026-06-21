@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from sqlalchemy.orm import Session, sessionmaker
-
 from packages.core.contracts import (
     Artifact,
     ArtifactKind,
@@ -11,6 +9,7 @@ from packages.core.contracts import (
     UploadStatus,
     utcnow,
 )
+from packages.core.storage.base_repository import BaseRepository
 from packages.core.storage.database import ArtifactRow, UploadSessionRow
 from packages.core.storage.repository import new_id
 from packages.core.contracts.state_machines import assert_transition
@@ -62,9 +61,7 @@ def artifact_row_to_contract(row: ArtifactRow) -> Artifact:
     )
 
 
-class SqlAlchemyUploadRepository:
-    def __init__(self, session_factory: sessionmaker[Session]) -> None:
-        self.session_factory = session_factory
+class SqlAlchemyUploadRepository(BaseRepository):
 
     def create_upload(self, upload: UploadSession) -> UploadSession:
         with self.session_factory() as session:

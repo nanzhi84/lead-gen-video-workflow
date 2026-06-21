@@ -434,7 +434,7 @@ def test_real_lipsync_falls_back_to_sandbox_without_secret(tmp_path, media_fixtu
     state = _lipsync_state(
         adapter.repository, object_store, media_fixture_factory, profile_id="heygem.real"
     )
-    profile, is_real = adapter._resolve_lipsync_profile(state.request)
+    profile, is_real = adapter.provider_profiles.resolve_lipsync(state.request)
     assert is_real is False  # gating: no secret -> not real
     # the node will route the requested profile id to the gateway; point it at sandbox
     state.request.lipsync.provider_profile_id = "runninghub.heygem.default"

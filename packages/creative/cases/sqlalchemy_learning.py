@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session, sessionmaker
 
 from packages.core.contracts import (
     AdoptScriptDraftRequest,
@@ -12,6 +11,7 @@ from packages.core.contracts import (
     utcnow,
 )
 from packages.core.storage.database import CaseMemoryRow, ScriptDraftRow, ScriptVersionRow
+from packages.core.storage.base_repository import BaseRepository
 from packages.core.storage.repository import new_id
 from packages.creative.cases.sqlalchemy_learning_mappers import (
     case_memory_row_to_contract,
@@ -20,9 +20,7 @@ from packages.creative.cases.sqlalchemy_learning_mappers import (
 )
 
 
-class SqlAlchemyCaseLearningRepository:
-    def __init__(self, session_factory: sessionmaker[Session]) -> None:
-        self.session_factory = session_factory
+class SqlAlchemyCaseLearningRepository(BaseRepository):
 
     def list_drafts(self, *, case_id: str, limit: int = 50) -> list[ScriptDraft]:
         with self.session_factory() as session:

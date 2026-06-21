@@ -96,6 +96,7 @@ from packages.core.storage.database import (
 from packages.ai.gateway.sqlalchemy_repository import provider_profile_row_to_contract
 from packages.creative.cases import evolution, metrics_import
 from packages.creative.cases.sqlalchemy_learning_mappers import script_version_row_to_contract
+from packages.core.storage.base_repository import BaseRepository
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
 from packages.media.assets import local_object_path
@@ -292,9 +293,9 @@ class _ImportRowConflict(Exception):
     """Recoverable per-row import conflict: fail just this row, do not abort the batch."""
 
 
-class SqlAlchemyProductionRepository:
+class SqlAlchemyProductionRepository(BaseRepository):
     def __init__(self, session_factory: sessionmaker[Session], object_store: ObjectStore | None = None) -> None:
-        self.session_factory = session_factory
+        super().__init__(session_factory)
         self.object_store = object_store or get_object_store()
 
     def persist_job(self, job: Job) -> None:

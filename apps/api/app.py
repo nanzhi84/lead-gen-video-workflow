@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import asyncio
-import os
 
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
@@ -126,8 +125,8 @@ def configure_app_state(app: FastAPI, *, session_factory=None) -> None:
     # Publishing-center QR login: 小V猫 CDP manager. Platform sessions live in
     # 小V猫, never in SecretStore/DB.
     app.state.xiaovmao_login_manager = XiaoVmaoLoginManager(
-        host=os.getenv("CUTAGENT_XIAOVMAO_CDP_HOST", "127.0.0.1"),
-        port=int(os.getenv("CUTAGENT_XIAOVMAO_CDP_PORT", "9222")),
+        host=app.state.settings.publishing.xiaovmao_cdp_host,
+        port=app.state.settings.publishing.xiaovmao_cdp_port,
     )
     app.state.event_hub = InProcessFanoutHub(redis_url=app.state.settings.redis_url)
     app.state.event_tokens = EventStreamTokenStore(redis_url=app.state.settings.redis_url)

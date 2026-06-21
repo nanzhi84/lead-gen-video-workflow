@@ -82,7 +82,7 @@ def resolve_vlm_profile(
 
     A profile is usable only when it is enabled, its provider plugin is registered,
     it is NOT the sandbox provider, and its secret (if any) is active. This is the
-    same gate the pipeline nodes use (``_first_available_provider_profile``).
+    same gate the pipeline nodes use (``ProviderProfileResolver.first_available``).
     """
     ordered = [p for p in (explicit_profile, *candidate_profiles) if p is not None]
     seen: set[str] = set()

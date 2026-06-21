@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Protocol
 
+from packages.core.config.settings import build_publishing_settings
 from packages.core.contracts import PlatformAccount
 
 SANDBOX_ADAPTER_ID = "sandbox.publish"
@@ -153,9 +154,8 @@ class XiaoVmaoPublishAdapter:
     adapter_id: str = XIAOVMAO_ADAPTER_ID
 
     def _host_port(self) -> tuple[str, int]:
-        host = os.getenv("CUTAGENT_XIAOVMAO_CDP_HOST", "127.0.0.1")
-        port = int(os.getenv("CUTAGENT_XIAOVMAO_CDP_PORT", "9222"))
-        return host, port
+        publishing = build_publishing_settings()
+        return publishing.xiaovmao_cdp_host, publishing.xiaovmao_cdp_port
 
     def probe_accounts(
         self,

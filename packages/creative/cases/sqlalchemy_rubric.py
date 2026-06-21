@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session
 
 from packages.core.contracts import (
     CaseRubric,
@@ -36,6 +36,7 @@ from packages.core.storage.database import (
     ScorePredictionRow,
     VideoVersionRow,
 )
+from packages.core.storage.base_repository import BaseRepository
 from packages.core.storage.repository import new_id
 import packages.creative.cases.rubric as rubric
 from packages.creative.cases.sqlalchemy_learning_mappers import script_version_row_to_contract
@@ -249,11 +250,8 @@ def _performance_score_to_row(score: PerformanceScore) -> PerformanceScoreRow:
 
 # Repository
 
-class SqlAlchemyCaseRubricRepository:
+class SqlAlchemyCaseRubricRepository(BaseRepository):
     """DB-backed store for rubrics, blind predictions, reward signals & bumps."""
-
-    def __init__(self, session_factory: sessionmaker[Session]) -> None:
-        self.session_factory = session_factory
 
     # -- rubrics ------------------------------------------------------------
 

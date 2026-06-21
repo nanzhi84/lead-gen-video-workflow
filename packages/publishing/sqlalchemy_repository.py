@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from sqlalchemy import delete, select
-from sqlalchemy.orm import Session, sessionmaker
 
 from packages.core.contracts import (
     ArtifactRef,
@@ -35,6 +34,7 @@ from packages.core.storage.database import (
     VideoVersionRow,
     WorkflowRunRow,
 )
+from packages.core.storage.base_repository import BaseRepository
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
 from packages.publishing.account_matching import normalize_publish_tags, normalize_scheduled_at
@@ -49,10 +49,7 @@ from packages.publishing.sqlalchemy_mappers import (
 )
 
 
-class SqlAlchemyPublishingRepository:
-    def __init__(self, session_factory: sessionmaker[Session]) -> None:
-        self.session_factory = session_factory
-
+class SqlAlchemyPublishingRepository(BaseRepository):
     def list_packages(self, *, limit: int = 50) -> list[PublishPackage]:
         with self.session_factory() as session:
             statement = select(PublishPackageRow).order_by(PublishPackageRow.updated_at.desc()).limit(limit)

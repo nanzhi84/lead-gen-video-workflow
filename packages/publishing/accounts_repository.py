@@ -7,7 +7,7 @@ Platform login/session state is owned by 小V猫 and is never persisted here.
 from __future__ import annotations
 
 from sqlalchemy import delete, select
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session
 
 from packages.core.contracts import CasePublishTarget, Client, PublishAccount
 from packages.core.contracts.base import utcnow
@@ -16,6 +16,7 @@ from packages.core.storage.database import (
     ClientRow,
     PublishAccountRow,
 )
+from packages.core.storage.base_repository import BaseRepository
 from packages.core.storage.repository import Repository, new_id
 from packages.publishing.accounts_mappers import (
     case_publish_target_row_to_contract,
@@ -24,9 +25,7 @@ from packages.publishing.accounts_mappers import (
 )
 
 
-class SqlAlchemyAccountsRepository:
-    def __init__(self, session_factory: sessionmaker[Session]) -> None:
-        self.session_factory = session_factory
+class SqlAlchemyAccountsRepository(BaseRepository):
 
     # --- clients ---
     def list_clients(self, *, include_archived: bool = False, limit: int = 50) -> list[Client]:

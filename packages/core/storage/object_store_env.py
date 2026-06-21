@@ -7,15 +7,15 @@ from typing import Any
 from packages.core.config import (
     EphemeralObjectStoreSettings,
     ObjectStoreSettings,
-    build_settings,
+    build_object_store_settings,
+    build_workflow_settings,
 )
 
 
 def object_store_from_env(*, client_factory: Callable[..., Any] | None = None):
     from packages.core.storage.tiered_object_store import TieredObjectStore
 
-    settings = build_settings()
-    config = settings.object_store
+    config = build_object_store_settings()
     # The durable store must also be able to READ material-bucket refs (when the
     # tiered store is off, or as a fallback), so fold materials_bucket into its read
     # set; in tiered mode material refs still route to the materials sub-store.
@@ -29,7 +29,7 @@ def object_store_from_env(*, client_factory: Callable[..., Any] | None = None):
         return durable
     ephemeral = _ephemeral_store(
         config.ephemeral,
-        workflow_runtime=settings.workflow.runtime,
+        workflow_runtime=build_workflow_settings().runtime,
         client_factory=client_factory,
     )
     materials = None

@@ -25,10 +25,11 @@ Enforced in two places (defense in depth):
 
 from __future__ import annotations
 
-import os
 from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlsplit
+
+from packages.core.config.settings import build_providers_settings
 
 #: Sanctioned provider hosts a user may point a ``base_url`` override at by
 #: default — the hosts already shipped in the registry config / provider seed, so
@@ -64,7 +65,7 @@ def allowed_hosts() -> set[str]:
     config change is observed, matching the rest of the infra-config conventions.
     """
     hosts = set(DEFAULT_ALLOWED_HOSTS)
-    for item in os.environ.get("CUTAGENT_ALLOWED_API_HOSTS", "").split(","):
+    for item in build_providers_settings().allowed_api_hosts.split(","):
         host = item.strip().lower()
         if host:
             hosts.add(host)

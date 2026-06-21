@@ -144,6 +144,13 @@ def test_invalid_env_falls_back_to_default(monkeypatch):
     assert plugin.peak <= provider_limiter.DEFAULT_MAX_INFLIGHT
 
 
+def test_unrelated_invalid_publishing_port_does_not_break_limiter(monkeypatch):
+    monkeypatch.setenv("CUTAGENT_XIAOVMAO_CDP_PORT", "not-a-number")
+    monkeypatch.delenv("CUTAGENT_PROVIDER_MAX_INFLIGHT", raising=False)
+
+    assert provider_limiter._max_inflight() == provider_limiter.DEFAULT_MAX_INFLIGHT
+
+
 def test_separate_keys_have_independent_slots(monkeypatch):
     monkeypatch.setenv("CUTAGENT_PROVIDER_MAX_INFLIGHT", "1")
     provider_limiter.reset_limiter_for_tests()

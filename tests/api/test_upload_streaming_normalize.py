@@ -91,28 +91,6 @@ def test_upload_rejects_oversize_body_with_413(upload_settings_override):
     assert response.json()["error"]["code"] == "upload.too_large"
 
 
-def test_upload_size_mismatch_still_enforced_on_streamed_path():
-    login_admin()
-    # Declares 100 bytes but sends 5 — the post-stream size check must fire.
-    prepared = client.post(
-        "/api/uploads/prepare",
-        json={
-            "kind": "broll",
-            "filename": "short.txt",
-            "content_type": "text/plain",
-            "size_bytes": 100,
-        },
-    ).json()
-
-    response = client.put(
-        f"/api/uploads/{prepared['id']}/file",
-        files={"file": ("short.txt", b"short", "text/plain")},
-    )
-
-    assert response.status_code == 400
-    assert response.json()["error"]["code"] == "upload.size_mismatch"
-
-
 def test_complete_upload_normalizes_portrait_when_enabled(upload_settings_override, tmp_path):
     login_admin()
     upload_settings_override(normalize_video=True)

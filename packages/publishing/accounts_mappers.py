@@ -4,34 +4,17 @@ from __future__ import annotations
 
 from packages.core.contracts import CasePublishTarget, Client, PublishAccount
 from packages.core.storage.database import CasePublishTargetRow, ClientRow, PublishAccountRow
+from packages.core.storage.row_mapper import map_row
 
 
 def client_row_to_contract(row: ClientRow) -> Client:
-    return Client(
-        id=row.id,
-        name=row.name,
-        remark=row.remark,
-        status=row.status,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-        schema_version=row.schema_version,
-    )
+    return map_row(row, Client)
 
 
 def publish_account_row_to_contract(row: PublishAccountRow) -> PublishAccount:
-    return PublishAccount(
-        id=row.id,
-        client_id=row.client_id,
-        platform=row.platform,
-        account_name=row.account_name,
-        platform_uid=row.platform_uid,
-        xiaovmao_uid=row.xiaovmao_uid,
-        login_state="unknown",
-        status=row.status,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-        schema_version=row.schema_version,
-    )
+    # login_state is not persisted on the row — it is a live signal resolved
+    # elsewhere; the mapper reports "unknown" until that lookup runs.
+    return map_row(row, PublishAccount, login_state="unknown")
 
 
 def case_publish_target_row_to_contract(

@@ -36,6 +36,7 @@ from packages.core.storage.database import (
     VoiceProfileRow,
 )
 from packages.core.storage.object_store import ObjectStore
+from packages.core.storage.base_repository import BaseRepository
 from packages.core.storage.repository import new_id
 from packages.core.storage.selection_ledger import material_usage_ranking_from_entries
 from packages.core.workflow import NodeExecutionError
@@ -131,11 +132,11 @@ def asset_record_is_v4(canonical: dict) -> bool:
     return isinstance(meta, dict) and "asset_id" in meta
 
 
-class SqlAlchemyMediaRepository:
+class SqlAlchemyMediaRepository(BaseRepository):
     def __init__(
         self, session_factory: sessionmaker[Session], object_store: ObjectStore | None = None
     ) -> None:
-        self.session_factory = session_factory
+        super().__init__(session_factory)
         self.object_store = object_store
 
     def _signed_thumbnail_url(self, thumbnail_uri: str | None) -> str | None:

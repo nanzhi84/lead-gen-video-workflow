@@ -58,6 +58,7 @@ from packages.core.storage.database import (
     YieldFunnelEventRow,
 )
 from packages.core.observability import compute_true_yield_rate, persist_funnel_event_rows
+from packages.core.storage.base_repository import BaseRepository
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
 from packages.ops.budget_evaluation import SpendRecord, evaluate_budget
@@ -96,9 +97,7 @@ def _money_currency(payload: dict | None) -> str:
     return str(payload.get("currency") or "CNY")
 
 
-class SqlAlchemyOpsRepository:
-    def __init__(self, session_factory: sessionmaker[Session]) -> None:
-        self.session_factory = session_factory
+class SqlAlchemyOpsRepository(BaseRepository):
 
     def dashboard(
         self,

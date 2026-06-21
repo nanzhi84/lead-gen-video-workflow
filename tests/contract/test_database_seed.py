@@ -45,6 +45,19 @@ def test_seed_users_store_argon2id_password_hashes():
     assert PasswordHasher().verify(admin.password_hash, "local-admin")
 
 
+def test_seed_rows_can_skip_local_auth_bootstrap_rows():
+    rows = seed_rows(include_local_auth_seed=False)
+
+    user_ids = {row.id for row in rows if isinstance(row, UserRow)}
+    registration_code_ids = {row.id for row in rows if isinstance(row, RegistrationCodeRow)}
+    demo_case = next(row for row in rows if isinstance(row, CaseRow) and row.id == "case_demo")
+
+    assert "usr_admin" not in user_ids
+    assert "usr_viewer" not in user_ids
+    assert "reg_seed_local_admin" not in registration_code_ids
+    assert demo_case.owner_user_id is None
+
+
 def test_seed_provider_profiles_and_prompt_binding_are_ready_for_workflow():
     rows = seed_rows()
     profile_ids = {row.id for row in rows if isinstance(row, ProviderProfileRow)}

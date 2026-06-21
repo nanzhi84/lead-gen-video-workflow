@@ -50,6 +50,7 @@ _INFRA_ENV_VARS = (
     "CUTAGENT_TEMPORAL_TASK_QUEUE",
     "CUTAGENT_REGISTRATION_OPEN",
     "CUTAGENT_REGISTRATION_CODE_SALT",
+    "CUTAGENT_SEED_LOCAL_AUTH",
     "CUTAGENT_SECRET_STORE_DIR",
     "CUTAGENT_FFMPEG_BIN",
     "CUTAGENT_FFPROBE_BIN",
@@ -112,6 +113,7 @@ def test_settings_built_in_defaults(clean_env) -> None:
 
     assert settings.auth.registration_open is True
     assert settings.auth.registration_code_salt == "local-dev-registration-code-salt"
+    assert settings.auth.seed_local_auth is True
 
     assert settings.secret_store.dir == ".data/secrets"
     assert settings.media.ffmpeg_bin is None
@@ -142,6 +144,7 @@ def test_settings_reads_env_overrides(clean_env, monkeypatch: pytest.MonkeyPatch
     monkeypatch.setenv("CUTAGENT_OBJECTSTORE_MAX_ATTEMPTS", "9")
     monkeypatch.setenv("CUTAGENT_WORKFLOW_RUNTIME", "TEMPORAL")  # lower-cased
     monkeypatch.setenv("CUTAGENT_REGISTRATION_OPEN", "false")
+    monkeypatch.setenv("CUTAGENT_SEED_LOCAL_AUTH", "false")
     monkeypatch.setenv("CUTAGENT_FFMPEG_BIN", "/opt/ffmpeg")
     monkeypatch.setenv("CUTAGENT_DISABLE_BACKGROUND_DISPATCHER", "1")
 
@@ -154,6 +157,7 @@ def test_settings_reads_env_overrides(clean_env, monkeypatch: pytest.MonkeyPatch
     assert settings.object_store.s3.max_attempts == 9
     assert settings.workflow.runtime == "temporal"
     assert settings.auth.registration_open is False
+    assert settings.auth.seed_local_auth is False
     assert settings.media.ffmpeg_bin == "/opt/ffmpeg"
     assert settings.api.disable_background_dispatcher is True
 

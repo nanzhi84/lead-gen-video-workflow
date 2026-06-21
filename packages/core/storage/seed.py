@@ -5,6 +5,7 @@ from collections.abc import Iterable
 from sqlalchemy.orm import Session
 
 from packages.core.auth.service import create_password_hasher
+from packages.core.config import build_settings
 from packages.core.storage.database import (
     CaseRow,
     MediaAssetRow,
@@ -23,13 +24,30 @@ from packages.core.storage.database import (
 from packages.core.storage.repository import Repository
 
 
-def seed_rows(repository: Repository | None = None) -> list[object]:
+LOCAL_AUTH_SEED_USER_IDS = {"usr_admin", "usr_viewer"}
+LOCAL_AUTH_SEED_REGISTRATION_CODE_IDS = {"reg_seed_local_admin"}
+
+
+def seed_rows(
+    repository: Repository | None = None, *, include_local_auth_seed: bool = True
+) -> list[object]:
     source = repository or Repository()
     password_hasher = create_password_hasher()
     registration_hash_by_id = {
         code_id: code_hash for code_hash, code_id in source.registration_code_hashes.items()
     }
     rows: list[object] = []
+    source_users = list(source.users.values())
+    source_registration_codes = list(source.registration_codes.values())
+    if not include_local_auth_seed:
+        source_users = [
+            user for user in source_users if user.id not in LOCAL_AUTH_SEED_USER_IDS
+        ]
+        source_registration_codes = [
+            code
+            for code in source_registration_codes
+            if code.id not in LOCAL_AUTH_SEED_REGISTRATION_CODE_IDS
+        ]
     rows.extend(
         [
             UserRow(
@@ -45,7 +63,7 @@ def seed_rows(repository: Repository | None = None) -> list[object]:
                 created_at=user.created_at,
                 updated_at=user.updated_at,
             )
-            for user in source.users.values()
+            for user in source_users
         ]
     )
     rows.extend(
@@ -62,7 +80,7 @@ def seed_rows(repository: Repository | None = None) -> list[object]:
                 created_at=code.created_at,
                 updated_at=code.created_at,
             )
-            for code in source.registration_codes.values()
+            for code in source_registration_codes
         ]
     )
     rows.extend(
@@ -70,7 +88,12 @@ def seed_rows(repository: Repository | None = None) -> list[object]:
             CaseRow(
                 id=case.id,
                 name=case.name,
-                owner_user_id=case.owner_user_id,
+                owner_user_id=(
+                    None
+                    if not include_local_auth_seed
+                    and case.owner_user_id in LOCAL_AUTH_SEED_USER_IDS
+                    else case.owner_user_id
+                ),
                 status=case.status,
                 description=case.description,
                 industry=case.industry,
@@ -282,7 +305,12 @@ def seed_rows(repository: Repository | None = None) -> list[object]:
 
 def seed_database(session: Session, rows: Iterable[object] | None = None) -> int:
     inserted = 0
-    for row in rows or seed_rows():
+    effective_rows = (
+        rows
+        if rows is not None
+        else seed_rows(include_local_auth_seed=build_settings().auth.seed_local_auth)
+    )
+    for row in effective_rows:
         existing = session.get(type(row), row.id)
         if existing is None:
             session.add(row)

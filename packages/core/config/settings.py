@@ -250,6 +250,10 @@ class AuthSettings(BaseModel):
     registration_open: bool = True
     # CUTAGENT_REGISTRATION_CODE_SALT: salt mixed into registration-code hashes.
     registration_code_salt: str = "local-dev-registration-code-salt"
+    # CUTAGENT_SEED_LOCAL_AUTH: seed local bootstrap users/codes
+    # (admin@local.cutagent / viewer@local.cutagent). Kept on by default for
+    # local dev and tests; production can disable it after real admins exist.
+    seed_local_auth: bool = True
     # Brute-force rate-limit knobs (R2). Sliding window per client/identifier.
     # CUTAGENT_AUTH_MAX_LOGIN_ATTEMPTS / _LOGIN_WINDOW_MINUTES /
     # _MAX_REGISTRATION_ATTEMPTS / _REGISTRATION_WINDOW_MINUTES.
@@ -605,6 +609,10 @@ def build_settings() -> Settings:
             registration_code_salt=_env_str(
                 "CUTAGENT_REGISTRATION_CODE_SALT", "local-dev-registration-code-salt"
             ),
+            seed_local_auth=_env_str("CUTAGENT_SEED_LOCAL_AUTH", "true")
+            .strip()
+            .lower()
+            in {"1", "true", "yes", "on"},
             max_login_attempts=_env_int("CUTAGENT_AUTH_MAX_LOGIN_ATTEMPTS", 8),
             login_window_minutes=_env_int("CUTAGENT_AUTH_LOGIN_WINDOW_MINUTES", 15),
             max_registration_attempts=_env_int(

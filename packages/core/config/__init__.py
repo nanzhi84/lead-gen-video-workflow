@@ -9,6 +9,8 @@ from .settings import (
     BalanceSettings,
     EphemeralObjectStoreSettings,
     ObjectStoreSettings,
+    ProvidersSettings,
+    PublishingSettings,
     Settings,
     build_settings,
 )
@@ -18,6 +20,8 @@ __all__ = [
     "BalanceSettings",
     "EphemeralObjectStoreSettings",
     "ObjectStoreSettings",
+    "ProvidersSettings",
+    "PublishingSettings",
     "Settings",
     "build_settings",
 ]

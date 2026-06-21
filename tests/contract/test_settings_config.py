@@ -52,6 +52,15 @@ _INFRA_ENV_VARS = (
     "CUTAGENT_FFMPEG_BIN",
     "CUTAGENT_FFPROBE_BIN",
     "CUTAGENT_DISABLE_BACKGROUND_DISPATCHER",
+    "CUTAGENT_PROVIDER_MAX_INFLIGHT",
+    "CUTAGENT_PROVIDER_MAX_QPS",
+    "CUTAGENT_PROVIDER_CIRCUIT_BREAKER",
+    "CUTAGENT_PROVIDER_CIRCUIT_ERROR_RATE",
+    "CUTAGENT_PROVIDER_CIRCUIT_WINDOW",
+    "CUTAGENT_ALLOWED_API_HOSTS",
+    "CUTAGENT_ENFORCE_PROVIDER_HOST_ALLOWLIST",
+    "CUTAGENT_XIAOVMAO_CDP_HOST",
+    "CUTAGENT_XIAOVMAO_CDP_PORT",
 )
 
 
@@ -105,6 +114,21 @@ def test_settings_built_in_defaults(clean_env) -> None:
     assert settings.media.ffprobe_bin is None
     assert settings.api.disable_background_dispatcher is False
 
+    # Provider gateway knobs (consolidated from packages/ai + packages/ops): these
+    # defaults must equal the previous scattered os.getenv defaults byte-for-byte.
+    prov = settings.providers
+    assert prov.max_inflight == 4
+    assert prov.max_qps == 4
+    assert prov.circuit_breaker_enabled is False
+    assert prov.circuit_error_rate_threshold == 0.5
+    assert prov.circuit_window_hours == 24
+    assert prov.allowed_api_hosts == ""
+    assert prov.enforce_host_allowlist is False
+
+    # Publishing 小V猫 CDP endpoint (consolidated from apps/api + packages/publishing).
+    assert settings.publishing.xiaovmao_cdp_host == "127.0.0.1"
+    assert settings.publishing.xiaovmao_cdp_port == 9222
+
 
 def test_settings_reads_env_overrides(clean_env, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CUTAGENT_STORAGE_BACKEND", "MEMORY")  # lower-cased
@@ -128,6 +152,82 @@ def test_settings_reads_env_overrides(clean_env, monkeypatch: pytest.MonkeyPatch
     assert settings.auth.registration_open is False
     assert settings.media.ffmpeg_bin == "/opt/ffmpeg"
     assert settings.api.disable_background_dispatcher is True
+
+
+def test_provider_publishing_settings_read_env_overrides(
+    clean_env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CUTAGENT_PROVIDER_MAX_INFLIGHT", "7")
+    monkeypatch.setenv("CUTAGENT_PROVIDER_MAX_QPS", "9")
+    monkeypatch.setenv("CUTAGENT_PROVIDER_CIRCUIT_BREAKER", "1")
+    monkeypatch.setenv("CUTAGENT_PROVIDER_CIRCUIT_ERROR_RATE", "0.7")
+    monkeypatch.setenv("CUTAGENT_PROVIDER_CIRCUIT_WINDOW", "6")
+    monkeypatch.setenv("CUTAGENT_ALLOWED_API_HOSTS", "proxy.internal")
+    monkeypatch.setenv("CUTAGENT_ENFORCE_PROVIDER_HOST_ALLOWLIST", "1")
+    monkeypatch.setenv("CUTAGENT_XIAOVMAO_CDP_HOST", "10.0.0.5")
+    monkeypatch.setenv("CUTAGENT_XIAOVMAO_CDP_PORT", "9333")
+
+    prov = build_settings().providers
+    assert prov.max_inflight == 7
+    assert prov.max_qps == 9
+    assert prov.circuit_breaker_enabled is True
+    assert prov.circuit_error_rate_threshold == 0.7
+    assert prov.circuit_window_hours == 6
+    assert prov.allowed_api_hosts == "proxy.internal"
+    assert prov.enforce_host_allowlist is True
+
+    pub = build_settings().publishing
+    assert pub.xiaovmao_cdp_host == "10.0.0.5"
+    assert pub.xiaovmao_cdp_port == 9333
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [("8", 8), ("0", 4), ("-3", 4), ("abc", 4), ("", 4)],
+)
+def test_provider_max_inflight_defensive_parse(
+    clean_env, monkeypatch: pytest.MonkeyPatch, raw: str, expected: int
+) -> None:
+    # Mirror the previous provider_limiter._max_inflight: unset / non-integer /
+    # non-positive falls back to the default rather than disabling backpressure.
+    monkeypatch.setenv("CUTAGENT_PROVIDER_MAX_INFLIGHT", raw)
+    assert build_settings().providers.max_inflight == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [("0.7", 0.7), ("2", 1.0), ("-1", 0.0), ("abc", 0.5), ("", 0.5)],
+)
+def test_circuit_error_rate_clamped_to_unit_interval(
+    clean_env, monkeypatch: pytest.MonkeyPatch, raw: str, expected: float
+) -> None:
+    # Mirror the previous circuit_breaker._float_env: invalid/unset -> default,
+    # valid -> clamped to [0, 1].
+    monkeypatch.setenv("CUTAGENT_PROVIDER_CIRCUIT_ERROR_RATE", raw)
+    assert build_settings().providers.circuit_error_rate_threshold == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [("5", 5), ("0", 1), ("-9", 1), ("abc", 24), ("", 24)],
+)
+def test_circuit_window_floored_at_one(
+    clean_env, monkeypatch: pytest.MonkeyPatch, raw: str, expected: int
+) -> None:
+    # Mirror the previous circuit_breaker._int_env: invalid/unset -> default,
+    # valid -> floored at 1.
+    monkeypatch.setenv("CUTAGENT_PROVIDER_CIRCUIT_WINDOW", raw)
+    assert build_settings().providers.circuit_window_hours == expected
+
+
+def test_circuit_breaker_enabled_only_on_exact_one(
+    clean_env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Mirror the previous strict "== '1'" check (truthy strings do not enable it).
+    monkeypatch.setenv("CUTAGENT_PROVIDER_CIRCUIT_BREAKER", "true")
+    assert build_settings().providers.circuit_breaker_enabled is False
+    monkeypatch.setenv("CUTAGENT_PROVIDER_CIRCUIT_BREAKER", "1")
+    assert build_settings().providers.circuit_breaker_enabled is True
 
 
 def test_build_settings_reads_env_at_call_time(clean_env, monkeypatch: pytest.MonkeyPatch) -> None:

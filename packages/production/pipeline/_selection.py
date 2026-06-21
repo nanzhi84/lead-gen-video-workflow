@@ -6,8 +6,7 @@ diversity ledger that drives usage-aware recency demotion on the next run).
 
 from __future__ import annotations
 
-from packages.core.contracts import SelectionLedgerEntry, WorkflowRun
-from packages.core.contracts.artifacts import ArtifactKind
+from packages.core.contracts import ArtifactKind, SelectionLedgerEntry, WorkflowRun
 from packages.production.pipeline._run_state import RunState
 
 

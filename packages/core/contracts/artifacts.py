@@ -3,21 +3,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from packages.core.contracts import (
-    Artifact,
-    ArtifactKind,
     ArtifactRef,
     CaseMemory,
     ContractModel,
     DegradationNotice,
-    EditorHandoffPackageArtifact,
-    JianyingDraftPackageArtifact,
-    MediaInfo,
     NodeError,
-    RunDebugReportArtifact,
-    RunPublicReportArtifact,
     ScriptVersion,
     VideoVersion,
     utcnow,
@@ -300,71 +293,3 @@ class ProviderRawResponseArtifact(ContractModel):
     body_artifact_uri: str
     content_type: str
     status_code: int | None = None
-
-
-class _UriOnlyArtifactEnvelope(BaseModel):
-    uri: str
-    sha256: str
-    media_info: MediaInfo
-
-
-class ArtifactSchemaRegistry:
-    def __init__(self, models: dict[tuple[ArtifactKind, str], type[ContractModel]]) -> None:
-        self._models = models
-
-    @classmethod
-    def default(cls) -> "ArtifactSchemaRegistry":
-        entries: dict[ArtifactKind, type[ContractModel]] = {
-            ArtifactKind.uploaded_file: UploadedFileArtifact,
-            ArtifactKind.validated_production_spec: ValidatedProductionSpecArtifact,
-            ArtifactKind.case_context: CaseContextArtifact,
-            ArtifactKind.case_performance_analysis: PerformanceAnalysisArtifact,
-            ArtifactKind.script_strategy: ScriptStrategyArtifact,
-            ArtifactKind.creative_intent: CreativeIntentArtifact,
-            ArtifactKind.audio_alignment_raw: RawAlignmentArtifact,
-            ArtifactKind.audio_alignment: AlignmentArtifact,
-            ArtifactKind.narration_units: NarrationUnitsArtifact,
-            ArtifactKind.material_pack: MaterialPackArtifact,
-            ArtifactKind.portrait_plan: PortraitPlanArtifact,
-            ArtifactKind.broll_plan: BrollPlanArtifact,
-            ArtifactKind.style_plan: StylePlanArtifact,
-            ArtifactKind.timeline_plan: TimelinePlanArtifact,
-            ArtifactKind.render_plan: RenderPlanArtifact,
-            ArtifactKind.lipsync_report: LipSyncReportArtifact,
-            ArtifactKind.editor_handoff_package: EditorHandoffPackageArtifact,
-            ArtifactKind.jianying_draft_package: JianyingDraftPackageArtifact,
-            ArtifactKind.publish_package: PublishPackageArtifact,
-            ArtifactKind.run_public_report: RunPublicReportArtifact,
-            ArtifactKind.run_debug_report: RunDebugReportArtifact,
-            ArtifactKind.provider_raw_request: ProviderRawRequestArtifact,
-            ArtifactKind.provider_raw_response: ProviderRawResponseArtifact,
-            ArtifactKind.import_mapping: ImportMappingArtifact,
-        }
-        return cls({(kind, "v1"): model for kind, model in entries.items()})
-
-    @property
-    def uri_only_kinds(self) -> frozenset[ArtifactKind]:
-        return frozenset(
-            {
-                ArtifactKind.audio_tts,
-                ArtifactKind.video_portrait_track,
-                ArtifactKind.video_lipsync,
-                ArtifactKind.video_rendered,
-                ArtifactKind.video_final,
-                ArtifactKind.video_finished,
-                ArtifactKind.subtitle_ass,
-                ArtifactKind.cover_image,
-            }
-        )
-
-    def model_for(self, kind: ArtifactKind, schema_version: str) -> type[ContractModel]:
-        version = "v1" if schema_version.endswith(".v1") else schema_version
-        return self._models[(kind, version)]
-
-    def validate_artifact(self, artifact: Artifact) -> Artifact:
-        if artifact.kind in self.uri_only_kinds:
-            _UriOnlyArtifactEnvelope.model_validate(artifact.model_dump())
-            return artifact
-        model = self.model_for(artifact.kind, artifact.schema_version)
-        model.model_validate(artifact.payload)
-        return artifact

@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 from sqlalchemy.dialects import postgresql
@@ -361,6 +362,15 @@ def test_alembic_selection_reservation_active_slot_revision_exists():
     migration = Path("packages/core/storage/alembic/versions/0020_selection_reservation_active_slot.py")
     assert migration.exists()
     text = migration.read_text(encoding="utf-8")
-    assert 'revision = "0020_selection_reservation_active_slot"' in text
+    assert 'revision = "0020_resv_active_slot"' in text
     assert 'down_revision = "0019_user_generation_defaults"' in text
     assert "uq_selection_reservations_active_slot" in text
+
+
+def test_alembic_revision_ids_fit_version_table_limit():
+    for migration in Path("packages/core/storage/alembic/versions").glob("*.py"):
+        text = migration.read_text(encoding="utf-8")
+        match = re.search(r'^revision = "([^"]+)"', text, flags=re.MULTILINE)
+        if match is None:
+            continue
+        assert len(match.group(1)) <= 32, migration

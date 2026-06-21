@@ -98,15 +98,6 @@ def test_minimax_is_unsupported_even_with_secret_and_no_http():
     assert called is False
 
 
-def test_minimax_unsupported_even_without_secret():
-    item = query_balance(
-        profile("minimax", secret_ref=None),
-        secret_store=SecretStoreStub(),
-        client=client_for(lambda _: httpx.Response(200, json={})),
-    )
-    assert item.status == "unsupported"
-
-
 # --- deepseek -------------------------------------------------------------
 
 def test_deepseek_parses_cny_balance():

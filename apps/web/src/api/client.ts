@@ -414,10 +414,6 @@ export const api = {
         `/api/uploads/${enc(uploadSessionId)}/cancel`,
         { method: "POST", idempotencyKey: createIdempotencyKey("upload_cancel") },
       ),
-    get: (uploadSessionId: string) =>
-      fetchJson<JsonResponse<operations["get_upload_api_uploads__upload_session_id__get"]>>(
-        `/api/uploads/${enc(uploadSessionId)}`,
-      ),
   },
   mediaAssets: {
     list: (query: QueryParams<operations["list_media_assets_api_media_assets_get"]> = {}) =>
@@ -505,13 +501,6 @@ export const api = {
         "/api/jobs/digital-human-video",
         { method: "POST", body: payload, idempotencyKey },
       ),
-    estimateDigitalHumanVideoCost: (
-      payload: JsonRequest<operations["estimate_digital_human_video_cost_api_jobs_digital_human_video_estimate_cost_post"]>,
-    ) =>
-      fetchJson<JsonResponse<operations["estimate_digital_human_video_cost_api_jobs_digital_human_video_estimate_cost_post"]>>(
-        "/api/jobs/digital-human-video/estimate-cost",
-        { method: "POST", body: payload, idempotencyKey: createIdempotencyKey("video_cost_estimate") },
-      ),
   },
   runs: {
     detail: (runId: string) =>
@@ -551,10 +540,6 @@ export const api = {
     previewUrl: (id: string) =>
       fetchJson<JsonResponse<operations["finished_video_preview_api_finished_videos__id__preview_url_get"]>>(
         `/api/finished-videos/${enc(id)}/preview-url`,
-      ),
-    downloadUrl: (id: string) =>
-      fetchJson<JsonResponse<operations["finished_video_download_api_finished_videos__id__download_get"]>>(
-        `/api/finished-videos/${enc(id)}/download`,
       ),
     delete: (id: string) =>
       fetchJson<JsonResponse<operations["delete_finished_video_api_finished_videos__id__delete"]>>(
@@ -626,48 +611,10 @@ export const api = {
         `/api/publish/items/${enc(itemId)}`,
         { method: "PATCH", body: payload, idempotencyKey: createIdempotencyKey("publish_item_patch") },
       ),
-    generateCopy: (
-      batchId: string,
-      itemId: string,
-      payload: JsonRequest<operations["generate_publish_copy_api_publish_batches__batch_id__items__item_id__generate_copy_post"]>,
-    ) =>
-      fetchJson<JsonResponse<operations["generate_publish_copy_api_publish_batches__batch_id__items__item_id__generate_copy_post"]>>(
-        `/api/publish/batches/${enc(batchId)}/items/${enc(itemId)}/generate-copy`,
-        { method: "POST", body: payload, idempotencyKey: createIdempotencyKey("publish_generate_copy") },
-      ),
-    generateCover: (
-      batchId: string,
-      itemId: string,
-      payload: JsonRequest<operations["generate_publish_cover_api_publish_batches__batch_id__items__item_id__generate_cover_post"]>,
-    ) =>
-      fetchJson<JsonResponse<operations["generate_publish_cover_api_publish_batches__batch_id__items__item_id__generate_cover_post"]>>(
-        `/api/publish/batches/${enc(batchId)}/items/${enc(itemId)}/generate-cover`,
-        { method: "POST", body: payload, idempotencyKey: createIdempotencyKey("publish_generate_cover") },
-      ),
-    previewCoverFrame: (
-      batchId: string,
-      itemId: string,
-      payload: JsonRequest<operations["preview_publish_cover_frame_api_publish_batches__batch_id__items__item_id__preview_cover_frame_post"]>,
-    ) =>
-      fetchJson<JsonResponse<operations["preview_publish_cover_frame_api_publish_batches__batch_id__items__item_id__preview_cover_frame_post"]>>(
-        `/api/publish/batches/${enc(batchId)}/items/${enc(itemId)}/preview-cover-frame`,
-        { method: "POST", body: payload, idempotencyKey: createIdempotencyKey("publish_preview_frame") },
-      ),
-    platformAccounts: (
-      query: QueryParams<operations["publish_platform_accounts_api_publish_platform_accounts_get"]> = {},
-    ) =>
-      fetchJson<JsonResponse<operations["publish_platform_accounts_api_publish_platform_accounts_get"]>>(
-        "/api/publish/platform-accounts",
-        { query },
-      ),
     deleteItem: (itemId: string) =>
       fetchJson<JsonResponse<operations["delete_publish_item_api_publish_items__item_id__delete"]>>(
         `/api/publish/items/${enc(itemId)}`,
         { method: "DELETE", idempotencyKey: createIdempotencyKey("publish_item_delete") },
-      ),
-    attempt: (attemptId: string) =>
-      fetchJson<JsonResponse<operations["publish_attempt_api_publish_attempts__attempt_id__get"]>>(
-        `/api/publish/attempts/${enc(attemptId)}`,
       ),
   },
   publishOps: {
@@ -681,19 +628,6 @@ export const api = {
         body: payload,
         idempotencyKey: createIdempotencyKey("publish_client"),
       }),
-    patchClient: (
-      clientId: string,
-      payload: JsonRequest<operations["patch_client_api_publish_clients__client_id__patch"]>,
-    ) =>
-      fetchJson<JsonResponse<operations["patch_client_api_publish_clients__client_id__patch"]>>(
-        `/api/publish/clients/${enc(clientId)}`,
-        { method: "PATCH", body: payload, idempotencyKey: createIdempotencyKey("publish_client_patch") },
-      ),
-    deleteClient: (clientId: string) =>
-      fetchJson<JsonResponse<operations["delete_client_api_publish_clients__client_id__delete"]>>(
-        `/api/publish/clients/${enc(clientId)}`,
-        { method: "DELETE", idempotencyKey: createIdempotencyKey("publish_client_delete") },
-      ),
     listAccounts: (query: QueryParams<operations["list_accounts_api_publish_accounts_get"]> = {}) =>
       fetchJson<JsonResponse<operations["list_accounts_api_publish_accounts_get"]>>("/api/publish/accounts", {
         query,
@@ -722,10 +656,6 @@ export const api = {
         `/api/publish/accounts/${enc(accountId)}/login`,
         { method: "POST", idempotencyKey: createIdempotencyKey("publish_login") },
       ),
-    pollLogin: (accountId: string, loginId: string) =>
-      fetchJson<JsonResponse<operations["poll_account_login_api_publish_accounts__account_id__login__login_id__get"]>>(
-        `/api/publish/accounts/${enc(accountId)}/login/${enc(loginId)}`,
-      ),
     cancelLogin: (accountId: string, loginId: string) =>
       fetchJson<JsonResponse<operations["cancel_account_login_api_publish_accounts__account_id__login__login_id__delete"]>>(
         `/api/publish/accounts/${enc(accountId)}/login/${enc(loginId)}`,
@@ -735,18 +665,6 @@ export const api = {
       fetchJson<JsonResponse<operations["validate_account_session_api_publish_accounts__account_id__session_validate_post"]>>(
         `/api/publish/accounts/${enc(accountId)}/session:validate`,
         { method: "POST", idempotencyKey: createIdempotencyKey("publish_session_validate") },
-      ),
-    listCaseTargets: (caseId: string) =>
-      fetchJson<JsonResponse<operations["list_case_targets_api_cases__case_id__publish_targets_get"]>>(
-        `/api/cases/${enc(caseId)}/publish-targets`,
-      ),
-    setCaseTargets: (
-      caseId: string,
-      payload: JsonRequest<operations["set_case_targets_api_cases__case_id__publish_targets_put"]>,
-    ) =>
-      fetchJson<JsonResponse<operations["set_case_targets_api_cases__case_id__publish_targets_put"]>>(
-        `/api/cases/${enc(caseId)}/publish-targets`,
-        { method: "PUT", body: payload, idempotencyKey: createIdempotencyKey("case_targets") },
       ),
   },
   providers: {
@@ -861,7 +779,6 @@ export type PatchCaseRequest = components["schemas"]["PatchCaseRequest"];
 export type PromptTemplateView = components["schemas"]["PromptTemplateView"];
 export type PromptVersionView = components["schemas"]["PromptVersionView"];
 export type PromptBindingView = components["schemas"]["PromptBindingView"];
-export type DigitalHumanVideoCostEstimateResponse = components["schemas"]["DigitalHumanVideoCostEstimateResponse"];
 export type NodeRun = components["schemas"]["NodeRun"];
 export type RunCard = components["schemas"]["RunCard"];
 export type RunDetailResponse = components["schemas"]["RunDetailResponse"];
@@ -885,7 +802,6 @@ export type PublishAccount = components["schemas"]["PublishAccount"];
 export type CreateClientRequest = components["schemas"]["CreateClientRequest"];
 export type CreatePublishAccountRequest = components["schemas"]["CreatePublishAccountRequest"];
 export type PatchPublishAccountRequest = components["schemas"]["PatchPublishAccountRequest"];
-export type LoginStatusResponse = components["schemas"]["LoginStatusResponse"];
 export type PublishPlatform = "douyin" | "shipinhao" | "kuaishou" | "xiaohongshu";
 export type PublishLoginState = "logged_in" | "logged_out" | "unknown";
 export type ProviderProfile = components["schemas"]["ProviderProfile"];

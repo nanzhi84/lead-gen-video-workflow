@@ -20,19 +20,12 @@ VIEWER_FORBIDDEN_EXEMPTIONS = {
     ("POST", "/api/auth/logout"): "self-service endpoint",
     ("PATCH", "/api/auth/me"): "self-service endpoint",
     ("POST", "/api/auth/me/change-password"): "self-service endpoint",
-    ("POST", "/api/tts/estimate-cost"): "read-only catalog math, viewer-accessible",
-    ("POST", "/api/video/estimate-cost"): "read-only catalog math, viewer-accessible",
 }
 INVALID_BODY_EXEMPTIONS = {
     ("PUT", "/api/uploads/{upload_session_id}/file"): "optional multipart upload body reaches domain state",
 }
 BODY_OVERRIDES = {
     ("POST", "/api/jobs/digital-human-video"): {
-        "case_id": "case_demo",
-        "script": "contract matrix body",
-        "voice": {"voice_id": "voice_sandbox"},
-    },
-    ("POST", "/api/jobs/digital-human-video/estimate-cost"): {
         "case_id": "case_demo",
         "script": "contract matrix body",
         "voice": {"voice_id": "voice_sandbox"},

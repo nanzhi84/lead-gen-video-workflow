@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import Any, Literal
 from pydantic import Field, JsonValue
 
-from .base import BaseListQuery, ContractModel, EntityMeta, ErrorCode, Money, ProviderStatus, RetryPolicy, utcnow
+from .base import ContractModel, EntityMeta, ErrorCode, Money, ProviderStatus, RetryPolicy, utcnow
 
 
 class ProviderError(ContractModel):
@@ -98,12 +98,6 @@ class ProviderProfile(EntityMeta):
     version: str = "v1"
 
 
-class ProviderProfileQuery(BaseListQuery):
-    provider_id: str | None = None
-    capability: str | None = None
-    environment: str | None = None
-
-
 class CreateProviderProfileRequest(ContractModel):
     provider_id: str
     model_id: str
@@ -159,21 +153,9 @@ class ProviderPriceItem(EntityMeta):
     active_to: datetime | None = None
 
 
-class PriceCatalogQuery(BaseListQuery):
-    provider_id: str | None = None
-    active_only: bool = False
-
-
 class UpsertPriceCatalogRequest(ContractModel):
     catalog: ProviderPriceCatalog
     items: list[ProviderPriceItem]
-
-
-class ProviderUsageQuery(ContractModel):
-    window_start: datetime
-    window_end: datetime
-    provider_id: str | None = None
-    case_id: str | None = None
 
 
 class ProviderUsageReport(ContractModel):
@@ -202,60 +184,8 @@ class ProviderUsageMetricsReport(ContractModel):
     request_id: str
 
 
-class CostEstimateLine(ContractModel):
-    label: str
-    capability_id: str
-    quantity: Decimal
-    unit: str
-    unit_price: Money | None = None
-    estimated_cost: Money
-    unpriced: bool = False
-
-
-class DigitalHumanVideoCostEstimateResponse(ContractModel):
-    tts_characters: int
-    estimated_video_seconds: int
-    tts: CostEstimateLine
-    video: CostEstimateLine
-    total: CostEstimateLine
-    request_id: str
-
-
-class TtsCostEstimateRequest(ContractModel):
-    text: str = Field(min_length=1)
-    provider_profile_id: str | None = None
-
-
-class TtsCostEstimateResponse(ContractModel):
-    text_length: int
-    estimated_chars: int
-    estimated_duration_sec: float
-    estimate: CostEstimateLine
-    pricing_source: Literal["catalog", "default"]
-    request_id: str
-
-
-class LipsyncCostEstimateRequest(ContractModel):
-    video_duration_sec: float = Field(gt=0)
-    provider_profile_id: str | None = None
-
-
-class LipsyncCostEstimateResponse(ContractModel):
-    video_duration_sec: float
-    video_duration_min: float
-    estimate: CostEstimateLine
-    pricing_source: Literal["catalog", "default"]
-    request_id: str
-
-
 class GovernedActionRequest(ContractModel):
     reason: str
-
-
-class ProviderBalanceQuery(ContractModel):
-    provider_id: str | None = None
-    account_group: str | None = None
-    environment: Literal["local", "dev", "staging", "prod"] | None = None
 
 
 class ProviderBalanceItem(ContractModel):

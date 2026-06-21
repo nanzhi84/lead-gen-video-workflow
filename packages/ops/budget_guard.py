@@ -78,9 +78,6 @@ class BudgetEnforcementGuard:
         scope_id = evaluation.scope_id
         if scope_type == "global":
             return True
-        if scope_type == "workspace":
-            workspace_id = self._workspace_id(call, invocation)
-            return scope_id is None or workspace_id == scope_id
         if scope_id is None:
             return True
         if scope_type == "provider":
@@ -96,18 +93,6 @@ class BudgetEnforcementGuard:
                 or getattr(invocation, "case_id", None) == scope_id
             )
         return False
-
-    def _workspace_id(self, *objects: object) -> str | None:
-        for item in objects:
-            direct = getattr(item, "workspace_id", None)
-            if direct:
-                return str(direct)
-            payload = getattr(item, "input", None)
-            if isinstance(payload, dict):
-                value = payload.get("workspace_id")
-                if value:
-                    return str(value)
-        return None
 
     def _degradation_notice(self, evaluation: BudgetEvaluation) -> DegradationNotice:
         return DegradationNotice(

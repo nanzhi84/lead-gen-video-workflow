@@ -1,4 +1,4 @@
-"""§9.6 失败分类法 — pure ErrorCode / funnel-event -> FailureClass mapping.
+"""§9.6 失败分类法 — pure ErrorCode -> FailureClass mapping.
 
 This lives in ``packages.core.observability`` (NOT ``packages.ops``) so the
 production runtime / node runner may classify a terminal failure WITHOUT violating
@@ -42,13 +42,6 @@ _PREFIX_TO_CLASS: tuple[tuple[str, FailureClass], ...] = (
     ("publish.", FailureClass.publish_failed),
 )
 
-_FUNNEL_EVENT_TO_CLASS: dict[str, FailureClass] = {
-    "qc_failed": FailureClass.qc_failed,
-    "manual_rejected": FailureClass.manual_rejected,
-    "publish_failed": FailureClass.publish_failed,
-}
-
-
 def classify_error_code(error_code: str | None) -> FailureClass:
     """Classify an ErrorCode value (e.g. ``provider.timeout``) into a FailureClass.
 
@@ -65,12 +58,3 @@ def classify_error_code(error_code: str | None) -> FailureClass:
         if code.startswith(prefix):
             return failure_class
     return FailureClass.provider_error
-
-
-def classify_funnel_event(event_type: str | None) -> FailureClass | None:
-    """Classify a §9.5 funnel failure event_type (qc_failed / manual_rejected /
-    publish_failed). Returns ``None`` for non-failure event types."""
-
-    if not event_type:
-        return None
-    return _FUNNEL_EVENT_TO_CLASS.get(event_type)

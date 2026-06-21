@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
 from typing import Generic, Literal, TypeVar
@@ -213,11 +213,6 @@ class EntityMeta(ContractModel):
     schema_version: str = "v1"
 
 
-class BaseListQuery(ContractModel):
-    limit: int = Field(50, ge=1, le=200)
-    cursor: str | None = None
-
-
 class OkResponse(ContractModel):
     ok: bool = True
     request_id: str
@@ -340,10 +335,3 @@ class ResumePolicy(ContractModel):
     reusable_artifact_kinds: list[ArtifactKind] = Field(default_factory=list)
     side_effect_replay: Literal["forbidden", "idempotent_only"] = "idempotent_only"
 
-
-def signed_local_url(path: str, minutes: int = 15) -> SignedUrlResponse:
-    return SignedUrlResponse(
-        url=f"local://{path}",
-        expires_at=utcnow() + timedelta(minutes=minutes),
-        request_id="req_local",
-    )

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from packages.media.annotation import apply_safety_inset, has_internal_cut, snap_to_cuts
+from packages.media.annotation import apply_safety_inset, snap_to_cuts
 
 
 def test_snap_to_cuts_snaps_within_tolerance():
@@ -37,15 +37,3 @@ def test_apply_safety_inset_insets_both_ends():
 def test_apply_safety_inset_drops_too_short():
     assert apply_safety_inset(1.0, 1.05, fps=25.0, inset_frames=2) is None
     assert apply_safety_inset(2.0, 1.0) is None  # already reversed
-
-
-def test_has_internal_cut_detects_interior_cut():
-    assert has_internal_cut(0.0, 5.0, [2.5], edge_guard=0.12) is True
-
-
-def test_has_internal_cut_ignores_edge_band_cuts():
-    assert has_internal_cut(0.0, 5.0, [0.05, 4.95], edge_guard=0.12) is False
-
-
-def test_has_internal_cut_short_segment_no_middle():
-    assert has_internal_cut(1.0, 1.1, [1.05], edge_guard=0.12) is False

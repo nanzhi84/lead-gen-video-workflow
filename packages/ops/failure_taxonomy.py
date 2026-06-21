@@ -9,9 +9,6 @@ keep working unchanged.
 
 from __future__ import annotations
 
-from packages.core.observability.failure_taxonomy import (
-    classify_error_code,
-    classify_funnel_event,
-)
+from packages.core.observability.failure_taxonomy import classify_error_code
 
-__all__ = ["classify_error_code", "classify_funnel_event"]
+__all__ = ["classify_error_code"]

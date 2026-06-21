@@ -177,7 +177,6 @@ class ProviderGateway:
             # Persist the read audit in its own short transaction. NEVER records the
             # secret value — only access metadata.
             from packages.core.storage.database import AuditEventRow
-            from packages.core.storage.repository import new_id
 
             with session_factory() as session:
                 session.add(

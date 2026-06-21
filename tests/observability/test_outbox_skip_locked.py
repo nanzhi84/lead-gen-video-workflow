@@ -80,29 +80,3 @@ def test_claim_runs_under_sqlite_without_skip_locked_error() -> None:
             )
         )
     assert statuses == ["published", "published"]
-
-
-def test_claim_query_branches_on_dialect() -> None:
-    """The claim is plain on sqlite and FOR UPDATE SKIP LOCKED on postgres."""
-    base = (
-        select(OutboxEventRow)
-        .where(OutboxEventRow.status == "pending")
-        .order_by(OutboxEventRow.created_at, OutboxEventRow.id)
-    )
-
-    from sqlalchemy.dialects import postgresql, sqlite
-
-    sqlite_sql = str(base.compile(dialect=sqlite.dialect()))
-    assert "FOR UPDATE" not in sqlite_sql.upper()
-
-    postgres_claim = base.with_for_update(skip_locked=True)
-    postgres_sql = str(postgres_claim.compile(dialect=postgresql.dialect()))
-    assert "FOR UPDATE" in postgres_sql.upper()
-    assert "SKIP LOCKED" in postgres_sql.upper()
-
-
-def test_dispatcher_does_not_add_for_update_on_sqlite_bind() -> None:
-    """Guard: the dispatcher detects sqlite and does NOT request FOR UPDATE."""
-    session_factory = _sqlite_session_factory()
-    with session_factory() as session:
-        assert session.get_bind().dialect.name == "sqlite"

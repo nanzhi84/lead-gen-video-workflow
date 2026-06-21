@@ -18,7 +18,7 @@ from datetime import datetime
 
 import httpx
 
-from packages.core.config import BalanceSettings, get_settings
+from packages.core.config import BalanceSettings, build_settings
 from packages.core.contracts import ProviderBalanceItem, ProviderProfile, utcnow
 from packages.core.storage.secret_store import SecretStore
 
@@ -72,7 +72,7 @@ class BalancePollerService:
         self._profiles_provider = profiles_provider
         self._secret_store = secret_store
         self._on_results = on_results
-        self._settings = settings or get_settings().balance
+        self._settings = settings or build_settings().balance
         self._pollers = pollers if pollers is not None else build_pollers()
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()

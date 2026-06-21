@@ -57,9 +57,6 @@ LLM_UNCONFIGURED = "llm_unconfigured"
 # Marker for when audio feature extraction yielded nothing usable.
 FEATURES_UNAVAILABLE = "features_unavailable"
 
-# Discrete tempo buckets (derive from BPM).
-BGM_TEMPO_BUCKETS = frozenset({"slow", "mid", "fast"})
-
 
 @dataclass
 class BgmAnnotationResult:
@@ -392,12 +389,6 @@ def _mean_between(energy: list[float], times: list[float], start: float, end: fl
     return _mean(vals) if vals else _mean(energy)
 
 
-def _is_stable_loop(energy: list[float], *, tolerance: float = 0.08) -> bool:
-    if not energy:
-        return True
-    return max(energy) - min(energy) <= tolerance
-
-
 def _energy_profile(value: float, previous: float | None, next_value: float | None) -> str:
     if previous is not None:
         if value - previous >= 0.18:
@@ -414,16 +405,6 @@ def _section_label(index: int) -> str:
     if index < len(alphabet):
         return alphabet[index]
     return f"S{index + 1}"
-
-
-def _median(values: list[float]) -> float:
-    if not values:
-        return 0.0
-    ordered = sorted(values)
-    mid = len(ordered) // 2
-    if len(ordered) % 2:
-        return ordered[mid]
-    return (ordered[mid - 1] + ordered[mid]) / 2.0
 
 
 def _upper_quartile(values: list[float]) -> float:
@@ -1014,5 +995,4 @@ __all__ = [
     "resolve_audio_profile",
     "LLM_UNCONFIGURED",
     "FEATURES_UNAVAILABLE",
-    "BGM_TEMPO_BUCKETS",
 ]

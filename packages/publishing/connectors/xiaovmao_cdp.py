@@ -387,13 +387,6 @@ class XiaoVmaoLoginDriver:
             raise XiaoVmaoUnavailableError(f"未找到可点击文本: {text}")
         await self._click_rect_center(driver, rect)
 
-    async def fill_visible_input(
-        self, driver: XiaoVmaoDriver, value: str, *, label: str | None = None
-    ) -> None:
-        result = await driver.evaluate(_fill_visible_input_js(value, label=label))
-        if not isinstance(result, dict) or not result.get("ok"):
-            raise XiaoVmaoUnavailableError(f"未找到可填输入框: {label or '<first visible>'}")
-
     async def capture_qr_image(self, page_driver: XiaoVmaoDriver) -> str | None:
         payload = await page_driver.evaluate(_LOGIN_QR_JS)
         if not isinstance(payload, dict):
@@ -640,51 +633,6 @@ def _visible_text_rect_js(text: str) -> str:
         .sort((a, b) => a.x - b.x || a.y - b.y);
       const rect = elements[0];
       return rect ? {{ ok: true, ...rect }} : {{ ok: false }};
-    }})()
-    """
-
-
-def _fill_visible_input_js(value: str, *, label: str | None) -> str:
-    return f"""
-    (() => {{
-      const label = {json.dumps(label or "", ensure_ascii=False)};
-      const value = {json.dumps(value, ensure_ascii=False)};
-      const visible = (el) => {{
-        const rect = el.getBoundingClientRect();
-        const style = window.getComputedStyle(el);
-        return !!(
-          el.offsetParent !== null &&
-          rect.width > 0 &&
-          rect.height > 0 &&
-          style.visibility !== 'hidden' &&
-          style.display !== 'none'
-        );
-      }};
-      const inputs = Array.from(document.querySelectorAll('input, textarea'))
-        .filter((el) => visible(el))
-        .filter((el) => {{
-          if (!label) return true;
-          const text = [
-            el.placeholder || '',
-            el.getAttribute('aria-label') || '',
-            el.name || '',
-          ].join(' ');
-          return text.includes(label);
-        }})
-        .map((el) => {{
-          const rect = el.getBoundingClientRect();
-          return {{ el, x: rect.x, y: rect.y }};
-        }})
-        .sort((a, b) => a.x - b.x || a.y - b.y);
-      const target = inputs[0]?.el;
-      if (!target) return {{ ok: false }};
-      const prototype = Object.getPrototypeOf(target);
-      const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
-      if (setter) setter.call(target, value);
-      else target.value = value;
-      target.dispatchEvent(new Event('input', {{ bubbles: true }}));
-      target.dispatchEvent(new Event('change', {{ bubbles: true }}));
-      return {{ ok: true }};
     }})()
     """
 

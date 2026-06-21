@@ -342,13 +342,6 @@ class ProviderSettings(BaseModel):
     # output. The test suite opts in (conftest) so its golden/fallback fixtures keep
     # exercising the sandbox path.
     allow_sandbox_fallback: bool = False
-    # CUTAGENT_ENFORCE_PROVIDER_HOST_ALLOWLIST: "1" turns on the OPT-IN, defense-in-
-    # depth host allow-list re-check in the provider gateway (before the bearer
-    # secret is delivered to the profile's base_url). The AUTHORITATIVE SSRF gate is
-    # always-on at provider-profile create/patch; this gateway re-check is OFF by
-    # default so fixtures/seeds that build profiles directly with synthetic hosts
-    # keep working. Enable in production for belt-and-suspenders enforcement.
-    enforce_provider_host_allowlist: bool = False
 
 
 class LearningSettings(BaseModel):
@@ -563,10 +556,6 @@ def build_settings() -> Settings:
         ),
         providers=ProviderSettings(
             allow_sandbox_fallback=os.getenv("CUTAGENT_ALLOW_SANDBOX_FALLBACK") == "1",
-            enforce_provider_host_allowlist=os.getenv(
-                "CUTAGENT_ENFORCE_PROVIDER_HOST_ALLOWLIST"
-            )
-            == "1",
         ),
         learning=LearningSettings(
             retro_window_days=_env_int("CUTAGENT_LEARNING_RETRO_WINDOW_DAYS", 3),
@@ -588,15 +577,6 @@ def build_settings() -> Settings:
         ),
         redis_url=os.getenv("CUTAGENT_REDIS_URL"),
     )
-
-
-def get_settings() -> Settings:
-    """Accessor returning a freshly-built infra ``Settings`` snapshot.
-
-    Provided for symmetry with the genesis DI conventions. Prefer reading
-    ``app.state.settings`` inside request handlers; reach for ``get_settings()``
-    only in standalone/CLI contexts that lack an ``app.state``."""
-    return build_settings()
 
 
 def sandbox_fallback_allowed() -> bool:

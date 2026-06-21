@@ -47,11 +47,6 @@ def is_video(material_type: str) -> bool:
     return material_class(material_type) == "video"
 
 
-def is_portrait(material_type: str) -> bool:
-    """True only for dedicated legacy portrait material (``video`` is its own class)."""
-    return material_class(material_type) == "portrait"
-
-
 def runs_speech_and_face(material_type: str) -> bool:
     """Whether to run the VAD speech-island + multi-face sensors.
 

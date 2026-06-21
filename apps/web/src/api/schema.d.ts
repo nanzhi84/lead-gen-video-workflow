@@ -470,40 +470,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/tts/estimate-cost": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Estimate Tts Cost */
-        post: operations["estimate_tts_cost_api_tts_estimate_cost_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/video/estimate-cost": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Estimate Lipsync Cost */
-        post: operations["estimate_lipsync_cost_api_video_estimate_cost_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/cases/{case_id}/runs": {
         parameters: {
             query?: never;
@@ -532,23 +498,6 @@ export interface paths {
         put?: never;
         /** Create Digital Human Job */
         post: operations["create_digital_human_job_api_jobs_digital_human_video_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/jobs/digital-human-video/estimate-cost": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Estimate Digital Human Video Cost */
-        post: operations["estimate_digital_human_video_cost_api_jobs_digital_human_video_estimate_cost_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3772,24 +3721,6 @@ export interface components {
             /** Request Id */
             request_id: string;
         };
-        /** CostEstimateLine */
-        CostEstimateLine: {
-            /** Label */
-            label: string;
-            /** Capability Id */
-            capability_id: string;
-            /** Quantity */
-            quantity: string;
-            /** Unit */
-            unit: string;
-            unit_price?: components["schemas"]["Money-Output"] | null;
-            estimated_cost: components["schemas"]["Money-Output"];
-            /**
-             * Unpriced
-             * @default false
-             */
-            unpriced: boolean;
-        };
         /**
          * CostMetrics
          * @description §9.4 / §26.2 cost indicators for an ops window.
@@ -4311,18 +4242,6 @@ export interface components {
             /** Provider Profile Id */
             provider_profile_id?: string | null;
         };
-        /** DigitalHumanVideoCostEstimateResponse */
-        DigitalHumanVideoCostEstimateResponse: {
-            /** Tts Characters */
-            tts_characters: number;
-            /** Estimated Video Seconds */
-            estimated_video_seconds: number;
-            tts: components["schemas"]["CostEstimateLine"];
-            video: components["schemas"]["CostEstimateLine"];
-            total: components["schemas"]["CostEstimateLine"];
-            /** Request Id */
-            request_id: string;
-        };
         /** DigitalHumanVideoRequest */
         DigitalHumanVideoRequest: {
             /**
@@ -4758,28 +4677,6 @@ export interface components {
              * @default 30
              */
             timeout_minutes: number;
-        };
-        /** LipsyncCostEstimateRequest */
-        LipsyncCostEstimateRequest: {
-            /** Video Duration Sec */
-            video_duration_sec: number;
-            /** Provider Profile Id */
-            provider_profile_id?: string | null;
-        };
-        /** LipsyncCostEstimateResponse */
-        LipsyncCostEstimateResponse: {
-            /** Video Duration Sec */
-            video_duration_sec: number;
-            /** Video Duration Min */
-            video_duration_min: number;
-            estimate: components["schemas"]["CostEstimateLine"];
-            /**
-             * Pricing Source
-             * @enum {string}
-             */
-            pricing_source: "catalog" | "default";
-            /** Request Id */
-            request_id: string;
         };
         /** LoginRequest */
         LoginRequest: {
@@ -8151,30 +8048,6 @@ export interface components {
             /** Request Id */
             request_id: string;
         };
-        /** TtsCostEstimateRequest */
-        TtsCostEstimateRequest: {
-            /** Text */
-            text: string;
-            /** Provider Profile Id */
-            provider_profile_id?: string | null;
-        };
-        /** TtsCostEstimateResponse */
-        TtsCostEstimateResponse: {
-            /** Text Length */
-            text_length: number;
-            /** Estimated Chars */
-            estimated_chars: number;
-            /** Estimated Duration Sec */
-            estimated_duration_sec: number;
-            estimate: components["schemas"]["CostEstimateLine"];
-            /**
-             * Pricing Source
-             * @enum {string}
-             */
-            pricing_source: "catalog" | "default";
-            /** Request Id */
-            request_id: string;
-        };
         /** UpdateMeRequest */
         UpdateMeRequest: {
             /** Display Name */
@@ -9660,72 +9533,6 @@ export interface operations {
             };
         };
     };
-    estimate_tts_cost_api_tts_estimate_cost_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TtsCostEstimateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TtsCostEstimateResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    estimate_lipsync_cost_api_video_estimate_cost_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["LipsyncCostEstimateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LipsyncCostEstimateResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     case_run_cards_api_cases__case_id__runs_get: {
         parameters: {
             query?: {
@@ -9779,39 +9586,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CreateJobResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    estimate_digital_human_video_cost_api_jobs_digital_human_video_estimate_cost_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DigitalHumanVideoRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DigitalHumanVideoCostEstimateResponse"];
                 };
             };
             /** @description Validation Error */

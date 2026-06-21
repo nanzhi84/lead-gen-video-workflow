@@ -1284,82 +1284,6 @@
         }
       }
     },
-    "/api/tts/estimate-cost": {
-      "post": {
-        "summary": "Estimate Tts Cost",
-        "operationId": "estimate_tts_cost_api_tts_estimate_cost_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TtsCostEstimateRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TtsCostEstimateResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/video/estimate-cost": {
-      "post": {
-        "summary": "Estimate Lipsync Cost",
-        "operationId": "estimate_lipsync_cost_api_video_estimate_cost_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/LipsyncCostEstimateRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LipsyncCostEstimateResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/cases/{case_id}/runs": {
       "get": {
         "summary": "Case Run Cards",
@@ -1430,44 +1354,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CreateJobResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/jobs/digital-human-video/estimate-cost": {
-      "post": {
-        "summary": "Estimate Digital Human Video Cost",
-        "operationId": "estimate_digital_human_video_cost_api_jobs_digital_human_video_estimate_cost_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DigitalHumanVideoRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DigitalHumanVideoCostEstimateResponse"
                 }
               }
             }
@@ -10785,55 +10671,6 @@
         ],
         "title": "CompleteUploadResponse"
       },
-      "CostEstimateLine": {
-        "properties": {
-          "label": {
-            "type": "string",
-            "title": "Label"
-          },
-          "capability_id": {
-            "type": "string",
-            "title": "Capability Id"
-          },
-          "quantity": {
-            "type": "string",
-            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-            "title": "Quantity"
-          },
-          "unit": {
-            "type": "string",
-            "title": "Unit"
-          },
-          "unit_price": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/Money-Output"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "estimated_cost": {
-            "$ref": "#/components/schemas/Money-Output"
-          },
-          "unpriced": {
-            "type": "boolean",
-            "title": "Unpriced",
-            "default": false
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "label",
-          "capability_id",
-          "quantity",
-          "unit",
-          "estimated_cost"
-        ],
-        "title": "CostEstimateLine"
-      },
       "CostMetrics": {
         "properties": {
           "window_start": {
@@ -12376,42 +12213,6 @@
         ],
         "title": "DesignVoiceRequest"
       },
-      "DigitalHumanVideoCostEstimateResponse": {
-        "properties": {
-          "tts_characters": {
-            "type": "integer",
-            "title": "Tts Characters"
-          },
-          "estimated_video_seconds": {
-            "type": "integer",
-            "title": "Estimated Video Seconds"
-          },
-          "tts": {
-            "$ref": "#/components/schemas/CostEstimateLine"
-          },
-          "video": {
-            "$ref": "#/components/schemas/CostEstimateLine"
-          },
-          "total": {
-            "$ref": "#/components/schemas/CostEstimateLine"
-          },
-          "request_id": {
-            "type": "string",
-            "title": "Request Id"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "tts_characters",
-          "estimated_video_seconds",
-          "tts",
-          "video",
-          "total",
-          "request_id"
-        ],
-        "title": "DigitalHumanVideoCostEstimateResponse"
-      },
       "DigitalHumanVideoRequest": {
         "properties": {
           "schema_version": {
@@ -13564,69 +13365,6 @@
         "additionalProperties": false,
         "type": "object",
         "title": "LipSyncOptions"
-      },
-      "LipsyncCostEstimateRequest": {
-        "properties": {
-          "video_duration_sec": {
-            "type": "number",
-            "exclusiveMinimum": 0.0,
-            "title": "Video Duration Sec"
-          },
-          "provider_profile_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Provider Profile Id"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "video_duration_sec"
-        ],
-        "title": "LipsyncCostEstimateRequest"
-      },
-      "LipsyncCostEstimateResponse": {
-        "properties": {
-          "video_duration_sec": {
-            "type": "number",
-            "title": "Video Duration Sec"
-          },
-          "video_duration_min": {
-            "type": "number",
-            "title": "Video Duration Min"
-          },
-          "estimate": {
-            "$ref": "#/components/schemas/CostEstimateLine"
-          },
-          "pricing_source": {
-            "type": "string",
-            "enum": [
-              "catalog",
-              "default"
-            ],
-            "title": "Pricing Source"
-          },
-          "request_id": {
-            "type": "string",
-            "title": "Request Id"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "video_duration_sec",
-          "video_duration_min",
-          "estimate",
-          "pricing_source",
-          "request_id"
-        ],
-        "title": "LipsyncCostEstimateResponse"
       },
       "LoginRequest": {
         "properties": {
@@ -22661,74 +22399,6 @@
           "request_id"
         ],
         "title": "TrimAnnotationResponse"
-      },
-      "TtsCostEstimateRequest": {
-        "properties": {
-          "text": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Text"
-          },
-          "provider_profile_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Provider Profile Id"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "text"
-        ],
-        "title": "TtsCostEstimateRequest"
-      },
-      "TtsCostEstimateResponse": {
-        "properties": {
-          "text_length": {
-            "type": "integer",
-            "title": "Text Length"
-          },
-          "estimated_chars": {
-            "type": "integer",
-            "title": "Estimated Chars"
-          },
-          "estimated_duration_sec": {
-            "type": "number",
-            "title": "Estimated Duration Sec"
-          },
-          "estimate": {
-            "$ref": "#/components/schemas/CostEstimateLine"
-          },
-          "pricing_source": {
-            "type": "string",
-            "enum": [
-              "catalog",
-              "default"
-            ],
-            "title": "Pricing Source"
-          },
-          "request_id": {
-            "type": "string",
-            "title": "Request Id"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "text_length",
-          "estimated_chars",
-          "estimated_duration_sec",
-          "estimate",
-          "pricing_source",
-          "request_id"
-        ],
-        "title": "TtsCostEstimateResponse"
       },
       "UpdateMeRequest": {
         "properties": {

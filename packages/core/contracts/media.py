@@ -8,7 +8,7 @@ from typing import Any, Literal
 from uuid import uuid4
 from pydantic import Field, JsonValue, ValidationError, field_serializer, field_validator, model_validator
 
-from .base import ArtifactRef, BaseListQuery, ContractModel, EntityMeta, ErrorCode, utcnow
+from .base import ArtifactRef, ContractModel, EntityMeta, ErrorCode, utcnow
 from .publishing import PublishPackage
 
 
@@ -183,12 +183,6 @@ class MaterialUsageRankingReport(ContractModel):
     top_n: int = Field(20, ge=1, le=100)
     items: list[MaterialUsageRankingItem] = Field(default_factory=list)
     request_id: str = "req_local"
-
-
-class MediaAssetQuery(BaseListQuery):
-    case_id: str | None = None
-    kind: str | None = None
-    annotation_status: str | None = None
 
 
 class CreateMediaAssetFromUploadRequest(ContractModel):
@@ -372,11 +366,6 @@ class VoiceProfile(EntityMeta):
     provider_profile_id: str | None = None
     preview_artifact_id: str | None = None
     enabled: bool = True
-
-
-class VoiceQuery(BaseListQuery):
-    source: str | None = None
-    enabled: bool | None = None
 
 
 class CloneVoiceRequest(ContractModel):
@@ -807,26 +796,6 @@ class SpeechIslandV4(ContractModel):
         if self.end <= self.start:
             raise ValueError(f"end ({self.end}) must be greater than start ({self.start})")
         return self
-
-
-class PortraitQualityReport(ContractModel):
-    """Deterministic whole-clip health report for portrait (talking-head) material."""
-
-    hook_strength: str
-    speech_stability: str
-    tail_state: str
-    lip_sync_suitability_score: int = Field(ge=0, le=100)
-
-
-class BrollQualityReport(ContractModel):
-    """Deterministic whole-clip health report for b-roll (scenery) material."""
-
-    usable_ratio: float = Field(ge=0, le=1)
-    stability_score: float = Field(ge=0, le=100)
-    hard_quality_count: int = Field(ge=0)
-    soft_quality_count: int = Field(ge=0)
-    dominant_scene_types: list[str] = Field(default_factory=list)
-    dominant_shot_scales: list[str] = Field(default_factory=list)
 
 
 # AnnotationEditorVm.canonical forward-references AnnotationV4 (defined later in

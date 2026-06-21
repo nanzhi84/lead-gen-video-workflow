@@ -7,7 +7,7 @@ from enum import Enum
 from typing import Literal
 from pydantic import Field, JsonValue
 
-from .base import ArtifactRef, BaseListQuery, ContractModel, EntityMeta, NodeError
+from .base import ArtifactRef, ContractModel, EntityMeta, NodeError
 from .cases import PublishRecord, VideoVersion
 
 
@@ -30,11 +30,6 @@ class FinishedVideo(EntityMeta):
     lipsync_provider_id: str | None = None
     lipsync_fallback_used: bool = False
     lipsync_fallback_reason: str | None = None
-
-
-class FinishedVideoQuery(BaseListQuery):
-    case_id: str | None = None
-    qc_status: str | None = None
 
 
 class FinishedVideoDetail(ContractModel):
@@ -83,11 +78,6 @@ class CreateJianyingDraftRequest(ContractModel):
 class JianyingDraftPackageArtifact(ContractModel):
     package_artifact: ArtifactRef
     draft_manifest: dict[str, JsonValue]
-
-
-class PublishPackageQuery(BaseListQuery):
-    case_id: str | None = None
-    source_type: str | None = None
 
 
 class CreatePublishPackageRequest(ContractModel):
@@ -161,10 +151,6 @@ class PublishBatchItemVm(EntityMeta):
 class PublishBatchVm(EntityMeta):
     status: PublishBatchStatus = PublishBatchStatus.draft
     items: list[PublishBatchItemVm] = Field(default_factory=list)
-
-
-class PublishBatchQuery(BaseListQuery):
-    status: str | None = None
 
 
 class CreatePublishBatchRequest(ContractModel):

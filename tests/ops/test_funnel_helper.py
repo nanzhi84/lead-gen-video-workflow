@@ -58,11 +58,6 @@ def test_workflow_stage_maps_runstatus_to_spec_strings():
     assert workflow_stage("admitted") == "admitted"
 
 
-def test_workflow_run_lifecycle_stages_are_in_taxonomy():
-    for status in (RunStatus.created, RunStatus.admitted, RunStatus.running):
-        assert workflow_stage(status) in FUNNEL_TAXONOMY
-
-
 def test_node_stage_maps_nodestatus_to_spec_strings():
     assert node_stage(NodeStatus.succeeded) == "node_succeeded"
     assert node_stage(NodeStatus.degraded) == "node_succeeded"

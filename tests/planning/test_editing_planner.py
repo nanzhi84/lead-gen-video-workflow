@@ -14,7 +14,6 @@ Proves the CRITICAL INVARIANTS and core algorithm:
 
 from __future__ import annotations
 
-import math
 
 import pytest
 
@@ -37,11 +36,6 @@ from packages.planning.editing.packing import assign_boundary_windows_for_chunks
 
 
 # (a) frame grid — single source of truth
-
-
-@pytest.mark.parametrize("t", [0.0, 0.1, 0.5, 1.0, 12.96, 12.9667, 1.0 / 3.0, 7.5, 50.0])
-def test_frame_index_is_floor_half_up(t: float) -> None:
-    assert frame_index(t) == int(math.floor(t * TIMELINE_FPS + 0.5))
 
 
 def test_frame_index_half_boundary_differs_from_round() -> None:

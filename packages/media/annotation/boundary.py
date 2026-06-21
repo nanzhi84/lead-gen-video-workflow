@@ -1,10 +1,9 @@
-"""Clip-boundary cut-precision defences 2/3/4 (defence 1, the precise cuts, is the
+"""Clip-boundary cut-precision defences 2/3 (defence 1, the precise cuts, is the
 shots sensor).
 
 1. precise cuts  : PySceneDetect frame-accurate real cuts (sensors.shots, not here)
 2. snap-to-cut   : snap VLM-estimated segment start/end to the nearest real cut -> snap_to_cuts
 3. safety inset  : inset each end by 1-2 frames (~0.04s), deterministic fallback -> apply_safety_inset
-4. internal self-check : after cutting, re-scan inside the segment for a hidden cut -> has_internal_cut
 
 Pure, deterministic, unit-testable; no settings read (parameters are defaults).
 """
@@ -83,30 +82,3 @@ def apply_safety_inset(
         return None
 
     return new_start, new_end
-
-
-def has_internal_cut(
-    start: float,
-    end: float,
-    shot_cuts: list[float],
-    *,
-    edge_guard: float = 0.12,
-) -> bool:
-    """Defence 4 - True if a real cut sits inside (start, end) beyond the edge guard.
-
-    The segment is bounded by its own end cuts; cuts within ``edge_guard`` of
-    start/end are the segment's boundary, not intruders. A very short segment with
-    overlapping edge guards (no middle) never reports.
-    """
-    if not shot_cuts:
-        return False
-
-    inner_low = start + edge_guard
-    inner_high = end - edge_guard
-    if inner_high <= inner_low:
-        return False
-
-    for cut in shot_cuts:
-        if inner_low < cut < inner_high:
-            return True
-    return False

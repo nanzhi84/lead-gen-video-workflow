@@ -291,6 +291,9 @@ def test_bgm_unconfigured_degrades_to_features_only(tmp_path):
     assert ann.meta.annotation_status == AnnotationStatus.completed
     assert len(ann.bgm_segments) == 2
     assert ann.bgm_segments[0].source == "sensor"
+    # degraded sensor path defaults role from role_hint and leaves mood empty
+    assert ann.bgm_segments[0].role.value == "hook"
+    assert ann.bgm_segments[0].mood == ""
     report = ann.quality_report["bgm"]
     assert report["status"] == LLM_UNCONFIGURED
     # objective features still recorded; no fabricated semantics

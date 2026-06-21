@@ -54,10 +54,12 @@ def test_orm_models_expose_owner_user_id_column():
     assert "owner_user_id" in YieldFunnelEventRow.__table__.columns
 
 
-def test_migration_revision_chains_to_0017():
+def test_migration_revision_chains_to_xiaovmao_head():
+    # Rebased onto #38's 0018_xiaovmao_account_session (which also descends from
+    # 0017_secret_encrypted_value); chained after it to keep a single linear head.
     text = MIGRATION_PATH.read_text(encoding="utf-8")
     assert 'revision = "0018_owner_user_id_isolation"' in text
-    assert 'down_revision = "0017_secret_encrypted_value"' in text
+    assert 'down_revision = "0018_xiaovmao_account_session"' in text
 
 
 def _build_engine():

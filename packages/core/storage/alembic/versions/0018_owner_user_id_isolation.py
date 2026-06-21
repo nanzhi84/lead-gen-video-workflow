@@ -4,7 +4,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "0018_owner_user_id_isolation"
-down_revision = "0017_secret_encrypted_value"
+down_revision = "0018_xiaovmao_account_session"
 branch_labels = None
 depends_on = None
 

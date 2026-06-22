@@ -299,17 +299,27 @@ def _build_insertion(
     Returns ``None`` if the placement would round past the timeline end.
     """
     clip_span = max(0.0, candidate.source_end - candidate.source_start)
+    # A usable source span shorter than the minimum insert can only fill the slot
+    # by reading past its clean span (into avoided footage / EOF), so skip it
+    # rather than over-trim — more likely now that short clean clips with no
+    # keyword match are admitted as generic fillers. (clip_span == 0 means the
+    # caller left the source window open and falls back to _MAX below.)
+    if 0.0 < clip_span < _MIN_INSERT_SECONDS:
+        return None
+    host_end = min(host_unit.end, timeline_end)
     desired = clip_span if clip_span > 0 else _MAX_INSERT_SECONDS
     length = max(_MIN_INSERT_SECONDS, min(desired, _MAX_INSERT_SECONDS, available))
     start = _fresh_timeline_start(
         start,
         length=length,
-        host_end=min(host_unit.end, timeline_end),
+        host_end=host_end,
         freshness_seed=freshness_seed,
         parts=(candidate.asset_id, candidate.clip_id, index),
     )
-    end = round(start + length, 3)
-    if end > timeline_end:
+    # Clamp against the host window end (not just timeline_end) so freshness jitter
+    # / rounding can never spill the overlay past its narration window.
+    end = min(round(start + length, 3), round(host_end, 3))
+    if end - start < _MIN_INSERT_SECONDS:
         return None
     source_start = _fresh_source_start(
         candidate, taken=length, freshness_seed=freshness_seed, parts=("insert", index)

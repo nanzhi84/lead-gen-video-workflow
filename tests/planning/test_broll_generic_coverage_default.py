@@ -191,3 +191,21 @@ def test_generics_fill_earlier_windows_even_when_a_match_anchors_late():
     assert "u4" in host_units, "the match anchors in the last window"
     # generics still fill the earlier empty windows instead of being suppressed
     assert len(host_units & {"u1", "u2", "u3"}) >= 2
+
+
+def test_clip_too_short_to_fill_min_insert_is_skipped_not_overtrimmed():
+    # A clean span (admitted from _MIN_CLEAN_SPAN_SEC=1.0s) shorter than the
+    # minimum insert (1.5s) must NOT be placed: forcing a 1.5s insert would trim
+    # 0.5s of source past the clean span (into avoided footage / EOF).
+    units = _units()
+    segments = _segments(units)
+    annotation = _video_annotation("vid", [_clean_clip("short", 0.0, 1.2, keywords=("窗外",))])
+    cands = rank_broll_candidates(
+        annotations={"vid": annotation}, segments=segments, include_generic_coverage=True
+    )
+    insertions = plan_insertions(candidates=cands, units=units, max_inserts=4)
+    # No insert may read more source than the clip actually offers.
+    for ins in insertions:
+        assert ins.source_end - ins.source_start <= 1.2 + 1e-6
+    # The sole sub-1.5s clip cannot supply a clean minimum-length insert.
+    assert all(ins.clip_id != "short" for ins in insertions)

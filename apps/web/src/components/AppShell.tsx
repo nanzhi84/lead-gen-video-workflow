@@ -40,7 +40,7 @@ function roleLabel(role?: string) {
 function Breadcrumbs() {
   const location = useLocation();
   const params = useParams();
-  const parts = ["树影"];
+  const parts = ["树影cutagent"];
   if (location.pathname === "/") {
     parts.push("概览");
   } else if (location.pathname.startsWith("/studio")) {
@@ -82,8 +82,8 @@ export function AppShell() {
             <Sparkles className="h-4 w-4 text-[#1b1d1a]" />
           </span>
           <span className="min-w-0">
-            <span className="font-display block text-xl leading-none text-text-primary">树影</span>
-            <span className="mt-1 block truncate text-[0.6875rem] text-text-tertiary">Cutagent</span>
+            <span className="font-display block text-xl leading-none text-text-primary">树影cutagent</span>
+            <span className="mt-1 block truncate text-[0.6875rem] text-text-tertiary">工作台</span>
           </span>
         </NavLink>
 
@@ -137,7 +137,7 @@ export function AppShell() {
               <Sparkles className="h-4 w-4 text-[#1b1d1a]" />
             </span>
             <span className="min-w-0">
-              <span className="font-display block text-xl leading-none text-text-primary">树影</span>
+              <span className="font-display block text-xl leading-none text-text-primary">树影cutagent</span>
               <span className="block truncate text-xs text-text-secondary">{user?.display_name || user?.email || "移动工作台"}</span>
             </span>
           </NavLink>

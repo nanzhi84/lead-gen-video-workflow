@@ -428,6 +428,47 @@ def test_material_pack_video_without_talking_head_flags_no_lipsync(tmp_path, mon
     assert payload["broll_candidates"]
 
 
+def test_material_pack_excludes_ai_material_reference_assets(tmp_path, monkeypatch):
+    """An AI素材 (Seedance reference) video tagged ai_material must NOT enter the
+    digital-human portrait/b-roll material pools — it is a generation reference,
+    not footage to cut into a normal run."""
+    object_store = LocalObjectStore(tmp_path / "objects")
+    monkeypatch.setattr("packages.core.storage.object_store._OBJECT_STORE", object_store)
+    adapter = _adapter(object_store)
+    adapter.repository.media_assets.clear()
+    adapter.repository.annotations.clear()
+    _inject_video_asset(
+        adapter.repository,
+        "vid_normal",
+        [
+            _talk_clip("talk_n", 0.0, 7.0),
+            _cover_clip("cover_n", 7.0, 12.0, ["打磨", "工艺"]),
+        ],
+    )
+    _inject_video_asset(
+        adapter.repository,
+        "vid_ai",
+        [
+            _talk_clip("talk_ai", 0.0, 7.0),
+            _cover_clip("cover_ai", 7.0, 12.0, ["打磨", "工艺"]),
+        ],
+    )
+    # Tag the second video as an AI素材 reference upload.
+    adapter.repository.media_assets["vid_ai"] = adapter.repository.media_assets["vid_ai"].model_copy(
+        update={"tags": ["ai_material"]}
+    )
+
+    output = nodes.material_pack_planning.run(_ctx(adapter, _request(), "MaterialPackPlanning"))
+    payload = next(a.payload for a in output.artifacts if a.kind == ArtifactKind.plan_material_pack)
+
+    portrait_asset_ids = {c["asset_id"] for c in payload["portrait_candidates"]}
+    broll_asset_ids = {c["asset_id"] for c in payload["broll_candidates"]}
+    assert "vid_ai" not in portrait_asset_ids
+    assert "vid_ai" not in broll_asset_ids
+    # The normal (untagged) video still flows into the pools.
+    assert "vid_normal" in broll_asset_ids
+
+
 def test_material_pack_global_video_does_not_enter_case_scoped_broll(tmp_path, monkeypatch):
     object_store = LocalObjectStore(tmp_path / "objects")
     monkeypatch.setattr("packages.core.storage.object_store._OBJECT_STORE", object_store)

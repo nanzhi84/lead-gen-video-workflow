@@ -178,6 +178,7 @@ def complete_upload(payload: c.CompleteUploadRequest, request: Request) -> c.Com
         c.UploadKind.portrait,
         c.UploadKind.broll,
         c.UploadKind.video,
+        c.UploadKind.image,
         c.UploadKind.bgm,
         c.UploadKind.font,
         c.UploadKind.cover_template,
@@ -193,6 +194,11 @@ def complete_upload(payload: c.CompleteUploadRequest, request: Request) -> c.Com
             media_payload.tags.append("stabilized")
         if was_normalized:
             media_payload.tags.append("normalized")
+        # 「AI素材」marker: the AI-source library tab uploads with this metadata flag
+        # so the asset is tagged for the Seedance reference picker (no new contract
+        # field needed — rides the existing metadata dict).
+        if payload.metadata.get("ai_material") == "1" and "ai_material" not in media_payload.tags:
+            media_payload.tags.append("ai_material")
         if media_repository(request) is not None:
             media_asset = media_repository(request).create_asset_from_upload(media_payload)
         else:

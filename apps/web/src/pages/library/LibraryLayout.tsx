@@ -1,5 +1,6 @@
 import { NavLink, Navigate, useLocation } from "react-router-dom";
 import { libraryTabs, readTab } from "../../components/library/libraryModel";
+import { AISourceTab } from "./AISourceTab";
 import { BgmTab } from "./BgmTab";
 import { FontsTab } from "./FontsTab";
 import { TemplatesTab } from "./TemplatesTab";
@@ -16,7 +17,7 @@ export default function LibraryLayout() {
       <header className="pageHeader">
         <div>
           <h1>素材库</h1>
-          <p className="mt-2 text-sm text-text-secondary">管理音色、视频模板、字体与配乐素材。</p>
+          <p className="mt-2 text-sm text-text-secondary">管理音色、视频模板、AI素材、字体与配乐素材。</p>
         </div>
       </header>
 
@@ -34,6 +35,7 @@ export default function LibraryLayout() {
 
       {tab === "voices" ? <VoicesTab /> : null}
       {tab === "templates" ? <TemplatesTab /> : null}
+      {tab === "ai_source" ? <AISourceTab /> : null}
       {tab === "fonts" ? <FontsTab /> : null}
       {tab === "bgm" ? <BgmTab /> : null}
     </div>

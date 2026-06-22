@@ -4412,6 +4412,8 @@ export interface components {
              * @default digital_human_v2
              */
             workflow_template_id: string;
+            /** Reference Asset Ids */
+            reference_asset_ids?: string[];
             voice?: components["schemas"]["VoiceOptions"];
             portrait?: components["schemas"]["PortraitOptions"];
             broll?: components["schemas"]["BrollOptions"];
@@ -8222,7 +8224,7 @@ export interface components {
          * UploadKind
          * @enum {string}
          */
-        UploadKind: "portrait" | "broll" | "video" | "voice_reference" | "bgm" | "font" | "cover_template" | "publish_video";
+        UploadKind: "portrait" | "broll" | "video" | "image" | "voice_reference" | "bgm" | "font" | "cover_template" | "publish_video";
         /** UploadSession */
         UploadSession: {
             /** Id */

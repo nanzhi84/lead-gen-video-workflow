@@ -312,7 +312,7 @@ class Repository:
             id="voice_sandbox",
             display_name="Sandbox Mandarin Voice",
             source="builtin",
-            vendor="sandbox",
+            vendor="",
             provider_profile_id="sandbox.tts.default",
             status="ready",
         )

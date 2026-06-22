@@ -37,7 +37,10 @@ def _voice_tts_profile_id(provider_profile_id: str | None) -> str:
 
 def _vendor_from_provider_id(provider_id: str | None) -> str:
     """Derive a vendor tag from a profile/provider id (e.g. 'volcengine.tts.prod'
-    -> 'volcengine'). Sandbox maps to '' so it groups under '未指定厂商'."""
+    -> 'volcengine'). Sandbox maps to '' so it groups under '未指定厂商'.
+
+    Mirrors ``packages.media.sqlalchemy_repository._vendor_from_profile_id`` (the
+    repo backfill path); keep the two in sync if the vendor/sandbox rule changes."""
     if not provider_id:
         return ""
     head = provider_id.split(".", 1)[0]
@@ -140,7 +143,8 @@ def sync_voices(payload: c.SyncVoicesRequest, request: Request) -> c.SyncVoicesR
             source = str(item.get("source") or "cloned")
             if source not in ("cloned", "designed", "builtin"):
                 source = "cloned"
-            status = str(item.get("status") or "ready")
+            raw_status = str(item.get("status") or "ready")
+            status = raw_status if raw_status in ("ready", "training", "failed") else "ready"
             display_name = str(item.get("display_name") or "").strip() or voice_id
             if media_repo is not None:
                 voice, created = media_repo.upsert_voice(

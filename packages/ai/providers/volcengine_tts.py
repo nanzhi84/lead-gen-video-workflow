@@ -238,7 +238,9 @@ class VolcengineTTSProvider:
         )
         result = response_json(response)
         code = result.get("code")
-        if code not in (0, 3000, None):
+        # Strict success allow-list (mirrors _speech's code != 3000): a missing or
+        # non-zero code is a failure, never silently filed as training.
+        if code not in (0, 3000):
             message = str(result.get("message") or "Volcengine clone upload failed.")
             raise ProviderRuntimeError(
                 ErrorCode.provider_remote_failed, f"Volcengine clone code={code}: {message}"

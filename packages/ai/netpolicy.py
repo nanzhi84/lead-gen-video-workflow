@@ -55,6 +55,7 @@ DEFAULT_ALLOWED_HOSTS: frozenset[str] = frozenset(
 #: read explicit per-endpoint URL overrides too.
 URL_OPTION_KEYS: tuple[str, ...] = (
     "base_url",
+    "data_base_url",
     "transcription_url",
     "chat_completions_url",
 )

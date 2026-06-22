@@ -123,6 +123,14 @@ class VolcSpeechOpenAPI:
             raise ProviderRuntimeError(
                 ErrorCode.provider_remote_failed, f"火山 OpenAPI {action} 请求失败: {exc}"
             ) from exc
+        # A non-JSON 401/403 (e.g. gateway error page) must map to auth_failed, not
+        # remote_failed — mirrors the balance poller. Signature/permission errors that
+        # come back as HTTP 200 + ResponseMetadata.Error are handled below.
+        if response.status_code in (401, 403):
+            raise ProviderRuntimeError(
+                ErrorCode.provider_auth_failed,
+                f"火山 OpenAPI {action} 鉴权失败 (HTTP {response.status_code})",
+            )
         try:
             data = response.json()
         except ValueError as exc:
@@ -189,7 +197,10 @@ class VolcSpeechOpenAPI:
         """Return SpeakerIDs of empty clone slots a platform clone can claim.
 
         Empty slots are the purchased-but-unused quota: ``State=Unknown`` with no
-        ``Alias``. Successful/failed/named voices are excluded.
+        ``Alias``. Successful/failed/named voices are excluded. NOTE: a freshly
+        claimed-but-still-training slot also has no Alias and a non-ready state, so
+        this assumes serialized clones per appid — two concurrent clones on one
+        appid could pick the same slot. The platform clone flow is single-shot today.
         """
         slots: list[str] = []
         for item in self._train_statuses(appid):

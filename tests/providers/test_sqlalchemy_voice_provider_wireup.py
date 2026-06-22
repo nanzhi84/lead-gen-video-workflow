@@ -77,7 +77,6 @@ class RecordingSqlAlchemyVoiceRepository:
             )
         }
         self.preview_called = False
-        self.design_called = False
         self.clone_called = False
         self.persisted_voices: list[str] = []
         self.preview_artifacts: list[str] = []
@@ -110,10 +109,6 @@ class RecordingSqlAlchemyVoiceRepository:
     def preview_voice(self, voice_id: str, payload: VoicePreviewRequest) -> VoicePreviewResponse | None:
         self.preview_called = True
         raise AssertionError("SQLAlchemy provider preview must not use sandbox media repository")
-
-    def design_voice(self, payload):
-        self.design_called = True
-        raise AssertionError("SQLAlchemy provider design must not use sandbox media repository")
 
     def clone_voice(self, payload):
         self.clone_called = True

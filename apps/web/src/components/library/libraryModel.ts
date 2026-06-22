@@ -97,15 +97,6 @@ export function annotationTone(status: MediaAssetRecord["annotation_status"]) {
   return "badge-warning";
 }
 
-export function emptyVoiceDraft() {
-  return {
-    name: "",
-    prompt: "",
-    text: "欢迎使用树影素材库，这是音色试听文本。",
-    providerProfileId: "",
-  };
-}
-
 export function collectUsefulTags(items: MediaAssetCard[], excluded: string[]) {
   const excludedSet = new Set(excluded);
   const tags = new Set<string>();

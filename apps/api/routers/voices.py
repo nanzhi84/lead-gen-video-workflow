@@ -14,9 +14,10 @@ def list_voices(
     request: Request,
     limit: int = 50,
     source: str | None = None,
+    vendor: str | None = None,
     enabled: bool | None = None,
 ) -> c.PageResponse[c.VoiceProfile]:
-    return service.list_voices(request, limit, source, enabled)
+    return service.list_voices(request, limit, source, vendor, enabled)
 
 
 @router.post("/api/voices/sync", response_model=c.SyncVoicesResponse)
@@ -31,16 +32,16 @@ def clone_voice(payload: c.CloneVoiceRequest, request: Request) -> c.VoiceProfil
     return service.clone_voice(payload, request)
 
 
-@router.post("/api/voices/design", response_model=c.VoiceProfile, status_code=202)
-def design_voice(payload: c.DesignVoiceRequest, request: Request) -> c.VoiceProfile:
-    require_role(request, c.UserRole.operator)
-    return service.design_voice(payload, request)
-
-
 @router.post("/api/voices/{voice_id}/preview", response_model=c.VoicePreviewResponse)
 def voice_preview(voice_id: str, payload: c.VoicePreviewRequest, request: Request) -> c.VoicePreviewResponse:
     require_role(request, c.UserRole.operator)
     return service.voice_preview(voice_id, payload, request)
+
+
+@router.post("/api/voices/{voice_id}/refresh-status", response_model=c.VoiceProfile)
+def refresh_voice_status(voice_id: str, request: Request) -> c.VoiceProfile:
+    require_role(request, c.UserRole.operator)
+    return service.refresh_voice_status(voice_id, request)
 
 
 @router.patch("/api/voices/{voice_id}", response_model=c.VoiceProfile)

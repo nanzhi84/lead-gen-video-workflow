@@ -2612,6 +2612,22 @@
             }
           },
           {
+            "name": "vendor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Vendor"
+            }
+          },
+          {
             "name": "enabled",
             "in": "query",
             "required": false,
@@ -2728,44 +2744,6 @@
         }
       }
     },
-    "/api/voices/design": {
-      "post": {
-        "summary": "Design Voice",
-        "operationId": "design_voice_api_voices_design_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DesignVoiceRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "202": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/VoiceProfile"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/voices/{voice_id}/preview": {
       "post": {
         "summary": "Voice Preview",
@@ -2798,6 +2776,45 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/VoicePreviewResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/voices/{voice_id}/refresh-status": {
+      "post": {
+        "summary": "Refresh Voice Status",
+        "operationId": "refresh_voice_status_api_voices__voice_id__refresh_status_post",
+        "parameters": [
+          {
+            "name": "voice_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Voice Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceProfile"
                 }
               }
             }
@@ -12635,36 +12652,6 @@
         "additionalProperties": false,
         "type": "object",
         "title": "DeletePublishResourceRequest"
-      },
-      "DesignVoiceRequest": {
-        "properties": {
-          "display_name": {
-            "type": "string",
-            "title": "Display Name"
-          },
-          "prompt": {
-            "type": "string",
-            "title": "Prompt"
-          },
-          "provider_profile_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Provider Profile Id"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "display_name",
-          "prompt"
-        ],
-        "title": "DesignVoiceRequest"
       },
       "DigitalHumanVideoRequest": {
         "properties": {
@@ -23653,6 +23640,11 @@
             ],
             "title": "Source"
           },
+          "vendor": {
+            "type": "string",
+            "title": "Vendor",
+            "default": ""
+          },
           "provider_profile_id": {
             "anyOf": [
               {
@@ -23679,6 +23671,16 @@
             "type": "boolean",
             "title": "Enabled",
             "default": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "training",
+              "failed"
+            ],
+            "title": "Status",
+            "default": "ready"
           }
         },
         "additionalProperties": false,

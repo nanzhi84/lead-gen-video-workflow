@@ -951,23 +951,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/voices/design": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Design Voice */
-        post: operations["design_voice_api_voices_design_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/voices/{voice_id}/preview": {
         parameters: {
             query?: never;
@@ -979,6 +962,23 @@ export interface paths {
         put?: never;
         /** Voice Preview */
         post: operations["voice_preview_api_voices__voice_id__preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/voices/{voice_id}/refresh-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh Voice Status */
+        post: operations["refresh_voice_status_api_voices__voice_id__refresh_status_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4385,15 +4385,6 @@ export interface components {
         DeletePublishResourceRequest: {
             /** Reason */
             reason?: string | null;
-        };
-        /** DesignVoiceRequest */
-        DesignVoiceRequest: {
-            /** Display Name */
-            display_name: string;
-            /** Prompt */
-            prompt: string;
-            /** Provider Profile Id */
-            provider_profile_id?: string | null;
         };
         /** DigitalHumanVideoRequest */
         DigitalHumanVideoRequest: {
@@ -8504,6 +8495,11 @@ export interface components {
              * @enum {string}
              */
             source: "builtin" | "cloned" | "designed";
+            /**
+             * Vendor
+             * @default
+             */
+            vendor: string;
             /** Provider Profile Id */
             provider_profile_id?: string | null;
             /** Preview Artifact Id */
@@ -8513,6 +8509,12 @@ export interface components {
              * @default true
              */
             enabled: boolean;
+            /**
+             * Status
+             * @default ready
+             * @enum {string}
+             */
+            status: "ready" | "training" | "failed";
         };
         /**
          * WarningCode
@@ -10692,6 +10694,7 @@ export interface operations {
             query?: {
                 limit?: number;
                 source?: string | null;
+                vendor?: string | null;
                 enabled?: boolean | null;
             };
             header?: never;
@@ -10786,39 +10789,6 @@ export interface operations {
             };
         };
     };
-    design_voice_api_voices_design_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DesignVoiceRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["VoiceProfile"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     voice_preview_api_voices__voice_id__preview_post: {
         parameters: {
             query?: never;
@@ -10841,6 +10811,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VoicePreviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_voice_status_api_voices__voice_id__refresh_status_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                voice_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceProfile"];
                 };
             };
             /** @description Validation Error */

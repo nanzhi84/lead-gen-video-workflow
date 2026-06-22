@@ -77,7 +77,6 @@ class RecordingSqlAlchemyVoiceRepository:
             )
         }
         self.preview_called = False
-        self.design_called = False
         self.clone_called = False
         self.persisted_voices: list[str] = []
         self.preview_artifacts: list[str] = []
@@ -110,10 +109,6 @@ class RecordingSqlAlchemyVoiceRepository:
     def preview_voice(self, voice_id: str, payload: VoicePreviewRequest) -> VoicePreviewResponse | None:
         self.preview_called = True
         raise AssertionError("SQLAlchemy provider preview must not use sandbox media repository")
-
-    def design_voice(self, payload):
-        self.design_called = True
-        raise AssertionError("SQLAlchemy provider design must not use sandbox media repository")
 
     def clone_voice(self, payload):
         self.clone_called = True
@@ -189,7 +184,7 @@ def test_sqlalchemy_voice_preview_uses_gateway_and_persists_provider_artifact():
         assert media_repository.voices["voice_db"].preview_artifact_id == provider.artifact_id
 
 
-def test_sqlalchemy_voice_design_and_clone_use_gateway_and_persist_provider_voice():
+def test_sqlalchemy_voice_clone_uses_gateway_and_persist_provider_voice():
     with TestClient(create_app()) as client:
         _login_admin(client)
         repository = client.app.state.repository
@@ -199,10 +194,6 @@ def test_sqlalchemy_voice_design_and_clone_use_gateway_and_persist_provider_voic
         client.app.state.provider_gateway.register(provider)
         repository.provider_profiles["fake.voice.default"] = _profile("fake.voice", "tts.speech", "fake-voice")
 
-        design = client.post(
-            "/api/voices/design",
-            json={"display_name": "Provider Design", "prompt": "warm", "provider_profile_id": "fake.voice.default"},
-        )
         clone = client.post(
             "/api/voices/clone",
             json={
@@ -212,15 +203,12 @@ def test_sqlalchemy_voice_design_and_clone_use_gateway_and_persist_provider_voic
             },
         )
 
-        assert design.status_code == 202, design.text
         assert clone.status_code == 202, clone.text
-        assert design.json()["id"] == "voice_provider_design"
         assert clone.json()["id"] == "voice_provider_clone"
-        assert media_repository.design_called is False
         assert media_repository.clone_called is False
-        assert media_repository.persisted_voices == ["voice_provider_design", "voice_provider_clone"]
+        assert media_repository.persisted_voices == ["voice_provider_clone"]
         assert "upl_voice_db" in repository.uploads
-        assert [call.input["operation"] for call in provider.calls] == ["design", "clone"]
+        assert [call.input["operation"] for call in provider.calls] == ["clone"]
 
 
 class StaticHydrateSession:

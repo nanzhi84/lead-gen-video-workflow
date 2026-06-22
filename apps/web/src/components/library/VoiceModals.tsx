@@ -1,12 +1,12 @@
-import { CheckCircle2, Loader2, Plus, Wand2 } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { CheckCircle2, Loader2, Plus } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type VoiceProfile } from "../../api/client";
 import { useUpload } from "../../hooks/useUpload";
 import { DropZone } from "../ui/DropZone";
 import { Modal } from "../ui/Modal";
 import { useToast } from "../ui/Toast";
-import { emptyVoiceDraft, uploadStageLabel, VOICE_UPLOAD_ACCEPT } from "./libraryModel";
+import { uploadStageLabel, vendorLabel, VOICE_UPLOAD_ACCEPT } from "./libraryModel";
 
 export function CloneVoiceModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const queryClient = useQueryClient();
@@ -16,6 +16,10 @@ export function CloneVoiceModal({ isOpen, onClose }: { isOpen: boolean; onClose:
   const [providerProfileId, setProviderProfileId] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const profilesQuery = useQuery({
+    queryKey: ["providers", "profiles", "tts.speech"],
+    queryFn: () => api.providers.profiles({ capability: "tts.speech" }),
+  });
 
   const cloneMutation = useMutation({
     mutationFn: async () => {
@@ -62,8 +66,15 @@ export function CloneVoiceModal({ isOpen, onClose }: { isOpen: boolean; onClose:
             <input value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：温柔讲解女声" />
           </label>
           <label>
-            <span>Provider 配置 ID（可选）</span>
-            <input value={providerProfileId} onChange={(event) => setProviderProfileId(event.target.value)} placeholder="留空使用默认配置" />
+            <span>厂商（TTS 供应商）</span>
+            <select value={providerProfileId} onChange={(event) => setProviderProfileId(event.target.value)}>
+              <option value="">默认（自动选择）</option>
+              {(profilesQuery.data?.items ?? []).map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {vendorLabel((profile.provider_id ?? "").split(".")[0])} · {profile.display_name}
+                </option>
+              ))}
+            </select>
           </label>
         </div>
         <DropZone accept={VOICE_UPLOAD_ACCEPT} maxSize={80} multiple={false} onFilesDrop={(nextFiles) => setFiles(nextFiles)} label="上传参考音频" />
@@ -86,85 +97,6 @@ export function CloneVoiceModal({ isOpen, onClose }: { isOpen: boolean; onClose:
           <button className="btn-primary" type="submit" disabled={cloneMutation.isPending || !name.trim() || files.length === 0}>
             {cloneMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
             <span>{cloneMutation.isPending ? "提交中" : "创建克隆音色"}</span>
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-export function DesignVoiceModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-  const queryClient = useQueryClient();
-  const toast = useToast();
-  const [draft, setDraft] = useState(emptyVoiceDraft);
-  const [error, setError] = useState<string | null>(null);
-
-  const designMutation = useMutation({
-    mutationFn: () => {
-      if (!draft.name.trim()) throw new Error("请输入音色名称");
-      if (!draft.prompt.trim()) throw new Error("请输入音色描述");
-      return api.voices.design({
-        display_name: draft.name.trim(),
-        prompt: draft.prompt.trim(),
-        provider_profile_id: draft.providerProfileId.trim() || null,
-      });
-    },
-    onSuccess: async (voice) => {
-      await queryClient.invalidateQueries({ queryKey: ["library", "voices"] });
-      await queryClient.invalidateQueries({ queryKey: ["voices"] });
-      toast.success("音色设计已提交", `新音色：${voice.display_name}`);
-      setDraft(emptyVoiceDraft());
-      onClose();
-    },
-    onError: (err) => {
-      const message = err instanceof Error ? err.message : "音色设计失败";
-      setError(message);
-      toast.error("音色设计失败", message);
-    },
-  });
-
-  const samples = ["温柔甜美的年轻女性声音，适合讲故事", "成熟稳重的男性旁白，适合产品讲解", "活泼开朗的少女声音，适合直播口播"];
-
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="设计音色" size="lg">
-      <form
-        className="grid gap-4"
-        onSubmit={(event: FormEvent) => {
-          event.preventDefault();
-          setError(null);
-          designMutation.mutate();
-        }}
-      >
-        <div className="rounded-2xl border border-accent/20 bg-accent/10 p-3 text-sm text-accent">
-          通过文字描述提交音色设计请求；音频质量取决于所选供应商能力。
-        </div>
-        <label>
-          <span>音色名称</span>
-          <input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder="例如：沉稳产品旁白" />
-        </label>
-        <label>
-          <span>音色描述</span>
-          <textarea value={draft.prompt} onChange={(event) => setDraft((current) => ({ ...current, prompt: event.target.value }))} placeholder="描述声音年龄、性别、语气、场景和节奏。" />
-        </label>
-        <div className="flex flex-wrap gap-2">
-          {samples.map((sample) => (
-            <button key={sample} type="button" className="badge bg-white/70 text-text-secondary" onClick={() => setDraft((current) => ({ ...current, prompt: sample }))}>
-              {sample}
-            </button>
-          ))}
-        </div>
-        <label>
-          <span>Provider 配置 ID（可选）</span>
-          <input value={draft.providerProfileId} onChange={(event) => setDraft((current) => ({ ...current, providerProfileId: event.target.value }))} placeholder="留空使用默认配置" />
-        </label>
-        {error ? <p className="text-sm text-status-error">{error}</p> : null}
-        <div className="flex justify-end gap-3 border-t border-border/70 pt-4">
-          <button className="btn-secondary" type="button" onClick={onClose} disabled={designMutation.isPending}>
-            取消
-          </button>
-          <button className="btn-primary" type="submit" disabled={designMutation.isPending || !draft.name.trim() || !draft.prompt.trim()}>
-            {designMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
-            <span>{designMutation.isPending ? "提交中" : "提交设计"}</span>
           </button>
         </div>
       </form>

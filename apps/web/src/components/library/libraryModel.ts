@@ -60,19 +60,41 @@ export function sourceTone(source: VoiceProfile["source"]) {
   return "badge-warning";
 }
 
+export type VoiceVendorFilter = "all" | string;
+
+export const vendorLabels: Record<string, string> = {
+  minimax: "MiniMax",
+  volcengine: "火山豆包",
+};
+
+/** Human label for a vendor tag; empty/unknown vendors bucket under 未指定厂商. */
+export function vendorLabel(vendor: string): string {
+  if (vendorLabels[vendor]) return vendorLabels[vendor];
+  return vendor || "未指定厂商";
+}
+
+export function vendorTone(vendor: string) {
+  if (vendor === "volcengine") return "badge-info";
+  if (vendor === "minimax") return "badge-success";
+  return "badge-warning";
+}
+
+export const voiceStatusLabels: Record<string, string> = {
+  ready: "就绪",
+  training: "训练中",
+  failed: "失败",
+};
+
+export function voiceStatusTone(status: string) {
+  if (status === "training") return "badge-warning";
+  if (status === "failed") return "badge-error";
+  return "badge-success";
+}
+
 export function annotationTone(status: MediaAssetRecord["annotation_status"]) {
   if (status === "annotated") return "badge-success";
   if (status === "annotation_failed") return "badge-error";
   return "badge-warning";
-}
-
-export function emptyVoiceDraft() {
-  return {
-    name: "",
-    prompt: "",
-    text: "欢迎使用树影素材库，这是音色试听文本。",
-    providerProfileId: "",
-  };
 }
 
 export function collectUsefulTags(items: MediaAssetCard[], excluded: string[]) {

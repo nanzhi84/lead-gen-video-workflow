@@ -1,4 +1,4 @@
-import { Mic2, RefreshCw, Upload, Wand2 } from "lucide-react";
+import { Mic2, RefreshCw, Upload } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type VoiceProfile } from "../../api/client";
@@ -8,8 +8,12 @@ import { useToast } from "../../components/ui/Toast";
 import { VoiceCard } from "../../components/library/VoiceCard";
 import { VoiceGeneratorPanel } from "../../components/library/VoiceGeneratorPanel";
 import { VoiceGridSkeleton } from "../../components/library/VoiceGridSkeleton";
-import { CloneVoiceModal, DesignVoiceModal, EditVoiceModal } from "../../components/library/VoiceModals";
-import { type VoiceSourceFilter } from "../../components/library/libraryModel";
+import { CloneVoiceModal, EditVoiceModal } from "../../components/library/VoiceModals";
+import {
+  vendorLabels,
+  type VoiceSourceFilter,
+  type VoiceVendorFilter,
+} from "../../components/library/libraryModel";
 import { InfiniteScrollSentinel } from "../../components/ui/InfiniteScrollSentinel";
 import { EmptyState, ErrorState } from "../../components/ui/State";
 
@@ -18,9 +22,9 @@ export function VoicesTab() {
   const toast = useToast();
   const [search, setSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState<VoiceSourceFilter>("all");
+  const [vendorFilter, setVendorFilter] = useState<VoiceVendorFilter>("all");
   const [limit, setLimit] = useState(50);
   const [cloneOpen, setCloneOpen] = useState(false);
-  const [designOpen, setDesignOpen] = useState(false);
   const [editVoice, setEditVoice] = useState<VoiceProfile | null>(null);
   const [deleteVoice, setDeleteVoice] = useState<VoiceProfile | null>(null);
   const [previewText, setPreviewText] = useState("这是树影音色库的试听文本。");
@@ -29,11 +33,12 @@ export function VoicesTab() {
   const [previewDuration, setPreviewDuration] = useState<number | null>(null);
 
   const voicesQuery = useQuery({
-    queryKey: ["library", "voices", sourceFilter, limit],
+    queryKey: ["library", "voices", sourceFilter, vendorFilter, limit],
     queryFn: () =>
       api.voices.list({
         limit,
         source: sourceFilter === "all" ? null : sourceFilter,
+        vendor: vendorFilter === "all" ? null : vendorFilter,
       }),
   });
 
@@ -54,7 +59,19 @@ export function VoicesTab() {
 
   useEffect(() => {
     setLimit(50);
-  }, [search, sourceFilter]);
+  }, [search, sourceFilter, vendorFilter]);
+
+  // Poll any training (Volcengine clone) voices until they flip to ready/failed.
+  useEffect(() => {
+    const trainingIds = voices.filter((voice) => voice.status === "training").map((voice) => voice.id);
+    if (trainingIds.length === 0) return;
+    const timer = window.setInterval(() => {
+      void Promise.all(trainingIds.map((id) => api.voices.refreshStatus(id).catch(() => null))).then(() =>
+        queryClient.invalidateQueries({ queryKey: ["library", "voices"] }),
+      );
+    }, 6000);
+    return () => window.clearInterval(timer);
+  }, [voices, queryClient]);
 
   const previewMutation = useMutation({
     mutationFn: (voice: VoiceProfile) => api.voices.preview(voice.id, { text: previewText.trim() || "这是试听文本。" }),
@@ -110,7 +127,7 @@ export function VoicesTab() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-xl font-semibold text-text-primary">音色库</h2>
-              <p className="mt-1 text-sm text-text-secondary">搜索、试听、克隆和设计 TTS 音色。</p>
+              <p className="mt-1 text-sm text-text-secondary">搜索、试听、克隆 TTS 音色。</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <button
@@ -123,15 +140,34 @@ export function VoicesTab() {
                 <RefreshCw className={`h-4 w-4 ${syncMutation.isPending ? "animate-spin" : ""}`} />
                 <span>{syncMutation.isPending ? "同步中…" : "同步音色"}</span>
               </button>
-              <button className="btn-secondary" type="button" onClick={() => setCloneOpen(true)}>
+              <button className="btn-primary" type="button" onClick={() => setCloneOpen(true)}>
                 <Upload className="h-4 w-4" />
                 <span>克隆音色</span>
               </button>
-              <button className="btn-primary" type="button" onClick={() => setDesignOpen(true)}>
-                <Wand2 className="h-4 w-4" />
-                <span>设计音色</span>
-              </button>
             </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2 border-b border-border/60 pb-3">
+            {(
+              [
+                ["all", "全部"],
+                ["minimax", vendorLabels.minimax],
+                ["volcengine", vendorLabels.volcengine],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
+                  vendorFilter === key
+                    ? "bg-accent text-white shadow-glow"
+                    : "bg-white/65 text-text-secondary hover:text-text-primary"
+                }`}
+                onClick={() => setVendorFilter(key)}
+              >
+                {label}
+              </button>
+            ))}
           </div>
 
           <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
@@ -185,7 +221,6 @@ export function VoicesTab() {
       </div>
 
       <CloneVoiceModal isOpen={cloneOpen} onClose={() => setCloneOpen(false)} />
-      <DesignVoiceModal isOpen={designOpen} onClose={() => setDesignOpen(false)} />
       {editVoice ? (
         <EditVoiceModal
           voice={editVoice}

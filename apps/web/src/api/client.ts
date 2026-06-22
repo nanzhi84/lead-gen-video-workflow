@@ -378,16 +378,15 @@ export const api = {
         body: payload,
         idempotencyKey: createIdempotencyKey("voice_clone"),
       }),
-    design: (payload: JsonRequest<operations["design_voice_api_voices_design_post"]>) =>
-      fetchJson<JsonResponse<operations["design_voice_api_voices_design_post"]>>("/api/voices/design", {
-        method: "POST",
-        body: payload,
-        idempotencyKey: createIdempotencyKey("voice_design"),
-      }),
     preview: (voiceId: string, payload: JsonRequest<operations["voice_preview_api_voices__voice_id__preview_post"]>) =>
       fetchJson<JsonResponse<operations["voice_preview_api_voices__voice_id__preview_post"]>>(
         `/api/voices/${enc(voiceId)}/preview`,
         { method: "POST", body: payload, idempotencyKey: createIdempotencyKey("voice_preview") },
+      ),
+    refreshStatus: (voiceId: string) =>
+      fetchJson<JsonResponse<operations["refresh_voice_status_api_voices__voice_id__refresh_status_post"]>>(
+        `/api/voices/${enc(voiceId)}/refresh-status`,
+        { method: "POST", idempotencyKey: createIdempotencyKey("voice_refresh_status") },
       ),
     patch: (voiceId: string, payload: JsonRequest<operations["patch_voice_api_voices__voice_id__patch"]>) =>
       fetchJson<JsonResponse<operations["patch_voice_api_voices__voice_id__patch"]>>(`/api/voices/${enc(voiceId)}`, {

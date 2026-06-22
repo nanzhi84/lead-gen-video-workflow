@@ -18,6 +18,7 @@ from packages.production.pipeline.digital_human import (
 )
 from packages.production.pipeline.node_sequence import SEEDANCE_T2V_SEQUENCE, expected_node_count
 from packages.production.pipeline.nodes import validate_request
+from packages.production.pipeline.nodes.seedance_generate_video import _build_ad_prompt
 
 
 def _output_kinds_by_node(template):
@@ -86,6 +87,16 @@ def _validate_ctx(request: DigitalHumanVideoRequest) -> NodeContext:
         input_manifest_hash="sha256:test",
     )
     return NodeContext(adapter=adapter, run=run, node_run=node_run, state=RunState(request=request))
+
+
+def test_build_ad_prompt_mirrors_boss_format():
+    # 纯文生(无参考素材):指令 + 口播脚本块,不带出镜人物行。
+    p0 = _build_ad_prompt("买东西真方便", has_references=False)
+    assert p0 == "请直出一条抖音信息流广告视频，配 BGM。\n这是口播脚本。{买东西真方便}"
+    # 带参考素材(老板娘出镜):追加出镜人物行。
+    p1 = _build_ad_prompt("买东西真方便", has_references=True)
+    assert p1.startswith("请直出一条抖音信息流广告视频，配 BGM。\n这是口播脚本。{买东西真方便}")
+    assert "出镜人物/场景见参考素材" in p1
 
 
 def test_validate_request_skips_voice_for_seedance_template():

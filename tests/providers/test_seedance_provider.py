@@ -91,11 +91,14 @@ def test_seedance_text_to_video_submits_polls_and_stores(tmp_path, media_fixture
     assert result is not None
     assert result.output["external_job_id"] == "cgt-1"
     assert result.video_seconds == 15.0
-    # Seedance 2.0 param style: top-level JSON fields + a single text content.
+    # Seedance 2.0 param style: top-level JSON fields + native audio on.
     assert submitted_body["ratio"] == "9:16"
     assert submitted_body["resolution"] == "720p"
     assert submitted_body["duration"] == 15
-    assert submitted_body["content"][0] == {"type": "text", "text": "门头特写，暖光"}
+    assert submitted_body["generate_audio"] is True
+    # The prompt rides in content[0].text (here passed through verbatim).
+    assert submitted_body["content"][0]["type"] == "text"
+    assert "门头特写，暖光" in submitted_body["content"][0]["text"]
     artifact = repository.artifacts[result.output["video_artifact_id"]]
     assert artifact.media_info and artifact.media_info.media_type == "video"
 
@@ -127,7 +130,7 @@ def test_seedance_reference_image_goes_into_content(tmp_path, media_fixture_fact
             capability_id="video.generate",
             input={
                 "prompt": "保持人物一致",
-                "references": [{"uri": "https://cdn.example/owner.jpg", "role": "reference_image"}],
+                "references": [{"uri": "https://cdn.example/owner.jpg", "kind": "image"}],
             },
         )
     )
@@ -137,6 +140,46 @@ def test_seedance_reference_image_goes_into_content(tmp_path, media_fixture_fact
     image_entries = [c for c in submitted_body["content"] if c.get("type") == "image_url"]
     assert image_entries == [
         {"type": "image_url", "image_url": {"url": "https://cdn.example/owner.jpg"}, "role": "reference_image"}
+    ]
+
+
+def test_seedance_video_reference_goes_into_content(tmp_path, media_fixture_factory):
+    result_video = media_fixture_factory.video(duration_sec=1.0, filename="seedance.mp4")
+    submitted_body: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == _TASKS and request.method == "POST":
+            submitted_body.update(json.loads(request.content))
+            return httpx.Response(200, json={"id": "cgt-v"})
+        if request.url.path == f"{_TASKS}/cgt-v":
+            return httpx.Response(
+                200,
+                json={"id": "cgt-v", "status": "succeeded", "content": {"video_url": "https://files.example/v.mp4"}},
+            )
+        if str(request.url) == "https://files.example/v.mp4":
+            return httpx.Response(200, content=result_video.read_bytes())
+        return httpx.Response(404, text=str(request.url))
+
+    repository, gateway = _gateway(tmp_path, httpx.MockTransport(handler))
+    secret_ref = gateway.secret_store.put("ark-key")  # type: ignore[union-attr]
+    profile = _profile(repository, secret_ref)
+
+    invocation, result = gateway.invoke(
+        ProviderCall(
+            provider_profile_id=profile.id,
+            capability_id="video.generate",
+            input={
+                "prompt": "老板娘出镜口播",
+                "references": [{"uri": "https://cdn.example/owner.mp4", "kind": "video"}],
+            },
+        )
+    )
+
+    assert invocation.status == ProviderStatus.succeeded
+    assert result is not None
+    video_entries = [c for c in submitted_body["content"] if c.get("type") == "video_url"]
+    assert video_entries == [
+        {"type": "video_url", "video_url": {"url": "https://cdn.example/owner.mp4"}, "role": "reference_video"}
     ]
 
 

@@ -1,11 +1,12 @@
-"""SeedanceGenerateVideo node: one-shot text/image-to-video via Volcengine Ark.
+"""SeedanceGenerateVideo node: one-shot ad video via Volcengine Ark.
 
-Builds the Seedance prompt from the request script (falling back to the case
-profile), resolves any reference-image assets to their source artifact URIs, and
-invokes the ``video.generate`` capability. The provider downloads + stores the
-result, so the real path returns a ``video.rendered`` artifact id; the sandbox
-path returns only a fake uri, which this node bridges into a uri-only artifact so
-the downstream export node has something to reference.
+Assembles an ad prompt (mirroring the boss's proven format: 指令 + 口播脚本 + 出镜
+人物) from the request script (falling back to the case profile), resolves any
+reference image/video assets to their source artifact URIs, and invokes the
+``video.generate`` capability with native audio (口播 + BGM) on. The provider
+downloads + stores the result, so the real path returns a ``video.rendered``
+artifact id; the sandbox path returns only a fake uri, which this node bridges
+into a uri-only artifact so the downstream export node has something to reference.
 """
 
 from __future__ import annotations
@@ -20,6 +21,20 @@ _SEEDANCE_DURATION_SEC = 15
 _SEEDANCE_RATIO = "9:16"
 _SEEDANCE_RESOLUTION = "720p"
 
+# Ad prompt template — mirrors the boss's verified Seedance prompt. The instruction
+# prefix implies voiceover 口播 + auto subtitles + BGM + multi-shot B-roll, which
+# Seedance arranges itself; the script rides in the ``{...}`` block as the lines to
+# speak. With reference assets, the person/scene is carried by the附带的参考素材.
+_AD_PROMPT_PREFIX = "请直出一条抖音信息流广告视频，配 BGM。"
+_AD_PROMPT_REFERENCE_LINE = "出镜人物/场景见参考素材，自然口播上述脚本。"
+
+
+def _build_ad_prompt(spoken_script: str, *, has_references: bool) -> str:
+    lines = [_AD_PROMPT_PREFIX, f"这是口播脚本。{{{spoken_script}}}"]
+    if has_references:
+        lines.append(_AD_PROMPT_REFERENCE_LINE)
+    return "\n".join(lines)
+
 
 def run(ctx: NodeContext) -> NodeOutput:
     state = ctx.state
@@ -27,14 +42,15 @@ def run(ctx: NodeContext) -> NodeOutput:
     node_run = ctx.node_run
     request = state.request
 
-    prompt = (request.script or "").strip() or _compose_prompt_from_case(ctx)
-    if not prompt:
+    spoken_script = (request.script or "").strip() or _compose_prompt_from_case(ctx)
+    if not spoken_script:
         raise NodeExecutionError(
             ErrorCode.validation_missing_script,
-            "Seedance 生成缺少提示词（脚本为空且无法从案例信息拼出）。",
+            "Seedance 生成缺少口播脚本（脚本为空且无法从案例信息拼出）。",
         )
 
     references = _resolve_references(ctx)
+    prompt = _build_ad_prompt(spoken_script, has_references=bool(references))
 
     profile = ctx.first_available_provider_profile(
         "video.generate", include_sandbox=sandbox_fallback_allowed()
@@ -77,14 +93,18 @@ def run(ctx: NodeContext) -> NodeOutput:
 
 
 def _resolve_references(ctx: NodeContext) -> list[dict[str, str]]:
-    """Map request.reference_asset_ids -> [{uri, role}] (presigned later by provider).
+    """Map request.reference_asset_ids -> [{uri, kind}] (presigned later by provider).
 
-    ``source_artifact_for_asset`` raises ``artifact_missing`` when the asset or its
-    source artifact uri is absent, so a missing reference fails the node loudly."""
+    ``kind`` is "video" for video media assets, else "image" — the provider turns
+    these into video_url / image_url content entries. ``source_artifact_for_asset``
+    raises ``artifact_missing`` when the asset or its source uri is absent, so a
+    missing reference fails the node loudly."""
     references: list[dict[str, str]] = []
     for asset_id in getattr(ctx.state.request, "reference_asset_ids", None) or []:
         artifact = ctx.source_artifact_for_asset(asset_id)
-        references.append({"uri": artifact.uri, "role": "reference_image"})
+        media_asset = ctx.repository.media_assets.get(asset_id)
+        kind = "video" if media_asset is not None and media_asset.kind == "video" else "image"
+        references.append({"uri": artifact.uri, "kind": kind})
     return references
 
 

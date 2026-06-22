@@ -32,6 +32,10 @@ class UploadKind(str, Enum):
     # usability (lip-sync portrait vs cover b-roll) per-clip, so no human
     # portrait/b-roll pre-classification is required at upload time.
     video = "video"
+    # Still image uploaded as an AI-generation reference (Seedance 「AI素材」).
+    # Distinct from portrait/cover_template so it stays out of the digital-human
+    # template / AI-cover pools.
+    image = "image"
     voice_reference = "voice_reference"
     bgm = "bgm"
     font = "font"

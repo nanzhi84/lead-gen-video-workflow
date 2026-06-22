@@ -46,14 +46,26 @@ def run(ctx: NodeContext) -> NodeOutput:
 
     visual_material_kinds = {"video", "portrait", "broll"}
 
+    def _is_ai_reference(asset) -> bool:
+        # AI素材 (Seedance reference uploads) are case-scoped media assets tagged
+        # ai_material. They must NEVER enter the digital-human / b-roll material
+        # pools — they are reference inputs for generation, not footage to cut in.
+        return "ai_material" in (getattr(asset, "tags", None) or [])
+
     def _eligible(asset, kind: str) -> bool:
-        return asset.usable and asset.kind == kind and asset.case_id in {None, request.case_id}
+        return (
+            asset.usable
+            and asset.kind == kind
+            and asset.case_id in {None, request.case_id}
+            and not _is_ai_reference(asset)
+        )
 
     def _eligible_visual(asset) -> bool:
         return (
             asset.usable
             and asset.kind in visual_material_kinds
             and asset.case_id in {None, request.case_id}
+            and not _is_ai_reference(asset)
         )
 
     def _portrait_template_allowed(asset) -> bool:

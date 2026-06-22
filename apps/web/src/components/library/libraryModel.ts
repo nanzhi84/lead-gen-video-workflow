@@ -1,10 +1,10 @@
-import { FileAudio, Library, Mic2, Music4 } from "lucide-react";
+import { FileAudio, Library, Mic2, Music4, Sparkles } from "lucide-react";
 import type { MediaAssetCard, MediaAssetRecord, SignedUrlResponse, VoiceProfile } from "../../api/client";
 import { toDisplayUrl } from "../../lib/url";
 
 export const VOICE_UPLOAD_ACCEPT = ".mp3,.wav,.m4a,.aac,.ogg,.flac";
 
-export type LibraryTab = "voices" | "templates" | "fonts" | "bgm";
+export type LibraryTab = "voices" | "templates" | "fonts" | "bgm" | "ai_source";
 export type VoiceSourceFilter = "all" | VoiceProfile["source"];
 export type TemplateKind = "portrait" | "broll" | "video";
 export type LibraryAssetKind = "font" | "bgm";
@@ -21,6 +21,7 @@ export type UploadPlaceholder = {
 export const libraryTabs: Array<{ id: LibraryTab; label: string; to: string; icon: typeof Mic2 }> = [
   { id: "voices", label: "音色", to: "/library/voices", icon: Mic2 },
   { id: "templates", label: "视频模板", to: "/library/templates", icon: Library },
+  { id: "ai_source", label: "AI素材", to: "/library/ai-source", icon: Sparkles },
   { id: "fonts", label: "字体", to: "/library/fonts", icon: FileAudio },
   { id: "bgm", label: "BGM", to: "/library/bgm", icon: Music4 },
 ];
@@ -51,6 +52,7 @@ export const libraryAssetLabels: Record<LibraryAssetKind, string> = {
 export function readTab(pathname: string): LibraryTab | null {
   const segment = pathname.split("/").filter(Boolean).at(-1);
   if (segment === "voices" || segment === "templates" || segment === "fonts" || segment === "bgm") return segment;
+  if (segment === "ai-source") return "ai_source";
   return null;
 }
 

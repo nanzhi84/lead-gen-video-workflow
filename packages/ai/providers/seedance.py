@@ -70,6 +70,13 @@ class ArkSeedanceProvider:
         duration = int(call.input.get("duration_sec") or option(context, "duration", 15))
         ratio = str(call.input.get("ratio") or option(context, "ratio", "9:16"))
         resolution = str(call.input.get("resolution") or option(context, "resolution", "720p"))
+        # Native audio (口播 + BGM in one pass). Default ON: the ad use-case always
+        # wants voiceover + music. Overridable per call / per profile.
+        generate_audio = bool(
+            call.input.get("generate_audio")
+            if call.input.get("generate_audio") is not None
+            else option(context, "generate_audio", True)
+        )
         # Seedance 2.0 takes ratio/resolution/duration as top-level JSON fields;
         # 1.x takes them as ``--rt/--rs/--dur`` suffixes inside the text prompt.
         param_style = str(option(context, "param_style", "json_fields"))
@@ -77,10 +84,11 @@ class ArkSeedanceProvider:
         body = self._build_body(
             model_id=model_id,
             prompt=prompt,
-            references=self._reference_image_urls(context, call),
+            references=self._reference_content(context, call),
             ratio=ratio,
             resolution=resolution,
             duration=duration,
+            generate_audio=generate_audio,
             param_style=param_style,
         )
 
@@ -117,49 +125,58 @@ class ArkSeedanceProvider:
 
     # ------------------------------------------------------------------ helpers
 
-    def _reference_image_urls(
+    def _reference_content(
         self, context: ProviderInvocationContext, call: ProviderCall
-    ) -> list[dict[str, str]]:
-        """Presign each reference asset URI to a vendor-reachable public HTTPS URL.
+    ) -> list[dict[str, Any]]:
+        """Build the Seedance content entries for each reference asset.
 
-        ``call.input['references']`` is ``[{"uri": "s3://...", "role": "reference_image"}, ...]``
-        produced by the SeedanceGenerateVideo node. Non-public stores fail loudly."""
+        ``call.input['references']`` is ``[{"uri": "s3://...", "kind": "image"|"video"}, ...]``
+        produced by the SeedanceGenerateVideo node. Each internal uri is presigned to
+        a vendor-reachable public HTTPS URL (non-public stores fail loudly). Images
+        become ``image_url`` entries (role reference_image); videos become
+        ``video_url`` entries (role reference_video).
+        # TODO 核对火山官方 doc:video_url 条目的精确字段名/role 取值(域内)。"""
         references = call.input.get("references") or []
-        resolved: list[dict[str, str]] = []
+        entries: list[dict[str, Any]] = []
         for ref in references:
             if not isinstance(ref, dict):
                 continue
             uri = str(ref.get("uri") or "").strip()
             if not uri:
                 continue
-            resolved.append(
-                {
-                    "url": self._public_url(context, uri),
-                    "role": str(ref.get("role") or "reference_image"),
-                }
-            )
-        return resolved
+            url = self._public_url(context, uri)
+            if str(ref.get("kind") or "image") == "video":
+                entries.append(
+                    {"type": "video_url", "video_url": {"url": url}, "role": "reference_video"}
+                )
+            else:
+                entries.append(
+                    {"type": "image_url", "image_url": {"url": url}, "role": "reference_image"}
+                )
+        return entries
 
     @staticmethod
     def _build_body(
         *,
         model_id: str,
         prompt: str,
-        references: list[dict[str, str]],
+        references: list[dict[str, Any]],
         ratio: str,
         resolution: str,
         duration: int,
+        generate_audio: bool,
         param_style: str,
     ) -> dict[str, Any]:
         text = prompt
         if param_style == "prompt_suffix":  # Seedance 1.x: params ride the text prompt
             text = f"{prompt} --rt {ratio} --rs {resolution} --dur {duration}"
         content: list[dict[str, Any]] = [{"type": "text", "text": text}]
-        for ref in references:
-            content.append(
-                {"type": "image_url", "image_url": {"url": ref["url"]}, "role": ref["role"]}
-            )
-        body: dict[str, Any] = {"model": model_id, "content": content}
+        content.extend(references)
+        body: dict[str, Any] = {
+            "model": model_id,
+            "content": content,
+            "generate_audio": generate_audio,
+        }
         if param_style != "prompt_suffix":  # Seedance 2.0: top-level JSON fields
             body.update(
                 {"ratio": ratio, "resolution": resolution, "duration": duration, "watermark": False}

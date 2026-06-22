@@ -9,11 +9,13 @@ import {
   Sparkles,
   UserCircle2,
 } from "lucide-react";
+import { Suspense } from "react";
 import type { ComponentType } from "react";
 import { NavLink, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { routes } from "../routes";
 import { useAuth } from "../pages/auth/AuthContext";
 import { ConnectionStatus } from "./ConnectionStatus";
+import { LoadingState } from "./State";
 
 const mainNav = [
   { to: routes.overview(), label: "概览", icon: Home, end: true },
@@ -191,7 +193,9 @@ export function AppShell() {
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <Breadcrumbs />
         </div>
-        <Outlet />
+        <Suspense fallback={<LoadingState label="正在加载页面" block />}>
+          <Outlet />
+        </Suspense>
       </main>
     </div>
   );

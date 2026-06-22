@@ -1,12 +1,12 @@
 import { CheckCircle2, Loader2, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type VoiceProfile } from "../../api/client";
 import { useUpload } from "../../hooks/useUpload";
 import { DropZone } from "../ui/DropZone";
 import { Modal } from "../ui/Modal";
 import { useToast } from "../ui/Toast";
-import { uploadStageLabel, VOICE_UPLOAD_ACCEPT } from "./libraryModel";
+import { uploadStageLabel, vendorLabel, VOICE_UPLOAD_ACCEPT } from "./libraryModel";
 
 export function CloneVoiceModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const queryClient = useQueryClient();
@@ -16,6 +16,10 @@ export function CloneVoiceModal({ isOpen, onClose }: { isOpen: boolean; onClose:
   const [providerProfileId, setProviderProfileId] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const profilesQuery = useQuery({
+    queryKey: ["providers", "profiles", "tts.speech"],
+    queryFn: () => api.providers.profiles({ capability: "tts.speech" }),
+  });
 
   const cloneMutation = useMutation({
     mutationFn: async () => {
@@ -62,8 +66,15 @@ export function CloneVoiceModal({ isOpen, onClose }: { isOpen: boolean; onClose:
             <input value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：温柔讲解女声" />
           </label>
           <label>
-            <span>Provider 配置 ID（可选）</span>
-            <input value={providerProfileId} onChange={(event) => setProviderProfileId(event.target.value)} placeholder="留空使用默认配置" />
+            <span>厂商（TTS 供应商）</span>
+            <select value={providerProfileId} onChange={(event) => setProviderProfileId(event.target.value)}>
+              <option value="">默认（自动选择）</option>
+              {(profilesQuery.data?.items ?? []).map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {vendorLabel((profile.provider_id ?? "").split(".")[0])} · {profile.display_name}
+                </option>
+              ))}
+            </select>
           </label>
         </div>
         <DropZone accept={VOICE_UPLOAD_ACCEPT} maxSize={80} multiple={false} onFilesDrop={(nextFiles) => setFiles(nextFiles)} label="上传参考音频" />

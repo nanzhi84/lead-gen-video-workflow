@@ -1,7 +1,7 @@
 import { Download, Loader2, Play } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { VoiceProfile } from "../../api/client";
-import { voiceSourceLabels } from "./libraryModel";
+import { vendorLabel, voiceSourceLabels } from "./libraryModel";
 
 type VoiceGeneratorPanelProps = {
   voices: VoiceProfile[];
@@ -26,6 +26,12 @@ export function VoiceGeneratorPanel({
 }: VoiceGeneratorPanelProps) {
   const [voiceId, setVoiceId] = useState(selectedVoiceId);
   const selectedVoice = voices.find((voice) => voice.id === voiceId) ?? voices[0] ?? null;
+  const groupedVoices = Object.entries(
+    voices.reduce<Record<string, VoiceProfile[]>>((acc, voice) => {
+      (acc[voice.vendor] ??= []).push(voice);
+      return acc;
+    }, {}),
+  );
 
   useEffect(() => {
     if (!voiceId && selectedVoiceId) setVoiceId(selectedVoiceId);
@@ -44,10 +50,15 @@ export function VoiceGeneratorPanel({
       <label>
         <span>音色</span>
         <select value={voiceId} onChange={(event) => setVoiceId(event.target.value)}>
-          {voices.map((voice) => (
-            <option key={voice.id} value={voice.id}>
-              {voice.display_name}（{voiceSourceLabels[voice.source]}）
-            </option>
+          {groupedVoices.map(([vendor, group]) => (
+            <optgroup key={vendor || "unknown"} label={vendorLabel(vendor)}>
+              {group.map((voice) => (
+                <option key={voice.id} value={voice.id} disabled={voice.status === "training"}>
+                  {voice.display_name}（{voiceSourceLabels[voice.source]}）
+                  {voice.status === "training" ? " · 训练中" : ""}
+                </option>
+              ))}
+            </optgroup>
           ))}
         </select>
       </label>

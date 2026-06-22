@@ -1,7 +1,14 @@
 import { CheckCircle2, Edit3, Loader2, PauseCircle, Play, Trash2 } from "lucide-react";
 import type { VoiceProfile } from "../../api/client";
 import { formatRelativeTime, shortId } from "../../lib/format";
-import { sourceTone, voiceSourceLabels } from "./libraryModel";
+import {
+  sourceTone,
+  vendorLabel,
+  vendorTone,
+  voiceSourceLabels,
+  voiceStatusLabels,
+  voiceStatusTone,
+} from "./libraryModel";
 
 type VoiceCardProps = {
   voice: VoiceProfile;
@@ -17,7 +24,15 @@ export function VoiceCard({ voice, isPreviewing, isPlaying, onPreview, onEdit, o
     <article className="rounded-[24px] border border-border/80 bg-white/65 p-4 shadow-glow transition-all hover:-translate-y-0.5 hover:border-accent/25">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <span className={`badge ${sourceTone(voice.source)}`}>{voiceSourceLabels[voice.source]}</span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className={`badge ${vendorTone(voice.vendor)}`}>{vendorLabel(voice.vendor)}</span>
+            <span className={`badge ${sourceTone(voice.source)}`}>{voiceSourceLabels[voice.source]}</span>
+            {voice.status !== "ready" ? (
+              <span className={`badge ${voiceStatusTone(voice.status)}`}>
+                {voiceStatusLabels[voice.status] ?? voice.status}
+              </span>
+            ) : null}
+          </div>
           <h3 className="mt-3 truncate text-lg font-semibold text-text-primary">{voice.display_name}</h3>
           <p className="mt-1 font-mono text-xs text-text-tertiary">{shortId(voice.id, 12)}</p>
         </div>
@@ -40,8 +55,8 @@ export function VoiceCard({ voice, isPreviewing, isPlaying, onPreview, onEdit, o
           <dd>{formatRelativeTime(voice.updated_at ?? voice.created_at)}</dd>
         </div>
         <div className="flex justify-between gap-2">
-          <dt>Provider</dt>
-          <dd className="truncate font-mono">{voice.provider_profile_id ? shortId(voice.provider_profile_id, 10) : "默认"}</dd>
+          <dt>厂商</dt>
+          <dd className="truncate">{vendorLabel(voice.vendor)}</dd>
         </div>
       </dl>
 
@@ -50,11 +65,19 @@ export function VoiceCard({ voice, isPreviewing, isPlaying, onPreview, onEdit, o
           className="icon-button col-span-2 w-full"
           type="button"
           onClick={onPreview}
-          disabled={isPreviewing}
-          title={isPreviewing ? "生成试听中…" : "生成试听"}
+          disabled={isPreviewing || voice.status === "training"}
+          title={
+            voice.status === "training"
+              ? "复刻训练中，暂不可试听"
+              : isPreviewing
+                ? "生成试听中…"
+                : "生成试听"
+          }
         >
           {isPreviewing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-          <span className="text-xs">{isPreviewing ? "生成中" : isPlaying ? "已试听" : "试听"}</span>
+          <span className="text-xs">
+            {voice.status === "training" ? "训练中" : isPreviewing ? "生成中" : isPlaying ? "已试听" : "试听"}
+          </span>
         </button>
         <button className="icon-button w-full" type="button" onClick={onEdit} title="编辑音色">
           <Edit3 className="h-4 w-4" />

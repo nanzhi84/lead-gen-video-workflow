@@ -9,7 +9,11 @@ import { VoiceCard } from "../../components/library/VoiceCard";
 import { VoiceGeneratorPanel } from "../../components/library/VoiceGeneratorPanel";
 import { VoiceGridSkeleton } from "../../components/library/VoiceGridSkeleton";
 import { CloneVoiceModal, EditVoiceModal } from "../../components/library/VoiceModals";
-import { type VoiceSourceFilter } from "../../components/library/libraryModel";
+import {
+  vendorLabels,
+  type VoiceSourceFilter,
+  type VoiceVendorFilter,
+} from "../../components/library/libraryModel";
 import { InfiniteScrollSentinel } from "../../components/ui/InfiniteScrollSentinel";
 import { EmptyState, ErrorState } from "../../components/ui/State";
 
@@ -18,6 +22,7 @@ export function VoicesTab() {
   const toast = useToast();
   const [search, setSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState<VoiceSourceFilter>("all");
+  const [vendorFilter, setVendorFilter] = useState<VoiceVendorFilter>("all");
   const [limit, setLimit] = useState(50);
   const [cloneOpen, setCloneOpen] = useState(false);
   const [editVoice, setEditVoice] = useState<VoiceProfile | null>(null);
@@ -28,11 +33,12 @@ export function VoicesTab() {
   const [previewDuration, setPreviewDuration] = useState<number | null>(null);
 
   const voicesQuery = useQuery({
-    queryKey: ["library", "voices", sourceFilter, limit],
+    queryKey: ["library", "voices", sourceFilter, vendorFilter, limit],
     queryFn: () =>
       api.voices.list({
         limit,
         source: sourceFilter === "all" ? null : sourceFilter,
+        vendor: vendorFilter === "all" ? null : vendorFilter,
       }),
   });
 
@@ -53,7 +59,19 @@ export function VoicesTab() {
 
   useEffect(() => {
     setLimit(50);
-  }, [search, sourceFilter]);
+  }, [search, sourceFilter, vendorFilter]);
+
+  // Poll any training (Volcengine clone) voices until they flip to ready/failed.
+  useEffect(() => {
+    const trainingIds = voices.filter((voice) => voice.status === "training").map((voice) => voice.id);
+    if (trainingIds.length === 0) return;
+    const timer = window.setInterval(() => {
+      void Promise.all(trainingIds.map((id) => api.voices.refreshStatus(id).catch(() => null))).then(() =>
+        queryClient.invalidateQueries({ queryKey: ["library", "voices"] }),
+      );
+    }, 6000);
+    return () => window.clearInterval(timer);
+  }, [voices, queryClient]);
 
   const previewMutation = useMutation({
     mutationFn: (voice: VoiceProfile) => api.voices.preview(voice.id, { text: previewText.trim() || "这是试听文本。" }),
@@ -127,6 +145,29 @@ export function VoicesTab() {
                 <span>克隆音色</span>
               </button>
             </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2 border-b border-border/60 pb-3">
+            {(
+              [
+                ["all", "全部"],
+                ["minimax", vendorLabels.minimax],
+                ["volcengine", vendorLabels.volcengine],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
+                  vendorFilter === key
+                    ? "bg-accent text-white shadow-glow"
+                    : "bg-white/65 text-text-secondary hover:text-text-primary"
+                }`}
+                onClick={() => setVendorFilter(key)}
+              >
+                {label}
+              </button>
+            ))}
           </div>
 
           <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">

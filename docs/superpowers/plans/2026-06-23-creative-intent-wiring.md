@@ -1,5 +1,11 @@
 # 接通 CreativeIntent 字段 实现方案
 
+> ⚠️ **已被取代（历史记录，勿照此执行）**：这是把全部 7 个 CreativeIntent 字段都接通的**早期**方案。后续深度尽调后设计收敛成了更窄的方向，以下面两份文档为**权威设计**：
+> - `docs/superpowers/plans/2026-06-23-creative-intent-wiring-comprehensive.md`（收敛后的完整方案）
+> - `docs/superpowers/specs/2026-06-23-creative-intent-foundation-design.md`（已批准的字段架构设计）
+>
+> 与本计划的实质差异（见 PR #55「功能A」）：`scene_type` / `style_hint` / `density` / `closing_cta` / `script_features_hint` 这 5 个字段经核实**零消费**，被**直接删除**而非接通——因此本文档里 Task 1a（scene_type/style_hint→BGM）、Task 1b（scene_type→preset）、Task 2.1（density→broll）所依赖的字段已不存在、不可执行。实际只落地了 Task 4a 的精神（`emphasis` 关键短语→整句强调花字）；`cover_focus` 的封面消费留待后续封面那一期。本文件仅作设计演进的历史留痕。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 让 `CreativeIntentArtifact` 里 7 个"定义了但没人填、没人读"的死字段（scene_type / style_hint / density / cover_focus / overlay_events / closing_cta / script_features_hint）从 LLM 输出真正落库，并被下游确定性剪辑节点消费，使 LLM 的创意判断（说什么调性、什么节奏、什么风格）影响成片观感，同时不破坏确定性/可复用契约。

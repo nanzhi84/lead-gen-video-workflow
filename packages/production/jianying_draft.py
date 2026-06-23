@@ -216,7 +216,6 @@ class JianyingDraftBuilder:
             (draft_dir / "Resources" / "video").mkdir(parents=True, exist_ok=True)
             (draft_dir / "Resources" / "audio").mkdir(parents=True, exist_ok=True)
 
-            warnings: list[str] = []
             used_names: set[str] = set()
             staged_videos: dict[Path, str] = {}
             staged_audios: dict[Path, str] = {}
@@ -226,10 +225,10 @@ class JianyingDraftBuilder:
                 source.video_segments[0].source_path if source.video_segments else source.video_path
             )
             video_path = _stage_once(
-                probe_video_path, video_dir, used_names, warnings, staged_videos
+                probe_video_path, video_dir, used_names, staged_videos
             )
             audio_path = (
-                _stage_once(source.audio_path, audio_dir, used_names, warnings, staged_audios)
+                _stage_once(source.audio_path, audio_dir, used_names, staged_audios)
                 if source.audio_path
                 else None
             )
@@ -250,7 +249,7 @@ class JianyingDraftBuilder:
 
             if source.video_segments:
                 video_track_segments, video_materials = _explicit_video_tracks(
-                    source, draft_dir, video_dir, used_names, warnings, staged_videos
+                    source, draft_dir, video_dir, used_names, staged_videos
                 )
                 materials["videos"].extend(video_materials)
                 for render_index, (track_name, segments) in enumerate(video_track_segments.items()):
@@ -293,7 +292,7 @@ class JianyingDraftBuilder:
 
             if source.audio_segments:
                 audio_track_segments, audio_materials = _explicit_audio_tracks(
-                    source.audio_segments, draft_dir, audio_dir, used_names, warnings, staged_audios
+                    source.audio_segments, draft_dir, audio_dir, used_names, staged_audios
                 )
                 materials["audios"].extend(audio_materials)
                 for render_index, (track_name, segments) in enumerate(audio_track_segments.items()):
@@ -417,7 +416,7 @@ class JianyingDraftBuilder:
                     "audio": _material_names(materials["audios"], "name"),
                     "subtitle": Path(source.subtitle_path).name if source.subtitle_path else None,
                 },
-                "warnings": warnings,
+                "warnings": [],
             }
             return JianyingDraftBuild(
                 stored.ref.uri,
@@ -451,7 +450,7 @@ def _frame_to_us(frame: int, fps: int) -> int:
 
 
 def _stage_media_file(
-    source_path: Path, target_dir: Path, used_names: set[str], warnings: list[str]
+    source_path: Path, target_dir: Path, used_names: set[str]
 ) -> str:
     source = Path(source_path).expanduser().resolve()
     if not source.exists():
@@ -472,14 +471,13 @@ def _stage_once(
     source_path: Path,
     target_dir: Path,
     used_names: set[str],
-    warnings: list[str],
     staged: dict[Path, str],
 ) -> str:
     source = Path(source_path).expanduser().resolve()
     existing = staged.get(source)
     if existing:
         return existing
-    staged_path = _stage_media_file(source, target_dir, used_names, warnings)
+    staged_path = _stage_media_file(source, target_dir, used_names)
     staged[source] = staged_path
     return staged_path
 
@@ -564,7 +562,6 @@ def _explicit_video_tracks(
     draft_dir: Path,
     video_dir: Path,
     used_names: set[str],
-    warnings: list[str],
     staged_videos: dict[Path, str],
 ) -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]]]:
     fps = int((source.timeline_plan or {}).get("fps") or 30)
@@ -581,7 +578,7 @@ def _explicit_video_tracks(
         source_path = Path(segment.source_path).expanduser().resolve()
         material_id = material_by_path.get(source_path)
         if material_id is None:
-            staged_path = _stage_once(source_path, video_dir, used_names, warnings, staged_videos)
+            staged_path = _stage_once(source_path, video_dir, used_names, staged_videos)
             info = probe_media(staged_path)
             material = _video_material(
                 _portable_resource_path(staged_path, draft_dir),
@@ -610,7 +607,6 @@ def _explicit_audio_tracks(
     draft_dir: Path,
     audio_dir: Path,
     used_names: set[str],
-    warnings: list[str],
     staged_audios: dict[Path, str],
 ) -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]]]:
     tracks: dict[str, list[dict[str, Any]]] = {}
@@ -623,7 +619,7 @@ def _explicit_audio_tracks(
         source_path = Path(segment.source_path).expanduser().resolve()
         material_id = material_by_path.get(source_path)
         if material_id is None:
-            staged_path = _stage_once(source_path, audio_dir, used_names, warnings, staged_audios)
+            staged_path = _stage_once(source_path, audio_dir, used_names, staged_audios)
             info = probe_media(staged_path)
             material = _audio_material(
                 _portable_resource_path(staged_path, draft_dir),

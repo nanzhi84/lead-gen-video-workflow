@@ -24,7 +24,6 @@ import {
   type PublishLoginState,
 } from "../../api/client";
 import { QrLoginDialog } from "../../components/publish/QrLoginDialog";
-import { TimeText } from "../../components/TimeText";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { Modal } from "../../components/ui/Modal";
 import { EmptyState, ErrorState, LoadingState } from "../../components/ui/State";

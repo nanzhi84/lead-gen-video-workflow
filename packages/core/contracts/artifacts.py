@@ -67,16 +67,6 @@ class TimelineValidationReport(ContractModel):
     checks: dict[str, bool] = Field(default_factory=dict)
 
 
-class UploadedFileArtifact(ContractModel):
-    upload_session_id: str | None = None
-    filename: str
-    content_type: str
-    size_bytes: int
-    object_uri: str | None = None
-    sha256: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
 class CaseContextArtifact(ContractModel):
     case_id: str
     case_profile: dict[str, Any] = Field(default_factory=dict)
@@ -231,13 +221,3 @@ class LipSyncReportArtifact(ContractModel):
     fallback_to: str | None = None
     fallback_reason: str | None = None
     warnings: list[str] = Field(default_factory=list)
-
-
-class PublishPackageArtifact(ContractModel):
-    publish_package_id: str
-    manifest_version: str
-    video_artifact_id: str
-    cover_artifact_id: str | None = None
-    title: str
-    description: str
-    platform_targets: list[str] = Field(default_factory=list)

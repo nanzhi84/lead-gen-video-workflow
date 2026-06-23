@@ -803,7 +803,7 @@ def _script_version_for_video_version_memory(
     version = repo.video_versions.get(video_version_id)
     if version is None or version.case_id != case_id:
         return None
-    return version.script_version_id if version is not None else None
+    return version.script_version_id
 
 
 def _observation_by_id_db(repo, case_id: str, observation_id: str) -> c.PerformanceObservation | None:

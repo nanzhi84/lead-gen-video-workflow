@@ -32,7 +32,6 @@ from uuid import uuid4
 from packages.core.config.settings import build_providers_settings, build_redis_url
 
 DEFAULT_MAX_INFLIGHT = 4
-DEFAULT_MAX_QPS = 4
 _DEFAULT_NAMESPACE = "cutagent"
 
 logger = logging.getLogger(__name__)

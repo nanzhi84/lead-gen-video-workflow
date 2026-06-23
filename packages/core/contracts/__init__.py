@@ -323,7 +323,6 @@ from .publish_accounts import (
     LoginStreamEvent,
 )
 from .ops import (
-    CostGroupBy,
     CostRollup,
     CostMetrics,
     YieldFunnelEvent,
@@ -651,7 +650,6 @@ __all__ = [
     "LoginStatusResponse",
     "ValidateSessionResponse",
     "LoginStreamEvent",
-    "CostGroupBy",
     "CostRollup",
     "CostMetrics",
     "YieldFunnelEvent",

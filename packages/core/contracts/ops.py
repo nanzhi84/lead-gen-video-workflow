@@ -11,10 +11,6 @@ from .base import ContractModel, EntityMeta, Money, NodeError, utcnow
 from .providers import ProviderUsageReport
 
 
-# §9.2 / §26.1: the dimensions a cost rollup may GROUP BY.
-CostGroupBy = Literal["case", "provider", "model", "prompt_version", "run", "job"]
-
-
 class CostRollup(EntityMeta):
     group_key: str
     group_by: str | None = None

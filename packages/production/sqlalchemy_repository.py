@@ -204,7 +204,11 @@ def _current_node_label(node_runs: list[NodeRun]) -> str | None:
     return _node_label(latest.node_id if latest else None)
 
 
-def _run_title(job: Job) -> str:
+def _run_title(job: Job, finished_video_title: str | None = None) -> str:
+    # Prefer the run's finished-video headline (the generated title) over the persona-
+    # label request title / raw script prefix; fall back for in-flight / failed runs.
+    if finished_video_title and finished_video_title.strip():
+        return finished_video_title.strip()
     if isinstance(job.request, DigitalHumanVideoRequest):
         return job.request.title or job.request.script[:28] or job.id
     return job.id
@@ -269,6 +273,7 @@ def _run_card_from_parts(
     job: Job,
     node_runs: list[NodeRun],
     has_finished_video: bool,
+    finished_video_title: str | None = None,
     preview_url: str | None = None,
 ) -> RunCard:
     return RunCard(
@@ -278,7 +283,7 @@ def _run_card_from_parts(
         status=run.status,
         progress=_run_progress(run, node_runs),
         current_node_label=_current_node_label(node_runs),
-        title=_run_title(job),
+        title=_run_title(job, finished_video_title),
         warnings=_run_warnings(node_runs),
         can_resume=run.status == RunStatus.succeeded or _run_has_retryable_failure(run, node_runs),
         can_retry=run.status in {RunStatus.failed, RunStatus.cancelled},
@@ -516,6 +521,7 @@ class SqlAlchemyProductionRepository(BaseRepository):
                         job=job_row_to_contract(job_row),
                         node_runs=node_runs,
                         has_finished_video=fv_row is not None,
+                        finished_video_title=fv_row.title if fv_row is not None else None,
                         preview_url=self._signed_run_thumbnail(fv_row),
                     )
                 )

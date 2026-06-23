@@ -21,7 +21,6 @@ import tempfile
 from pathlib import Path
 
 from packages.ai.gateway import ProviderCall
-from packages.ai.prompts.registry import PromptRegistry
 from packages.core.contracts import (
     Artifact,
     ArtifactKind,
@@ -230,16 +229,11 @@ def _resolve_lipsync_attribution(ctx: NodeContext) -> tuple[str | None, bool, st
 def _build_cover(
     ctx: NodeContext, final: Artifact, copy: PublishCopy
 ) -> tuple[Artifact, list[DegradationNotice], list[str]]:
-    """Resolve the cover artifact. AI cover (PAID, gated behind a real
-    ``image.generate`` profile + active secret) is the default; the frame-based
-    cover is the fallback.
+    """Resolve the cover artifact, returning ``(artifact, degradations, invocation_ids)``.
 
-    A ``cover_frame_fallback`` degradation is recorded ONLY when the AI cover
-    capability WAS available (a real profile resolved) but the paid call failed for
-    this run -- an actionable degradation worth surfacing. When no image profile is
-    configured at all, the frame cover is the honest BASELINE (there is no AI cover
-    capability to degrade from), so no degradation is emitted; otherwise default-AI
-    would flag every unconfigured run (CI / sandbox / un-armed prod) as degraded."""
+    AI cover is the default and the frame cover the fallback; the degradation
+    semantics (when ``cover_frame_fallback`` is and isn't emitted) are explained in
+    the module docstring."""
     request = ctx.state.request
     wants_ai = request.cover.mode == "ai"
     profile_id = ctx.image_cover_profile_id(request) if wants_ai else None
@@ -276,7 +270,7 @@ def _resolve_publish_copy(
         case_name=request.case_id,
         description=request.publish_content,
     )
-    registry = getattr(ctx.adapter, "prompt_registry", None) or PromptRegistry(ctx.repository)
+    registry = ctx.prompt_registry
     llm_chat = build_copy_llm_chat(
         gateway=ctx.provider_gateway,
         repository=ctx.repository,
@@ -323,7 +317,7 @@ def _resolve_cover_prompt_version_id(ctx: NodeContext) -> str | None:
     Resolution is driven off the repository's bindings (via PromptRegistry) so the
     node no longer looks the version up by a hardcoded id, satisfying the
     no-hardcoded-prod-prompt rule regardless of how the runtime adapter is wired."""
-    registry = getattr(ctx.adapter, "prompt_registry", None) or PromptRegistry(ctx.repository)
+    registry = ctx.prompt_registry
     try:
         _binding, version = registry.resolve_published_version(
             node_id=AI_COVER_NODE_ID,

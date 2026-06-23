@@ -29,6 +29,7 @@ from packages.core.storage.object_store import LocalObjectStore
 from packages.core.storage.repository import Repository
 from packages.core.storage.secret_store import LocalSecretStore
 from packages.media.assets import store_file
+from packages.ai.prompts.registry import PromptRegistry
 from packages.production.pipeline._node_context import NodeContext
 from packages.production.pipeline._run_state import RunState
 from packages.production.pipeline.digital_human import LocalRuntimeAdapter
@@ -54,6 +55,7 @@ def _adapter(tmp_path):
     adapter = object.__new__(LocalRuntimeAdapter)
     adapter.repository = repository
     adapter.provider_gateway = gateway
+    adapter.prompt_registry = PromptRegistry(repository)
     return adapter, object_store
 
 

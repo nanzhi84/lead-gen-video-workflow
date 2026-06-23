@@ -120,15 +120,22 @@ def _derive_overlay_events(emphasis: list[EmphasisHint], units: list[dict]) -> l
     narration timeline; the matched sentence supplies the timing, the phrase itself is
     the overlay text. A phrase matching no sentence is dropped: emphasis is an additive
     花字 overlay, so a miss leaves the baseline subtitles untouched rather than degrading
-    them (hence no DegradationNotice). Phrases keep the LLM's order.
+    them (hence no DegradationNotice). At most one overlay per narration sentence (two
+    phrases sharing a sentence would render as same-time, same-position banners), so a
+    later phrase whose only match is an already-claimed sentence is dropped. Phrases keep
+    the LLM's order.
     """
     events: list[OverlayEvent] = []
+    used: set[int] = set()
     for hint in emphasis:
         needle = _compact_text(hint.phrase)
         if not needle:
             continue
-        for unit in units:
+        for index, unit in enumerate(units):
+            if index in used:
+                continue
             if needle in _compact_text(str(unit.get("text", ""))):
+                used.add(index)
                 events.append(
                     OverlayEvent(
                         start=float(unit.get("start", 0) or 0),

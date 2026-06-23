@@ -27,7 +27,6 @@ def _state_with(payload):
 def test_creative_intent_defaults_are_empty():
     ci = CreativeIntentArtifact()
     assert ci.intent is None
-    assert ci.cover_focus.phrase is None
     assert ci.emphasis == []
 
 
@@ -35,12 +34,10 @@ def test_creative_intent_round_trips_emphasis():
     ci = CreativeIntentArtifact(
         intent={"hook": "h", "beats": ["a"]},
         emphasis=[EmphasisHint(phrase="限时五折")],
-        cover_focus={"phrase": "效果惊人"},
     )
     dumped = ci.model_dump(mode="json")
     again = CreativeIntentArtifact.model_validate(dumped)
     assert again.emphasis[0].phrase == "限时五折"
-    assert again.cover_focus.phrase == "效果惊人"
 
 
 # --- load_creative_intent helper ---
@@ -51,10 +48,10 @@ def test_load_missing_returns_defaults():
 
     ci = load_creative_intent(_State({}))
     assert ci.emphasis == []
-    assert ci.cover_focus.phrase is None
+    assert ci.intent is None
 
 
-def test_load_reads_emphasis_and_cover():
+def test_load_reads_emphasis():
     from packages.production.pipeline.nodes._creative_intent import load_creative_intent
 
     ci = load_creative_intent(
@@ -62,16 +59,14 @@ def test_load_reads_emphasis_and_cover():
             {
                 "intent": {"hook": "h", "beats": ["a"]},
                 "emphasis": [{"phrase": "限时五折"}],
-                "cover_focus": {"phrase": "效果惊人"},
             }
         )
     )
     assert [e.phrase for e in ci.emphasis] == ["限时五折"]
-    assert ci.cover_focus.phrase == "效果惊人"
 
 
 def test_load_tolerates_legacy_payload_with_removed_fields():
-    """老 run 的 creative_intent payload 带已删字段（scene_type 等），不得撞 extra=forbid。"""
+    """老 run 的 creative_intent payload 带已删字段（scene_type/cover_focus 等），不得撞 extra=forbid。"""
     from packages.production.pipeline.nodes._creative_intent import load_creative_intent
 
     legacy = {
@@ -87,13 +82,23 @@ def test_load_tolerates_legacy_payload_with_removed_fields():
     ci = load_creative_intent(_state_with(legacy))
     assert ci.intent == {"hook": "h", "beats": ["a"]}
     assert ci.emphasis == []
-    assert ci.cover_focus.phrase is None
+
+
+def test_load_falls_back_to_intent_on_invalid_known_field():
+    """已声明字段类型非法（model_validate 失败）时，走 except 兜底，仍能保住 intent。"""
+    from packages.production.pipeline.nodes._creative_intent import load_creative_intent
+
+    ci = load_creative_intent(
+        _state_with({"intent": {"hook": "h", "beats": ["a"]}, "emphasis": "not-a-list"})
+    )
+    assert ci.intent == {"hook": "h", "beats": ["a"]}
+    assert ci.emphasis == []
 
 
 # --- resolver: _intent_to_artifact ---
 
 
-def test_intent_to_artifact_maps_emphasis_and_cover():
+def test_intent_to_artifact_maps_emphasis():
     from packages.production.pipeline.nodes.resolve_creative_intent import _intent_to_artifact
 
     out = {
@@ -101,20 +106,11 @@ def test_intent_to_artifact_maps_emphasis_and_cover():
             "hook": "h",
             "beats": ["a", "b"],
             "emphasis": ["限时五折", "只要九块九"],
-            "cover_focus": "效果惊人",
         }
     }
     art = _intent_to_artifact(out)
     assert [e.phrase for e in art.emphasis] == ["限时五折", "只要九块九"]
-    assert art.cover_focus.phrase == "效果惊人"
     assert art.intent["hook"] == "h"
-
-
-def test_intent_to_artifact_cover_focus_as_object():
-    from packages.production.pipeline.nodes.resolve_creative_intent import _intent_to_artifact
-
-    art = _intent_to_artifact({"intent": {"hook": "h", "beats": [], "cover_focus": {"phrase": "镜头"}}})
-    assert art.cover_focus.phrase == "镜头"
 
 
 def test_intent_to_artifact_filters_and_dedups_emphasis():
@@ -137,7 +133,6 @@ def test_intent_to_artifact_missing_new_fields_defaults():
 
     art = _intent_to_artifact({"intent": {"hook": "h", "beats": ["a"]}})
     assert art.emphasis == []
-    assert art.cover_focus.phrase is None
 
 
 def test_intent_to_artifact_caps_emphasis_count():
@@ -182,6 +177,18 @@ def test_derive_overlay_empty_emphasis_no_events():
     from packages.production.pipeline.nodes.style_planning import _derive_overlay_events
 
     assert _derive_overlay_events([], _units(("一句话", 0.0, 1.0))) == []
+
+
+def test_derive_overlay_one_per_sentence():
+    """两个短语命中同一句旁白时只出一条花字（避免同时同位置叠印）。"""
+    from packages.production.pipeline.nodes.style_planning import _derive_overlay_events
+
+    units = _units(("今天限时五折只要九块九", 0.0, 2.0), ("赶紧来", 2.0, 3.0))
+    events = _derive_overlay_events(
+        [EmphasisHint(phrase="限时五折"), EmphasisHint(phrase="九块九")], units
+    )
+    assert len(events) == 1
+    assert events[0].text == "限时五折"  # 保留 LLM 顺序里第一个命中该句的短语
 
 
 # --- _subtitles: emphasis rendering ---
@@ -238,3 +245,19 @@ def test_emphasis_text_is_ass_escaped(tmp_path):
         overlay_events=[{"start": 0.0, "end": 2.0, "text": "限{时}五折", "style": "emphasis"}],
     )
     assert "限时五折" in txt  # 花括号被 ass_escape 去掉，避免 ASS 注入/破帧
+
+
+# --- 水源守卫：绑定到 ResolveCreativeIntent 的 prompt 必须真的让 LLM 产出 emphasis ---
+
+
+def test_creative_intent_prompt_requests_emphasis():
+    """整条花字链路只有在 LLM 被要求输出 emphasis 时才有数据；prompt 若漏掉 emphasis，
+    上面所有派生/渲染逻辑都收不到非空输入，功能形同虚设。锁住这个契约。"""
+    from packages.core.storage.repository import Repository
+
+    repo = Repository()
+    binding = next(
+        b for b in repo.prompt_bindings.values() if b.node_id == "ResolveCreativeIntent"
+    )
+    content = repo.prompt_versions[binding.prompt_version_id].content
+    assert "emphasis" in content

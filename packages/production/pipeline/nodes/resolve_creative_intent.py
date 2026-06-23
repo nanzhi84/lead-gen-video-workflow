@@ -3,7 +3,7 @@ from __future__ import annotations
 from packages.ai.gateway import ProviderCall
 from packages.core.config.settings import sandbox_fallback_allowed
 from packages.core.contracts import ArtifactKind, ErrorCode, NodeStatus, utcnow
-from packages.core.contracts.artifacts import CoverFocus, CreativeIntentArtifact, EmphasisHint
+from packages.core.contracts.artifacts import CreativeIntentArtifact, EmphasisHint
 from packages.core.workflow import NodeExecutionError, NodeOutput
 from packages.production.pipeline._node_context import NodeContext
 
@@ -27,10 +27,10 @@ def _clean_phrase(value: object) -> str | None:
 def _intent_to_artifact(output: dict) -> CreativeIntentArtifact:
     """Map the LLM output into a typed CreativeIntentArtifact.
 
-    The LLM emits {hook, beats, emphasis, cover_focus, ...} inside the ``intent``
-    object (validate_output requires intent.hook/beats). We promote the low-cardinality
-    creative semantics to typed top-level fields, dropping malformed/duplicate entries
-    so downstream consumers never see junk; the raw intent blob is preserved as-is.
+    The LLM emits {hook, beats, emphasis, ...} which the provider wraps under the
+    ``intent`` object (validate_output requires intent.hook/beats). We promote the
+    emphasis phrases to a typed field, dropping malformed/duplicate entries so
+    downstream consumers never see junk; the raw intent blob is preserved as-is.
     """
     intent = output.get("intent") if isinstance(output.get("intent"), dict) else {}
     emphasis: list[EmphasisHint] = []
@@ -45,14 +45,7 @@ def _intent_to_artifact(output: dict) -> CreativeIntentArtifact:
             emphasis.append(EmphasisHint(phrase=phrase))
             if len(emphasis) >= _MAX_EMPHASIS:
                 break
-    raw_cover = intent.get("cover_focus")
-    if isinstance(raw_cover, dict):
-        raw_cover = raw_cover.get("phrase")
-    return CreativeIntentArtifact(
-        intent=intent or None,
-        emphasis=emphasis,
-        cover_focus=CoverFocus(phrase=_clean_phrase(raw_cover)),
-    )
+    return CreativeIntentArtifact(intent=intent or None, emphasis=emphasis)
 
 
 def run(ctx: NodeContext) -> NodeOutput:

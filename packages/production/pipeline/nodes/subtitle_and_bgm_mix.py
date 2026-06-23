@@ -99,7 +99,6 @@ def run(ctx: NodeContext) -> NodeOutput:
                         )
                     )
                     warnings.append(WarningCode.font_resolution_failed)
-                overlay_events = style.get("overlay_events")
                 write_ass_subtitles(
                     subtitle_path,
                     narration=narration,
@@ -107,7 +106,7 @@ def run(ctx: NodeContext) -> NodeOutput:
                     width=state.request.output.width,
                     height=state.request.output.height,
                     font_name=resolved_font.family_name if resolved_font else None,
-                    overlay_events=overlay_events if isinstance(overlay_events, list) else None,
+                    overlay_events=style.get("overlay_events"),
                 )
             bgm_path = None
             bgm_plan = style.get("bgm") if isinstance(style.get("bgm"), dict) else {}

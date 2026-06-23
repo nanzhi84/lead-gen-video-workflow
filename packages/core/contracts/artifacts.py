@@ -78,17 +78,6 @@ class CaseContextArtifact(ContractModel):
     generated_at: datetime = Field(default_factory=utcnow)
 
 
-class CoverFocus(ContractModel):
-    """LLM 对封面定格点的低基数语义判断（封面地基，由 ExportFinishedVideo 消费）。
-
-    ``phrase`` 是脚本里"封面应定格在哪句话的画面"的关键短语；下游用旁白对齐把它
-    换算成真实秒数后抽帧。``None`` 表示无偏好，封面回退现有中点逻辑（向后兼容）。
-    本期（强调字幕）只定义字段、暂不消费；wiring 在 PR#54 合并后的封面那一期做。
-    """
-
-    phrase: str | None = None
-
-
 class EmphasisHint(ContractModel):
     """LLM 标记的整句强调关键短语（花字地基）。
 
@@ -104,12 +93,11 @@ class EmphasisHint(ContractModel):
 class CreativeIntentArtifact(ContractModel):
     """ResolveCreativeIntent 产出的 LLM 创意语义判断。
 
-    只承载 LLM 的低基数语义（hook/beats 的 ``intent`` + 封面/强调短语）；带时间轴的
-    字幕事件、封面帧等 render 结果由下游确定性节点（StylePlanning/Export）派生，不存这里。
+    只承载 LLM 的低基数语义（hook/beats 的 ``intent`` + 强调短语）；带时间轴的字幕
+    事件等 render 结果由下游确定性节点（StylePlanning）派生，不存这里。
     """
 
     intent: dict[str, Any] | None = None
-    cover_focus: CoverFocus = Field(default_factory=CoverFocus)
     emphasis: list[EmphasisHint] = Field(default_factory=list)
 
 

@@ -29,13 +29,9 @@ from packages.planning.editing.narration import (
     build_narration_units_from_asr,
     build_narration_units_from_script_sentences,
     build_narration_units_without_asr,
-    should_prefer_asr_narration_units,
 )
-from packages.planning.editing.boundary import build_semantic_audio_boundary_entries
 from packages.planning.editing.chunks import (
-    boundary_chunk_variants,
     build_boundary_locked_chunks,
-    derive_capacity_cap_durations,
 )
 from packages.planning.editing.packing import build_boundary_locked_portrait_plan
 from packages.planning.editing.plan import (
@@ -60,12 +56,8 @@ __all__ = [
     "build_narration_units_from_asr",
     "build_narration_units_from_script_sentences",
     "build_narration_units_without_asr",
-    "should_prefer_asr_narration_units",
     # boundary assembly + chunking
-    "build_semantic_audio_boundary_entries",
     "build_boundary_locked_chunks",
-    "boundary_chunk_variants",
-    "derive_capacity_cap_durations",
     # capacity packing
     "build_boundary_locked_portrait_plan",
     # top-level pure planner

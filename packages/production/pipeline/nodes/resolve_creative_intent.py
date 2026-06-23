@@ -3,9 +3,49 @@ from __future__ import annotations
 from packages.ai.gateway import ProviderCall
 from packages.core.config.settings import sandbox_fallback_allowed
 from packages.core.contracts import ArtifactKind, ErrorCode, NodeStatus, utcnow
-from packages.core.contracts.artifacts import CreativeIntentArtifact
+from packages.core.contracts.artifacts import CreativeIntentArtifact, EmphasisHint
 from packages.core.workflow import NodeExecutionError, NodeOutput
 from packages.production.pipeline._node_context import NodeContext
+
+# An emphasis hint is a short key phrase (a quote from the script) the LLM marks as
+# worth a 花字-style emphasis; bound the count/length so a hallucinated paragraph or
+# flood of phrases can't bloat the plan.
+_MAX_EMPHASIS = 6
+_MIN_PHRASE_LEN = 2
+_MAX_PHRASE_LEN = 30
+
+
+def _clean_phrase(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not (_MIN_PHRASE_LEN <= len(text) <= _MAX_PHRASE_LEN):
+        return None
+    return text
+
+
+def _intent_to_artifact(output: dict) -> CreativeIntentArtifact:
+    """Map the LLM output into a typed CreativeIntentArtifact.
+
+    The LLM emits {hook, beats, emphasis, ...} which the provider wraps under the
+    ``intent`` object (validate_output requires intent.hook/beats). We promote the
+    emphasis phrases to a typed field, dropping malformed/duplicate entries so
+    downstream consumers never see junk; the raw intent blob is preserved as-is.
+    """
+    intent = output.get("intent") if isinstance(output.get("intent"), dict) else {}
+    emphasis: list[EmphasisHint] = []
+    seen: set[str] = set()
+    raw_emphasis = intent.get("emphasis")
+    if isinstance(raw_emphasis, list):
+        for item in raw_emphasis:
+            phrase = _clean_phrase(item)
+            if phrase is None or phrase in seen:
+                continue
+            seen.add(phrase)
+            emphasis.append(EmphasisHint(phrase=phrase))
+            if len(emphasis) >= _MAX_EMPHASIS:
+                break
+    return CreativeIntentArtifact(intent=intent or None, emphasis=emphasis)
 
 
 def run(ctx: NodeContext) -> NodeOutput:
@@ -61,7 +101,7 @@ def run(ctx: NodeContext) -> NodeOutput:
     ctx.repository.prompt_invocations[prompt_invocation.id] = prompt_invocation
     artifact = ctx.artifact(
         ArtifactKind.creative_intent,
-        CreativeIntentArtifact(intent=result.output.get("intent")).model_dump(mode="json"),
+        _intent_to_artifact(result.output).model_dump(mode="json"),
         "CreativeIntentArtifact.v1",
     )
     return NodeOutput(artifacts=[artifact], provider_invocation_ids=[invocation.id])

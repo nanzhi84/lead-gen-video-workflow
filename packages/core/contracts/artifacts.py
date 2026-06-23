@@ -78,15 +78,27 @@ class CaseContextArtifact(ContractModel):
     generated_at: datetime = Field(default_factory=utcnow)
 
 
+class EmphasisHint(ContractModel):
+    """LLM 标记的整句强调关键短语（花字地基）。
+
+    ``phrase`` 是脚本里值得做花字/整句强调的关键短语（取自原话，便于确定性子串
+    定位到旁白句）。StylePlanning 把它匹配到旁白句、换算成带时间轴的 OverlayEvent。
+    刻意用短语而非 beat 序号：beat 是 LLM 转述、与旁白文本不可靠对应；短语是原话、
+    子串匹配确定可复现，也更贴合未来逐词花字。
+    """
+
+    phrase: str
+
+
 class CreativeIntentArtifact(ContractModel):
-    scene_type: Literal["hard_ad", "ip_persona"] = "hard_ad"
-    style_hint: str = ""
-    density: str = "medium"
-    closing_cta: str = ""
+    """ResolveCreativeIntent 产出的 LLM 创意语义判断。
+
+    只承载 LLM 的低基数语义（hook/beats 的 ``intent`` + 强调短语）；带时间轴的字幕
+    事件等 render 结果由下游确定性节点（StylePlanning）派生，不存这里。
+    """
+
     intent: dict[str, Any] | None = None
-    cover_focus: dict[str, Any] = Field(default_factory=dict)
-    overlay_events: list[dict[str, Any]] = Field(default_factory=list)
-    script_features_hint: dict[str, Any] = Field(default_factory=dict)
+    emphasis: list[EmphasisHint] = Field(default_factory=list)
 
 
 class AlignmentSegment(ContractModel):
@@ -172,6 +184,20 @@ class BrollPlanArtifact(ContractModel):
     skipped_reason: str | None = None
 
 
+class OverlayEvent(ContractModel):
+    """StylePlanning 确定性派生的带时间轴字幕浮层事件（整句强调 / 花字地基）。
+
+    由 ``CreativeIntentArtifact.emphasis`` 的关键短语匹配旁白句换算而来，渲染层把它
+    叠成一条独立样式的字幕。``text`` 是要强调的短语本身（非整句，避免与底部正文重复）。
+    本期只有"强调"一种样式，故不带 style 判别字段；未来花字做多样式分流时再连同渲染层
+    的消费一起加，避免现在留一个写了不读的死字段。
+    """
+
+    start: float
+    end: float
+    text: str
+
+
 class StylePlanArtifact(ContractModel):
     subtitle: SubtitleStylePlan
     bgm: BgmPlan | None = None
@@ -180,6 +206,7 @@ class StylePlanArtifact(ContractModel):
     bgm_asset_id: str | None = None
     subtitle_enabled: bool = True
     selection_reservation_ids: list[str] = Field(default_factory=list)
+    overlay_events: list[OverlayEvent] = Field(default_factory=list)
 
 
 class TimelineTrackSegment(ContractModel):

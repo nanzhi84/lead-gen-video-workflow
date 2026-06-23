@@ -5,13 +5,16 @@ from __future__ import annotations
 from packages.core.contracts import ArtifactKind, DegradationNotice, NodeStatus, WarningCode
 from packages.core.contracts.artifacts import (
     BgmPlan,
+    EmphasisHint,
     FontPlan,
+    OverlayEvent,
     StylePlanArtifact,
     SubtitleStylePlan,
 )
 from packages.core.workflow import NodeOutput
 from packages.production.pipeline._node_context import NodeContext
 from packages.production.pipeline._run_state import degradation_notice
+from packages.production.pipeline.nodes._creative_intent import load_creative_intent
 
 
 def run(ctx: NodeContext) -> NodeOutput:
@@ -57,6 +60,11 @@ def run(ctx: NodeContext) -> NodeOutput:
     bgm_metadata = selected_bgm.get("metadata") if isinstance(selected_bgm, dict) else {}
     if not isinstance(bgm_metadata, dict):
         bgm_metadata = {}
+    # Emphasis 花字地基：把 LLM 标记的关键短语确定性地落到含它的旁白句上，换算成带时间轴的
+    # OverlayEvent（渲染层叠成独立样式字幕）。narration_units 在本节点之前已产出。
+    narration_units = state.artifacts.get(ArtifactKind.narration_units)
+    units = (narration_units.payload or {}).get("units", []) if narration_units is not None else []
+    overlay_events = _derive_overlay_events(load_creative_intent(state).emphasis, units)
     artifact = ctx.artifact(
         ArtifactKind.plan_style,
         StylePlanArtifact(
@@ -93,6 +101,7 @@ def run(ctx: NodeContext) -> NodeOutput:
             font_asset_id=font_asset_id,
             bgm_asset_id=bgm_asset_id,
             subtitle_enabled=state.request.subtitle.enabled,
+            overlay_events=overlay_events,
         ).model_dump(mode="json"),
         "StylePlanArtifact.v1",
     )
@@ -102,6 +111,40 @@ def run(ctx: NodeContext) -> NodeOutput:
         warnings=warnings,
         degradations=degradations,
     )
+
+
+def _derive_overlay_events(emphasis: list[EmphasisHint], units: list[dict]) -> list[OverlayEvent]:
+    """Place each emphasis phrase onto the narration sentence that contains it.
+
+    Deterministic substring match (whitespace/case-insensitive) against the real
+    narration timeline; the matched sentence supplies the timing, the phrase itself is
+    the overlay text. A phrase matching no sentence is dropped: emphasis is an additive
+    花字 overlay, so a miss leaves the baseline subtitles untouched rather than degrading
+    them (hence no DegradationNotice). At most one overlay per narration sentence (two
+    phrases sharing a sentence would render as same-time, same-position banners), so a
+    later phrase whose only match is an already-claimed sentence is dropped. Phrases keep
+    the LLM's order.
+    """
+    events: list[OverlayEvent] = []
+    used: set[int] = set()
+    for hint in emphasis:
+        needle = _compact_text(hint.phrase)
+        if not needle:
+            continue
+        for index, unit in enumerate(units):
+            if index in used:
+                continue
+            if needle in _compact_text(str(unit.get("text", ""))):
+                used.add(index)
+                events.append(
+                    OverlayEvent(
+                        start=float(unit.get("start", 0) or 0),
+                        end=float(unit.get("end", 0) or 0),
+                        text=hint.phrase,
+                    )
+                )
+                break
+    return events
 
 
 def _select_bgm_candidate(

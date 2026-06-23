@@ -93,9 +93,11 @@ def write_ass_subtitles(
     width: int,
     height: int,
     font_name: str | None = None,
+    overlay_events: list[dict] | None = None,
 ) -> None:
     subtitle = style.get("subtitle", {}) if isinstance(style.get("subtitle"), dict) else {}
     font_size = ass_font_size(subtitle.get("font_size"), height=height)
+    overlay_events = overlay_events or []
     # libass matches the ASS ``Fontname`` against the family names of fonts in its
     # fontsdir; a resolved selection (from the uploaded .ttf/.otf) replaces the
     # hard-coded Arial so the user/agent-chosen font is actually burned. ASS field
@@ -106,6 +108,10 @@ def write_ass_subtitles(
     position = subtitle.get("position")
     if isinstance(position, dict) and "y" in position:
         margin_v = max(20, int(height * (1 - float(position["y"]))))
+    # Emphasis (花字) banner sizing: larger, top-anchored so it layers above the normal
+    # bottom subtitle without overlapping it.
+    emphasis_size = int(round(font_size * 1.4))
+    emphasis_margin_v = int(height * 0.12)
     lines = [
         "[Script Info]",
         "ScriptType: v4.00+",
@@ -124,6 +130,16 @@ def write_ass_subtitles(
             f"Style: Default,{resolved_font},{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H64000000,"
             f"1,0,0,0,100,100,0,0,1,4,1,2,{_ASS_MARGIN_L},{_ASS_MARGIN_R},{margin_v},1"
         ),
+    ]
+    # The Emphasis style row is emitted ONLY when there are overlay events, so the
+    # existing no-overlay output stays byte-identical. Yellow, larger, top-centered.
+    if overlay_events:
+        lines.append(
+            f"Style: Emphasis,{resolved_font},{emphasis_size},&H0000FFFF,&H000000FF,"
+            f"&H00000000,&H64000000,1,0,0,0,100,100,0,0,1,4,1,8,"
+            f"{_ASS_MARGIN_L},{_ASS_MARGIN_R},{emphasis_margin_v},1"
+        )
+    lines += [
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
@@ -145,6 +161,26 @@ def write_ass_subtitles(
             f"{ass_time(float(unit.get('start', 0) or 0))},"
             f"{ass_time(float(unit.get('end', 0) or 0))},"
             f"Default,,0,0,0,,{text}"
+        )
+    # Emphasis overlays on Layer 1 (above the Layer 0 narration). Each carries the key
+    # phrase itself, timed to the narration sentence StylePlanning matched it to.
+    for event in overlay_events:
+        text = ass_escape(
+            ass_wrap_text(
+                str(event.get("text", "")),
+                width=width,
+                font_size=emphasis_size,
+                margin_l=_ASS_MARGIN_L,
+                margin_r=_ASS_MARGIN_R,
+            )
+        )
+        if not text:
+            continue
+        lines.append(
+            "Dialogue: 1,"
+            f"{ass_time(float(event.get('start', 0) or 0))},"
+            f"{ass_time(float(event.get('end', 0) or 0))},"
+            f"Emphasis,,0,0,0,,{text}"
         )
     output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 

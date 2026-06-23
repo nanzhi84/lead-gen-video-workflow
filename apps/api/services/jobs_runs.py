@@ -194,7 +194,12 @@ def _current_node_label(node_runs: list[c.NodeRun]) -> str | None:
     return _node_label(latest.node_id if latest else None)
 
 
-def _run_title(job: c.Job) -> str:
+def _run_title(job: c.Job, finished_video_title: str | None = None) -> str:
+    # A completed run carries the generated headline on its finished video -> show it
+    # instead of the persona-label request title or the raw script prefix. In-flight /
+    # failed runs (no finished video yet) fall back to the request title / script prefix.
+    if finished_video_title and finished_video_title.strip():
+        return finished_video_title.strip()
     request_payload = job.request
     if isinstance(request_payload, c.DigitalHumanVideoRequest):
         return request_payload.title or request_payload.script[:28] or job.id
@@ -217,7 +222,10 @@ def _run_warnings(node_runs: list[c.NodeRun]) -> list[str]:
 def _run_card(repo, run: c.WorkflowRun) -> c.RunCard:
     job = repo.jobs[run.job_id]
     node_runs = list(repo.node_runs.get(run.id, []))
-    has_finished_video = any(video.run_id == run.id for video in repo.finished_videos.values())
+    finished_video = next(
+        (video for video in repo.finished_videos.values() if video.run_id == run.id), None
+    )
+    has_finished_video = finished_video is not None
     can_resume = run.status == c.RunStatus.succeeded or _run_has_retryable_failure(repo, run.id)
     return c.RunCard(
         run_id=run.id,
@@ -226,7 +234,7 @@ def _run_card(repo, run: c.WorkflowRun) -> c.RunCard:
         status=run.status,
         progress=_run_progress(run, node_runs),
         current_node_label=_current_node_label(node_runs),
-        title=_run_title(job),
+        title=_run_title(job, finished_video.title if finished_video else None),
         warnings=_run_warnings(node_runs),
         can_resume=can_resume,
         can_retry=run.status in {c.RunStatus.failed, c.RunStatus.cancelled},

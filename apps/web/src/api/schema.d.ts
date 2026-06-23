@@ -3972,7 +3972,7 @@ export interface components {
         CoverOptions: {
             /**
              * Mode
-             * @default frame
+             * @default ai
              * @enum {string}
              */
             mode: "none" | "frame" | "ai";

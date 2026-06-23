@@ -11387,7 +11387,7 @@
               "ai"
             ],
             "title": "Mode",
-            "default": "frame"
+            "default": "ai"
           },
           "template_id": {
             "anyOf": [

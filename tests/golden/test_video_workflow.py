@@ -132,7 +132,13 @@ def test_case_run_cards_list_recent_runs_for_case():
         assert card["runId"] == run["id"]
         assert card["jobId"] == run["job_id"]
         assert card["caseId"] == "case_demo"
-        assert card["title"] == "Run card list"
+        # A completed run's card now surfaces the finished video's generated headline
+        # (here the deterministic first-sentence derivation, since the golden flow has
+        # no real LLM armed) rather than the raw request title.
+        finished_videos = active_client.get("/api/cases/case_demo/finished-videos").json()["items"]
+        assert finished_videos, "completed run should have produced a finished video"
+        assert card["title"] == finished_videos[-1]["title"]
+        assert card["title"] == "先指出低效内容生产的痛点"
         assert card["progress"] == 1
         assert card["canPublish"] is True
         assert card["canRetry"] is False

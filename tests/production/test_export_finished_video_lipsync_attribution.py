@@ -29,6 +29,7 @@ from packages.core.storage.object_store import LocalObjectStore
 from packages.core.storage.repository import Repository
 from packages.core.storage.secret_store import LocalSecretStore
 from packages.media.assets import store_file
+from packages.ai.prompts.registry import PromptRegistry
 from packages.production.pipeline._node_context import NodeContext
 from packages.production.pipeline._run_state import RunState
 from packages.production.pipeline.digital_human import LocalRuntimeAdapter
@@ -54,6 +55,7 @@ def _adapter(tmp_path):
     adapter = object.__new__(LocalRuntimeAdapter)
     adapter.repository = repository
     adapter.provider_gateway = gateway
+    adapter.prompt_registry = PromptRegistry(repository)
     return adapter, object_store
 
 
@@ -163,12 +165,15 @@ def test_primary_heygem_attribution(tmp_path, media_fixture_factory, monkeypatch
     assert finished.lipsync_fallback_reason is None
 
 
-def test_blank_title_uses_finished_video_fallback(tmp_path, media_fixture_factory, monkeypatch):
+def test_blank_title_uses_generated_copy_headline(tmp_path, media_fixture_factory, monkeypatch):
+    # A blank request title no longer falls back to the placeholder "未命名成片": the
+    # finished video gets a generated headline. With no LLM armed the copy is derived
+    # deterministically from the script ("第一句。第二句。" -> headline "第一句").
     adapter, object_store = _adapter(tmp_path)
     finished = _export(
         adapter, object_store, media_fixture_factory, monkeypatch, lipsync_report=None, title=None
     )
-    assert finished.title == "未命名成片"
+    assert finished.title == "第一句"
 
 
 def test_fallback_videoretalk_attribution(tmp_path, media_fixture_factory, monkeypatch):

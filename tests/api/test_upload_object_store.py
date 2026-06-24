@@ -241,7 +241,9 @@ def test_finished_video_preview_url_is_browser_playable_stream_route():
 
 def _register_finished_video(uri: str, *, title: str) -> str:
     repo = repository()
-    case_id = "case_demo"
+    # A dedicated case so these (deliberately non-downloadable) finished videos
+    # never leak into case_demo, whose last finished video other suites publish.
+    case_id = "case_stream_proxy_test"
     run = WorkflowRun(
         id=new_id("run"),
         job_id=new_id("job"),

@@ -3,10 +3,11 @@
 Assembles an ad prompt (mirroring the boss's proven format: 指令 + 口播脚本 + 出镜
 人物) from the request script (falling back to the case profile), resolves any
 reference image/video assets to their source artifact URIs, and invokes the
-``video.generate`` capability with native audio (口播 + BGM) on. The provider
-downloads + stores the result, so the real path returns a ``video.rendered``
-artifact id; the sandbox path returns only a fake uri, which this node bridges
-into a uri-only artifact so the downstream export node has something to reference.
+``video.generate`` capability with native voiceover audio on but BGM/captions
+explicitly disabled in the prompt. The provider downloads + stores the result,
+so the real path returns a ``video.rendered`` artifact id; the sandbox path
+returns only a fake uri, which this node bridges into a uri-only artifact so the
+downstream export node has something to reference.
 """
 
 from __future__ import annotations
@@ -21,16 +22,32 @@ _SEEDANCE_DURATION_SEC = 15
 _SEEDANCE_RATIO = "9:16"
 _SEEDANCE_RESOLUTION = "720p"
 
-# Ad prompt template — mirrors the boss's verified Seedance prompt. The instruction
-# prefix implies voiceover 口播 + auto subtitles + BGM + multi-shot B-roll, which
-# Seedance arranges itself; the script rides in the ``{...}`` block as the lines to
-# speak. With reference assets, the person/scene is carried by the附带的参考素材.
-_AD_PROMPT_PREFIX = "请直出一条抖音信息流广告视频，配 BGM。"
+# Ad prompt template for voiceover-only Seedance ads. Keep the voiceover copy out
+# of braces/quotes: video models can interpret a visibly delimited script as
+# on-screen caption text even when the prompt says not to render captions.
+#
+# NOTE: the prompt is built from the request script only, so changing this template
+# does NOT change the node's ``input_manifest_hash`` (which hashes node_id + request
+# + artifact_refs, not the prompt) and there is no per-node version bump. A run that
+# already produced a ``video.rendered`` here and is later *resumed* will reuse the
+# old clip rather than re-render with a changed prompt. Editing this template only
+# affects fresh runs; in-flight runs must be re-run (not resumed) to pick it up.
+_AD_PROMPT_PREFIX = (
+    "请生成一条竖屏生活流短视频广告，生成自然中文旁白音频。"
+    "画面里不要主动生成任何文字。"
+    "禁止生成 BGM、背景音乐、音效铺底或任何非旁白音频；"
+    "禁止生成字幕、逐字字幕、底部字幕、口播文字上屏、标题字卡、贴纸文字、歌词、花字、CTA 文字或额外文字叠加；"
+    "只有真实拍摄场景中自然存在的文字可以保留，例如门头招牌、商品包装、价签。"
+)
 _AD_PROMPT_REFERENCE_LINE = "出镜人物/场景见参考素材，自然口播上述脚本。"
 
 
 def _build_ad_prompt(spoken_script: str, *, has_references: bool) -> str:
-    lines = [_AD_PROMPT_PREFIX, f"这是口播脚本。{{{spoken_script}}}"]
+    lines = [
+        _AD_PROMPT_PREFIX,
+        "旁白台词如下，只用于配音朗读，不属于画面内容，绝对不要把这些台词显示成画面文字或字幕：",
+        spoken_script,
+    ]
     if has_references:
         lines.append(_AD_PROMPT_REFERENCE_LINE)
     return "\n".join(lines)
@@ -74,6 +91,7 @@ def run(ctx: NodeContext) -> NodeOutput:
                 "duration_sec": _SEEDANCE_DURATION_SEC,
                 "ratio": _SEEDANCE_RATIO,
                 "resolution": _SEEDANCE_RESOLUTION,
+                "generate_audio": True,
                 "references": references,
             },
             idempotency_key=f"{run.id}:{node_run.id}:seedance",

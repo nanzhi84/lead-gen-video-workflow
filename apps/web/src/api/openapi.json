@@ -5241,6 +5241,46 @@
         }
       }
     },
+    "/api/finished-videos/{id}/stream": {
+      "get": {
+        "summary": "Finished Video Stream",
+        "operationId": "finished_video_stream_api_finished_videos__id__stream_get",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Finished video stream.",
+            "content": {
+              "video/mp4": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/finished-videos/{id}/jianying-draft/latest": {
       "get": {
         "summary": "Latest Jianying Draft",

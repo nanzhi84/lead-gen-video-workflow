@@ -38,7 +38,7 @@ export function SeedanceReferencePicker({
         <span className="text-xs text-text-tertiary">已选 {selectedIds.length} 个</span>
       </div>
       <p className="text-xs text-text-secondary">
-        选择门头、产品、人物等图片/视频，Seedance 会按参考素材保持画面与人物一致性。至少选一个。
+        可选择门头、产品、人物等图片/视频，让 Seedance 尽量保持画面与人物一致性；不选时按脚本纯文本生成。
       </p>
       {assets.isLoading ? (
         <div className="stateBox muted">
@@ -47,7 +47,7 @@ export function SeedanceReferencePicker({
       ) : cards.length === 0 ? (
         <div className="stateBox muted flex items-center gap-2">
           <ImageOff className="h-4 w-4 shrink-0" />
-          <span>该案例暂无 AI素材，请先到「素材库 · AI素材」上传图片/视频后再来选择。</span>
+          <span>该案例暂无 AI素材；可以先跳过，或到「素材库 · AI素材」上传图片/视频后再来选择。</span>
         </div>
       ) : (
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">

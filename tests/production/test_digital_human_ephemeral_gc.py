@@ -148,6 +148,56 @@ def test_finalize_success_gc_deletes_lipsync_ephemeral_artifact(
     assert event.payload["skipped"] is False
 
 
+def test_finalize_success_gc_keeps_ephemeral_uri_referenced_by_finished_video(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    repository = Repository()
+    workflow = object.__new__(LocalRuntimeAdapter)
+    workflow.repository = repository
+    run = WorkflowRun(
+        id="run_1",
+        job_id="job_1",
+        case_id="case_demo",
+        workflow_template_id="seedance_t2v_v1",
+        workflow_version="v1",
+        status=RunStatus.running,
+    )
+    node_run = NodeRun(
+        id="nr_finalize",
+        run_id=run.id,
+        node_id="FinalizeRunReport",
+        node_version="v1",
+        status=NodeStatus.running,
+        input_manifest_hash="sha256:test",
+    )
+    repository.runs[run.id] = run
+    repository.node_runs[run.id] = [node_run]
+    state = _state_with_ephemerals()
+    shared_uri = "s3://cutagent-dev/generated-video/shared/seedance.mp4"
+    state.artifacts[ArtifactKind.video_rendered] = _artifact(
+        ArtifactKind.video_rendered,
+        shared_uri,
+    )
+    state.artifacts[ArtifactKind.video_finished] = _artifact(
+        ArtifactKind.video_finished,
+        shared_uri,
+    )
+    object_store = RecordingDeleteStore()
+    monkeypatch.setattr(digital_human, "get_object_store", lambda: object_store)
+
+    workflow._finalize_run_report(run, node_run, state)
+
+    assert object_store.deleted == [
+        "local://cutagent-ephemeral/generated-video/portrait.mp4",
+        "local://cutagent-ephemeral/generated-video/lipsync.mp4",
+    ]
+    assert shared_uri not in object_store.deleted
+    event = _ephemeral_gc_event(repository)
+    assert event.payload["run_id"] == run.id
+    assert event.payload["deleted_count"] == 2
+    assert event.payload["skipped"] is False
+
+
 def test_failed_run_retains_ephemeral_for_resume_and_keeps_committed_reservation(
     monkeypatch: pytest.MonkeyPatch,
 ):

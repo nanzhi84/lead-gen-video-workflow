@@ -93,9 +93,16 @@ def test_sqlalchemy_finished_video_publish_record_and_performance_flow_are_persi
         assert detail_body["finished_video"]["title"] == "Imported SQLAlchemy finished video"
         assert detail_body["video_version"]["id"] == version_id
 
+        # A ``local://`` finished video previews via the same-origin ``/stream``
+        # proxy (no browser-reachable URL), and the proxy must serve the bytes.
         preview = client.get(f"/api/finished-videos/{finished_video_id}/preview-url")
         assert preview.status_code == 200, preview.text
-        assert preview.json()["url"].endswith("sqlalchemy-finished-video.mp4")
+        preview_body = preview.json()
+        assert preview_body["url"] == f"/api/finished-videos/{finished_video_id}/stream"
+        assert preview_body["playable"] is True
+        stream = client.get(preview_body["url"])
+        assert stream.status_code == 200, stream.text
+        assert stream.content == sample_video.read_bytes()
 
         handoff = client.post(f"/api/finished-videos/{finished_video_id}/editor-handoff", json={})
         assert handoff.status_code == 201, handoff.text

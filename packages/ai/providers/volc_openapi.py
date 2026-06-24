@@ -18,14 +18,12 @@ gateway host ``open.volcengineapi.com`` with the ``speech_saas_prod`` signing sc
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
-from datetime import datetime, timezone
 
 import httpx
 
 from packages.ai.gateway.provider_gateway import ProviderRuntimeError
+from packages.ai.providers._volc_sigv4 import signed_headers as volc_signed_headers
 from packages.core.contracts import ErrorCode
 
 _HOST = "open.volcengineapi.com"
@@ -59,37 +57,21 @@ def _signed_headers(
 ) -> tuple[dict[str, str], str]:
     """Build Volcengine V4 signed headers for a POST management-plane call.
 
-    Mirrors the canonical-request / string-to-sign / 4-step signing-key chain of
-    the balance poller, with method=POST and ``payload_hash = sha256(json body)``.
+    Delegates the canonical-request / string-to-sign / 4-step signing-key chain to
+    the shared :func:`packages.ai.providers._volc_sigv4.signed_headers`, then adds
+    the (unsigned) Content-Type and returns the query the caller puts on the URL.
     """
-    x_date = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    short_date = x_date[:8]
-    payload_hash = hashlib.sha256(body).hexdigest()
     query = f"Action={action}&Version={version}"
-    signed_headers = "host;x-content-sha256;x-date"
-    canonical_headers = f"host:{_HOST}\nx-content-sha256:{payload_hash}\nx-date:{x_date}\n"
-    canonical_request = "\n".join(
-        ["POST", "/", query, canonical_headers, signed_headers, payload_hash]
+    headers = volc_signed_headers(
+        access_key_id=access_key_id,
+        secret_access_key=secret_access_key,
+        method="POST",
+        url=f"https://{_HOST}/?{query}",
+        body=body,
+        region=_REGION,
+        service=_SERVICE,
     )
-    hashed_request = hashlib.sha256(canonical_request.encode("utf-8")).hexdigest()
-    scope = f"{short_date}/{_REGION}/{_SERVICE}/request"
-    string_to_sign = "\n".join(["HMAC-SHA256", x_date, scope, hashed_request])
-
-    def _h(key: bytes, content: str) -> bytes:
-        return hmac.new(key, content.encode("utf-8"), hashlib.sha256).digest()
-
-    signing_key = _h(_h(_h(_h(secret_access_key.encode("utf-8"), short_date), _REGION), _SERVICE), "request")
-    signature = hmac.new(signing_key, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
-    headers = {
-        "Host": _HOST,
-        "X-Date": x_date,
-        "X-Content-Sha256": payload_hash,
-        "Content-Type": "application/json",
-        "Authorization": (
-            f"HMAC-SHA256 Credential={access_key_id}/{scope}, "
-            f"SignedHeaders={signed_headers}, Signature={signature}"
-        ),
-    }
+    headers["Content-Type"] = "application/json"
     return headers, query
 
 

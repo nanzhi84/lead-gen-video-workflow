@@ -79,6 +79,7 @@ class NodeContext:
         payload,
         payload_schema: str,
         uri: str | None = None,
+        size_bytes: int | None = None,
         sha256: str | None = None,
         media_info: MediaInfo | None = None,
     ) -> Artifact:
@@ -89,6 +90,7 @@ class NodeContext:
             payload,
             payload_schema,
             uri=uri,
+            size_bytes=size_bytes,
             sha256=sha256,
             media_info=media_info,
         )

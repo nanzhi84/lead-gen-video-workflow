@@ -81,6 +81,7 @@ EXPECTED_PATHS = {
     "/api/finished-videos/{id}",
     "/api/finished-videos/{id}/preview-url",
     "/api/finished-videos/{id}/download",
+    "/api/finished-videos/{id}/stream",
     "/api/finished-videos/{id}/editor-handoff",
     "/api/finished-videos/{id}/jianying-draft",
     "/api/publish/packages",

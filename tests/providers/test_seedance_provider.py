@@ -30,17 +30,26 @@ def _gateway(tmp_path, transport: httpx.MockTransport) -> tuple[Repository, Prov
     return repository, gateway
 
 
-def _profile(repository: Repository, secret_ref: str) -> ProviderProfile:
+def _profile(
+    repository: Repository,
+    secret_ref: str,
+    *,
+    model_id: str = "doubao-seedance-2-0-260128",
+    default_options: dict | None = None,
+) -> ProviderProfile:
+    options = {"base_url": _BASE, "poll_interval": 0, "poll_max_attempts": 3}
+    if default_options:
+        options.update(default_options)
     profile = ProviderProfile(
         id="volcengine.seedance.test",
         provider_id="volcengine.seedance",
-        model_id="doubao-seedance-2-0",
+        model_id=model_id,
         capability="video.generate",
         display_name="Seedance test",
         environment="prod",
         secret_ref=secret_ref,
         options_schema_ref=ProviderOptionsSchemaRef(schema_id="provider.video.options"),
-        default_options={"base_url": _BASE, "poll_interval": 0, "poll_max_attempts": 3},
+        default_options=options,
     )
     repository.provider_profiles[profile.id] = profile
     return profile
@@ -67,6 +76,7 @@ def test_seedance_text_to_video_submits_polls_and_stores(tmp_path, media_fixture
                     "id": "cgt-1",
                     "status": "succeeded",
                     "content": {"video_url": "https://files.example/seedance-result.mp4"},
+                    "usage": {"completion_tokens": 324900, "total_tokens": 324900},
                 },
             )
         if str(request.url) == "https://files.example/seedance-result.mp4":
@@ -88,8 +98,11 @@ def test_seedance_text_to_video_submits_polls_and_stores(tmp_path, media_fixture
 
     assert invocation.status == ProviderStatus.succeeded
     assert invocation.external_job_id == "cgt-1"
+    assert invocation.output_tokens == 324900
+    assert invocation.usage and invocation.usage.output_tokens == 324900
     assert result is not None
     assert result.output["external_job_id"] == "cgt-1"
+    assert result.output_tokens == 324900
     assert result.video_seconds == 15.0
     # Seedance 2.0 param style: top-level JSON fields + native audio on.
     assert submitted_body["ratio"] == "9:16"
@@ -100,7 +113,183 @@ def test_seedance_text_to_video_submits_polls_and_stores(tmp_path, media_fixture
     assert submitted_body["content"][0]["type"] == "text"
     assert "门头特写，暖光" in submitted_body["content"][0]["text"]
     artifact = repository.artifacts[result.output["video_artifact_id"]]
+    assert artifact.size_bytes == result_video.stat().st_size
     assert artifact.media_info and artifact.media_info.media_type == "video"
+
+
+def test_seedance_access_key_secret_gets_temporary_api_key_then_submits(
+    tmp_path, media_fixture_factory
+):
+    result_video = media_fixture_factory.video(duration_sec=1.0, filename="seedance-ak.mp4")
+    submitted_body: dict = {}
+    seen_auth: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == "https://files.example/seedance-ak.mp4":
+            return httpx.Response(200, content=result_video.read_bytes())
+        auth = request.headers.get("authorization", "")
+        if request.url.host == "ark.cn-beijing.volcengineapi.com":
+            seen_auth.append(auth)
+            assert request.url.path == "/"
+            assert str(request.url.query, "utf-8") == "Action=GetApiKey&Version=2024-01-01"
+            assert auth.startswith("HMAC-SHA256 Credential=AKLTxxx/")
+            assert "/cn-beijing/ark/request" in auth
+            assert "sk-secret" not in auth
+            assert "x-content-sha256" in request.headers
+            assert "x-date" in request.headers
+            payload = json.loads(request.content)
+            assert payload["ResourceType"] == "endpoint"
+            assert payload["ResourceIds"] == ["ep-seedance"]
+            return httpx.Response(
+                200,
+                json={
+                    "ResponseMetadata": {"Action": "GetApiKey"},
+                    "Result": {"ApiKey": "tmp-ark-key", "ExpiredTime": 0},
+                },
+            )
+        if request.url.path == _TASKS and request.method == "POST":
+            assert auth == "Bearer tmp-ark-key"
+            submitted_body.update(json.loads(request.content))
+            return httpx.Response(200, json={"id": "cgt-ak"})
+        if request.url.path == f"{_TASKS}/cgt-ak":
+            assert auth == "Bearer tmp-ark-key"
+            return httpx.Response(
+                200,
+                json={
+                    "id": "cgt-ak",
+                    "status": "succeeded",
+                    "content": {"video_url": "https://files.example/seedance-ak.mp4"},
+                },
+            )
+        return httpx.Response(404, text=str(request.url))
+
+    repository, gateway = _gateway(tmp_path, httpx.MockTransport(handler))
+    secret_ref = gateway.secret_store.put("AKLTxxx:sk-secret")  # type: ignore[union-attr]
+    profile = _profile(repository, secret_ref, model_id="ep-seedance")
+
+    invocation, result = gateway.invoke(
+        ProviderCall(
+            provider_profile_id=profile.id,
+            capability_id="video.generate",
+            input={"prompt": "门头特写，暖光"},
+        )
+    )
+
+    assert invocation.status == ProviderStatus.succeeded
+    assert result is not None
+    assert result.output["external_job_id"] == "cgt-ak"
+    assert submitted_body["model"] == "ep-seedance"
+    assert submitted_body["content"][0]["text"] == "门头特写，暖光"
+    assert len(seen_auth) == 1
+
+
+def test_seedance_access_key_model_id_uses_presetendpoint(tmp_path, media_fixture_factory):
+    result_video = media_fixture_factory.video(duration_sec=1.0, filename="seedance-preset.mp4")
+    submitted_body: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        auth = request.headers.get("authorization", "")
+        if request.url.host == "ark.cn-beijing.volcengineapi.com":
+            payload = json.loads(request.content)
+            assert payload["ResourceType"] == "presetendpoint"
+            assert payload["ResourceIds"] == ["doubao-seedance-2-0-260128"]
+            assert payload["ProjectName"] == "default"
+            assert auth.startswith("HMAC-SHA256 Credential=AKLTxxx/")
+            return httpx.Response(
+                200,
+                json={
+                    "ResponseMetadata": {"Action": "GetApiKey"},
+                    "Result": {"ApiKey": "tmp-preset-key", "ExpiredTime": 0},
+                },
+            )
+        if request.url.path == _TASKS and request.method == "POST":
+            assert auth == "Bearer tmp-preset-key"
+            submitted_body.update(json.loads(request.content))
+            return httpx.Response(200, json={"id": "cgt-preset"})
+        if request.url.path == f"{_TASKS}/cgt-preset":
+            assert auth == "Bearer tmp-preset-key"
+            return httpx.Response(
+                200,
+                json={
+                    "id": "cgt-preset",
+                    "status": "succeeded",
+                    "content": {"video_url": "https://files.example/seedance-preset.mp4"},
+                },
+            )
+        if str(request.url) == "https://files.example/seedance-preset.mp4":
+            return httpx.Response(200, content=result_video.read_bytes())
+        return httpx.Response(404, text=str(request.url))
+
+    repository, gateway = _gateway(tmp_path, httpx.MockTransport(handler))
+    secret_ref = gateway.secret_store.put("AKLTxxx:sk-secret")  # type: ignore[union-attr]
+    profile = _profile(repository, secret_ref, model_id="doubao-seedance-2-0-260128")
+
+    invocation, result = gateway.invoke(
+        ProviderCall(
+            provider_profile_id=profile.id,
+            capability_id="video.generate",
+            input={"prompt": "门头特写，暖光"},
+        )
+    )
+
+    assert invocation.status == ProviderStatus.succeeded
+    assert result is not None
+    assert submitted_body["model"] == "doubao-seedance-2-0-260128"
+
+
+def test_seedance_direct_signed_auth_mode_signs_submit_and_poll(
+    tmp_path, media_fixture_factory
+):
+    result_video = media_fixture_factory.video(duration_sec=1.0, filename="seedance-signed.mp4")
+    submitted_body: dict = {}
+    seen_auth: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == "https://files.example/seedance-signed.mp4":
+            return httpx.Response(200, content=result_video.read_bytes())
+        auth = request.headers.get("authorization", "")
+        seen_auth.append(auth)
+        assert auth.startswith("HMAC-SHA256 Credential=AKLTxxx/")
+        assert "/cn-beijing/ark/request" in auth
+        assert "sk-secret" not in auth
+        assert "x-content-sha256" in request.headers
+        assert "x-date" in request.headers
+        if request.url.path == _TASKS and request.method == "POST":
+            submitted_body.update(json.loads(request.content))
+            return httpx.Response(200, json={"id": "cgt-signed"})
+        if request.url.path == f"{_TASKS}/cgt-signed":
+            return httpx.Response(
+                200,
+                json={
+                    "id": "cgt-signed",
+                    "status": "succeeded",
+                    "content": {"video_url": "https://files.example/seedance-signed.mp4"},
+                },
+            )
+        return httpx.Response(404, text=str(request.url))
+
+    repository, gateway = _gateway(tmp_path, httpx.MockTransport(handler))
+    secret_ref = gateway.secret_store.put("AKLTxxx:sk-secret")  # type: ignore[union-attr]
+    profile = _profile(
+        repository,
+        secret_ref,
+        model_id="ep-seedance",
+        default_options={"auth_type": "signed"},
+    )
+
+    invocation, result = gateway.invoke(
+        ProviderCall(
+            provider_profile_id=profile.id,
+            capability_id="video.generate",
+            input={"prompt": "门头特写，暖光"},
+        )
+    )
+
+    assert invocation.status == ProviderStatus.succeeded
+    assert result is not None
+    assert result.output["external_job_id"] == "cgt-signed"
+    assert submitted_body["model"] == "ep-seedance"
+    assert len(seen_auth) >= 2
 
 
 def test_seedance_reference_image_goes_into_content(tmp_path, media_fixture_factory):
@@ -181,6 +370,59 @@ def test_seedance_video_reference_goes_into_content(tmp_path, media_fixture_fact
     assert video_entries == [
         {"type": "video_url", "video_url": {"url": "https://cdn.example/owner.mp4"}, "role": "reference_video"}
     ]
+
+
+def test_seedance_access_key_getapikey_http_403_maps_to_auth_failed(tmp_path):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "ark.cn-beijing.volcengineapi.com":
+            return httpx.Response(403, text="Forbidden")
+        return httpx.Response(404, text=str(request.url))
+
+    repository, gateway = _gateway(tmp_path, httpx.MockTransport(handler))
+    secret_ref = gateway.secret_store.put("AKLTxxx:sk-secret")  # type: ignore[union-attr]
+    profile = _profile(repository, secret_ref, model_id="ep-seedance")
+
+    invocation, result = gateway.invoke(
+        ProviderCall(
+            provider_profile_id=profile.id,
+            capability_id="video.generate",
+            input={"prompt": "x"},
+        )
+    )
+
+    assert result is None
+    assert invocation.status == ProviderStatus.failed
+    assert invocation.error and invocation.error.code == ErrorCode.provider_auth_failed
+
+
+def test_seedance_access_key_invalid_resource_maps_to_unsupported_option(tmp_path):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "ark.cn-beijing.volcengineapi.com":
+            return httpx.Response(
+                200,
+                json={
+                    "ResponseMetadata": {
+                        "Error": {"Code": "InvalidParameter.ResourceIds", "Message": "bad"}
+                    }
+                },
+            )
+        return httpx.Response(404, text=str(request.url))
+
+    repository, gateway = _gateway(tmp_path, httpx.MockTransport(handler))
+    secret_ref = gateway.secret_store.put("AKLTxxx:sk-secret")  # type: ignore[union-attr]
+    profile = _profile(repository, secret_ref, model_id="ep-seedance")
+
+    invocation, result = gateway.invoke(
+        ProviderCall(
+            provider_profile_id=profile.id,
+            capability_id="video.generate",
+            input={"prompt": "x"},
+        )
+    )
+
+    assert result is None
+    assert invocation.status == ProviderStatus.failed
+    assert invocation.error and invocation.error.code == ErrorCode.provider_unsupported_option
 
 
 def test_seedance_local_reference_fails_loudly(tmp_path):

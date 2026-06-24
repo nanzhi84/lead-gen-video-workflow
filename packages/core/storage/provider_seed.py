@@ -204,7 +204,7 @@ def seed_real_provider_configuration(repository) -> None:
         ProviderProfile(
             id="volcengine.seedance.prod",
             provider_id="volcengine.seedance",
-            model_id="doubao-seedance-2-0",
+            model_id="doubao-seedance-2-0-260128",
             capability="video.generate",
             display_name="Volcengine Ark Seedance Production",
             environment="prod",
@@ -445,7 +445,7 @@ def _seed_price_catalogs(repository) -> None:
         id="price_volcengine_seedance_media_second",
         catalog_id="price_volcengine_seedance_prod",
         provider_id="volcengine.seedance",
-        model_id="doubao-seedance-2-0",
+        model_id="doubao-seedance-2-0-260128",
         capability_id="video.generate",
         unit="media_second",
         unit_price=Money(currency="CNY", amount=Decimal("1.0")),

@@ -94,7 +94,11 @@ proc_alive() { # proc_alive <name> → 0 if the recorded pid is running
 
 start_bg() { # start_bg <name> <cmd...>   (own process group so we can kill the tree)
   local name="$1"; shift
-  if command -v setsid >/dev/null 2>&1; then
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    # macOS setsid implementations may leave $! pointing at a short-lived wrapper
+    # instead of the exec'd app process, which makes status/restart pidfiles stale.
+    nohup bash -c 'exec "$@"' _ "$@" >"$(logfile "$name")" 2>&1 &
+  elif command -v setsid >/dev/null 2>&1; then
     setsid bash -c 'exec "$@"' _ "$@" >"$(logfile "$name")" 2>&1 &
   else
     nohup bash -c 'exec "$@"' _ "$@" >"$(logfile "$name")" 2>&1 &

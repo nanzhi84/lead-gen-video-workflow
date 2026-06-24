@@ -122,6 +122,7 @@ class ProviderInvocationContext:
     ) -> Artifact:
         ref = self.object_store.prepare_upload(filename, purpose, tier=tier)
         stored = self.object_store.put_bytes(ref, content)
+        self._ensure_stored_object_exists(stored.ref.uri)
         media_info = probe_media(local_object_path(self.object_store, stored.ref.uri))
         return self.repository.create_artifact(
             kind=kind,
@@ -131,6 +132,53 @@ class ProviderInvocationContext:
             run_id=call.run_id,
             node_run_id=call.node_run_id,
             uri=stored.ref.uri,
+            size_bytes=stored.size_bytes,
             sha256=stored.sha256,
             media_info=media_info,
         )
+
+    def store_media_file(
+        self,
+        *,
+        local_path: Path,
+        filename: str,
+        purpose: str,
+        kind: ArtifactKind,
+        call,
+        tier: str = "durable",
+    ) -> Artifact:
+        source = Path(local_path)
+        ref = self.object_store.prepare_upload(filename, purpose, tier=tier)
+        stored = self.object_store.upload_file(source, ref)
+        self._ensure_stored_object_exists(stored.ref.uri)
+        media_info = probe_media(source)
+        return self.repository.create_artifact(
+            kind=kind,
+            payload_schema="uri-only",
+            payload=None,
+            case_id=call.case_id,
+            run_id=call.run_id,
+            node_run_id=call.node_run_id,
+            uri=stored.ref.uri,
+            size_bytes=stored.size_bytes,
+            sha256=stored.sha256,
+            media_info=media_info,
+        )
+
+    def _ensure_stored_object_exists(self, uri: str) -> None:
+        from packages.ai.gateway.provider_gateway import ProviderRuntimeError
+        from packages.core.storage.object_store import parse_object_uri
+
+        try:
+            ref = parse_object_uri(uri)
+            exists = self.object_store.exists(ref)
+        except Exception as exc:
+            raise ProviderRuntimeError(
+                ErrorCode.artifact_missing,
+                f"Stored media object is not readable after upload: {uri}",
+            ) from exc
+        if not exists:
+            raise ProviderRuntimeError(
+                ErrorCode.artifact_missing,
+                f"Stored media object is missing after upload: {uri}",
+            )

@@ -24,6 +24,10 @@ import { SeedanceReferencePicker } from "./SeedanceReferencePicker";
 
 type SetField = <Key extends keyof FormState>(key: Key, value: FormState[Key]) => void;
 
+function seedanceReferenceSummary(count: number) {
+  return count > 0 ? `${count} 张参考图` : "无参考图";
+}
+
 export function ScriptStep({
   form,
   setField,
@@ -64,7 +68,7 @@ export function TemplateStep({ form, setField, caseId }: { form: FormState; setF
   const contentModeOptions: Array<{ value: FormState["contentMode"]; label: string; detail: string }> = [
     { value: "digital_human", label: "数字人口播", detail: "使用数字人模板、口型同步和 B-roll 插入。" },
     { value: "broll_only", label: "仅 B_roll 画外音", detail: "不出现数字人，用画外音 + 素材画面铺满，保留字幕/BGM。" },
-    { value: "seedance", label: "Seedance 文生视频", detail: "一次性生成 15s / 9:16 / 720p 短片，按提示词 + 参考图出片，无数字人、无口播。" },
+    { value: "seedance", label: "Seedance 文生视频", detail: "一次性生成 15s / 9:16 / 720p 短片，可纯文本出片，也可附参考图。" },
   ];
   const options: Array<{ value: FormState["portraitMode"]; label: string; detail: string }> = [
     { value: "agent", label: "自动模板", detail: "由系统按脚本和案例素材选择人像模板。" },
@@ -152,7 +156,7 @@ export function ProductionStep({
   if (form.contentMode === "seedance") {
     return (
       <div className="grid gap-4">
-        <SectionTitle icon={Mic2} title="成片配置" description="Seedance 文生视频按提示词与参考图直接出片。" />
+        <SectionTitle icon={Mic2} title="成片配置" description="Seedance 文生视频按提示词直接出片，参考图只用于辅助画面一致性。" />
         <div className="stateBox muted">
           <span>Seedance 模式无需配音、口型与 B-roll：画面固定 15s / 9:16 / 720p，由模型生成。</span>
         </div>
@@ -251,6 +255,16 @@ export function ProductionStep({
 }
 
 export function PostProcessStep({ form, setField }: { form: FormState; setField: SetField }) {
+  if (form.contentMode === "seedance") {
+    return (
+      <div className="grid gap-4">
+        <SectionTitle icon={Settings2} title="后处理" description="Seedance 模式跳过本地字幕、BGM 和封面配置。" />
+        <div className="stateBox muted">
+          <span>Seedance 会一次性生成 15s / 9:16 / 720p 成片；本地流水线不再混字幕、配乐或生成 AI 封面。</span>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="grid gap-4">
       <SectionTitle icon={Settings2} title="后处理" description="配置字幕、BGM 和封面策略。" />
@@ -301,7 +315,10 @@ export function SubmitStep({ form, selectedVoiceLabel, scriptCount }: { form: Fo
         <ReviewItem label="脚本" value={form.contentMode === "seedance" ? `提示词 ${scriptCount} 字` : `${scriptCount} 字`} />
         <ReviewItem label="内容模式" value={contentModeLabel(form.contentMode)} />
         {form.contentMode === "seedance" ? (
-          <ReviewItem label="画面" value={`Seedance 文生 · 15s 9:16 720p · ${form.seedanceReferenceAssetIds.length} 张参考图`} />
+          <ReviewItem
+            label="画面"
+            value={`Seedance 文生 · 15s 9:16 720p · ${seedanceReferenceSummary(form.seedanceReferenceAssetIds.length)}`}
+          />
         ) : (
           <ReviewItem label="声音" value={`${selectedVoiceLabel} · ${form.speed.toFixed(1)}x`} />
         )}
@@ -313,8 +330,14 @@ export function SubmitStep({ form, selectedVoiceLabel, scriptCount }: { form: Fo
         ) : form.contentMode === "broll_only" ? (
           <ReviewItem label="画面" value="B_roll 铺满全片" />
         ) : null}
-        <ReviewItem label="字幕" value={form.subtitleEnabled ? `${subtitleLabel(form.subtitleStyle)} · ${form.subtitleSize}px` : "关闭"} />
-        <ReviewItem label="BGM" value={form.bgmEnabled ? `${Math.round(form.bgmVolume * 100)}%` : "关闭"} />
+        {form.contentMode === "seedance" ? (
+          <ReviewItem label="后处理" value="跳过本地字幕 / BGM / AI 封面" />
+        ) : (
+          <>
+            <ReviewItem label="字幕" value={form.subtitleEnabled ? `${subtitleLabel(form.subtitleStyle)} · ${form.subtitleSize}px` : "关闭"} />
+            <ReviewItem label="BGM" value={form.bgmEnabled ? `${Math.round(form.bgmVolume * 100)}%` : "关闭"} />
+          </>
+        )}
       </div>
     </div>
   );
@@ -333,7 +356,7 @@ export function ConfigSummary({ form, selectedVoiceLabel, scriptCount }: { form:
           <SummaryRow
             icon={Sparkles}
             label="画面"
-            value={`15s 9:16 720p · ${form.seedanceReferenceAssetIds.length} 张参考图`}
+            value={`15s 9:16 720p · ${seedanceReferenceSummary(form.seedanceReferenceAssetIds.length)}`}
           />
         ) : (
           <SummaryRow icon={Mic2} label="声音" value={`${selectedVoiceLabel} · ${form.speed.toFixed(1)}x`} />

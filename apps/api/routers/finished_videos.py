@@ -2,6 +2,7 @@ from __future__ import annotations
 
 
 from fastapi import APIRouter, Request, Response
+from fastapi.responses import FileResponse
 
 from apps.api.dependencies import require_role
 from apps.api.services import finished_videos as service
@@ -37,6 +38,23 @@ def finished_video_preview(request: Request, id: str) -> c.SignedUrlResponse:
 def finished_video_download(request: Request, id: str) -> c.SignedUrlResponse:
 
     return service.finished_video_download(request, id)
+
+
+@router.get(
+    "/api/finished-videos/{id}/stream",
+    response_model=None,
+    response_class=FileResponse,
+    responses={
+        200: {
+            "content": {
+                "video/mp4": {"schema": {"type": "string", "format": "binary"}},
+            },
+            "description": "Finished video stream.",
+        }
+    },
+)
+def finished_video_stream(request: Request, id: str) -> Response:
+    return service.finished_video_stream(request, id)
 
 
 @router.get(

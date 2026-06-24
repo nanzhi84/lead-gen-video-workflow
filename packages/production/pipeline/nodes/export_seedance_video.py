@@ -37,6 +37,7 @@ def run(ctx: NodeContext) -> NodeOutput:
         None,
         "uri-only",
         uri=video.uri,
+        size_bytes=video.size_bytes,
         sha256=video.sha256,
         media_info=video.media_info,
     )

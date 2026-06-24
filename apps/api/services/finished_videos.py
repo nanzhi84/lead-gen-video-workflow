@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+import mimetypes
+from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -35,6 +38,8 @@ from packages.production.sqlalchemy_mappers import artifact_row_to_contract
 
 
 _BROWSER_DOWNLOAD_PREFIXES = ("http://", "https://", "/")
+_VIDEO_PROXY_EXPIRES_IN = timedelta(minutes=15)
+logger = logging.getLogger(__name__)
 
 
 def performance_attribution(request: Request, video_version_id: str) -> c.PerformanceAttributionResponse:
@@ -112,17 +117,43 @@ def finished_video_preview(request: Request, id: str) -> c.SignedUrlResponse:
         if uri is None:
             raise NodeExecutionError(c.ErrorCode.artifact_missing, "Finished video is missing.")
         if uri:
+            if _browser_proxyable_uri(uri):
+                return _finished_video_proxy_url(request, id, uri)
             return object_store(request).signed_url(uri).model_copy(update={"request_id": request_id()})
         return signed(request, f"finished-videos/{id}/preview.mp4")
     finished = _finished_video_or_error(request, id)
     artifact = repository(request).artifacts.get(finished.video_artifact.artifact_id)
     if artifact and artifact.uri:
+        if _browser_proxyable_uri(artifact.uri):
+            return _finished_video_proxy_url(request, id, artifact.uri)
         return object_store(request).signed_url(artifact.uri).model_copy(update={"request_id": request_id()})
     return signed(request, f"finished-videos/{id}/preview.mp4")
 
 
 def finished_video_download(request: Request, id: str) -> c.SignedUrlResponse:
     return finished_video_preview(request, id)
+
+
+def finished_video_stream(request: Request, id: str) -> FileResponse:
+    assert_owner_or_404(current_user(request), finished_video_owner(request, id))
+    uri = _finished_video_uri(request, id)
+    if uri is None:
+        raise NodeExecutionError(c.ErrorCode.artifact_missing, "Finished video is missing.")
+    if not _browser_proxyable_uri(uri):
+        raise NodeExecutionError(c.ErrorCode.artifact_missing, "Finished video is not streamable.")
+    try:
+        path = local_object_path(object_store(request), uri)
+    except Exception as exc:
+        logger.warning("Failed to resolve finished video %s at %s.", id, uri, exc_info=True)
+        raise NodeExecutionError(c.ErrorCode.artifact_missing, "Finished video is not readable.") from exc
+    if not path.exists():
+        raise NodeExecutionError(c.ErrorCode.artifact_missing, "Finished video is not readable.")
+    return FileResponse(
+        path,
+        media_type=_video_content_type(uri),
+        filename=Path(urlsplit(uri).path).name or f"{id}.mp4",
+        content_disposition_type="inline",
+    )
 
 
 def latest_jianying_draft(id: str, request: Request) -> c.LatestJianyingDraftPackageResponse:
@@ -289,6 +320,39 @@ def _finished_video_or_error(request: Request, finished_video_id: str) -> c.Fini
     if finished is None:
         raise NodeExecutionError(c.ErrorCode.artifact_missing, "Finished video is missing.")
     return finished
+
+
+def _finished_video_uri(request: Request, finished_video_id: str) -> str | None:
+    if production_repository(request) is not None:
+        return production_repository(request).artifact_uri_for_finished_video(finished_video_id)
+    finished = _finished_video_or_error(request, finished_video_id)
+    artifact = repository(request).artifacts.get(finished.video_artifact.artifact_id)
+    return artifact.uri if artifact is not None else None
+
+
+def _browser_proxyable_uri(uri: str) -> bool:
+    # Only ``local://`` filesystem objects need the same-origin ``/stream`` proxy:
+    # they have no browser-reachable URL. ``s3://`` (incl. Aliyun OSS) is served via
+    # a presigned HTTPS URL the browser streams directly from the bucket/CDN — that
+    # keeps native HTTP range (scrubbing) and avoids a blocking download-through the
+    # API server. Proxying ``s3://`` here would force the API to pull the whole
+    # object into its cache before responding, so it stays on the signed-URL path.
+    return uri.startswith("local://")
+
+
+def _video_content_type(uri: str) -> str:
+    guessed = mimetypes.guess_type(Path(urlsplit(uri).path).name)[0]
+    return guessed or "video/mp4"
+
+
+def _finished_video_proxy_url(request: Request, finished_video_id: str, uri: str) -> c.SignedUrlResponse:
+    return c.SignedUrlResponse(
+        url=f"/api/finished-videos/{finished_video_id}/stream",
+        expires_at=c.utcnow() + _VIDEO_PROXY_EXPIRES_IN,
+        request_id=request_id(),
+        content_type=_video_content_type(uri),
+        playable=True,
+    )
 
 
 def _latest_jianying_draft_artifact(request: Request, finished_video_id: str) -> c.Artifact | None:

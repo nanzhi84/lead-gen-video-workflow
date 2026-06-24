@@ -123,6 +123,31 @@ console.log(JSON.stringify({
     assert result["hydratedScript"] == defaults_script_from_base()
 
 
+def test_seedance_reference_assets_are_optional() -> None:
+    probe = r"""
+import { defaultForm, validateAll, validateStep } from "./src/components/studio-create/studioCreateModel";
+
+const seedanceForm = {
+  ...defaultForm,
+  contentMode: "seedance",
+  seedanceReferenceAssetIds: [],
+  script: "用纯文本生成一条 15 秒短视频",
+};
+
+console.log(JSON.stringify({
+  templateStep: validateStep(1, seedanceForm, ""),
+  productionStep: validateStep(2, seedanceForm, ""),
+  postProcessStep: validateStep(3, { ...seedanceForm, subtitleSize: 999, bgmVolume: 999 }, ""),
+  all: validateAll(seedanceForm, ""),
+}));
+"""
+    result = _run_probe(probe)
+    assert result["templateStep"] is None
+    assert result["productionStep"] is None
+    assert result["postProcessStep"] is None
+    assert result["all"] is None
+
+
 def defaults_title_should_be_empty() -> str:
     return ""
 

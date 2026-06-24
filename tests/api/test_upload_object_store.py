@@ -8,7 +8,17 @@ from fastapi.testclient import TestClient
 
 from apps.api.main import app
 from apps.api.main import repository
-from packages.core.contracts import ArtifactKind
+from packages.core.contracts import (
+    ArtifactKind,
+    DigitalHumanVideoRequest,
+    FinishedVideo,
+    Job,
+    JobType,
+    MediaInfo,
+    RunStatus,
+    WorkflowRun,
+)
+from packages.core.storage.repository import new_id
 from packages.media.assets import local_object_path
 from packages.media.video.ffmpeg import probe_media
 from tests.fixtures.media import generate_test_video
@@ -163,6 +173,132 @@ def test_local_media_preview_url_is_browser_playable_content_route():
     assert media.status_code == 200, media.text
     assert media.headers["content-disposition"].startswith("inline;")
     assert media.content == content
+
+
+def test_finished_video_preview_url_is_browser_playable_stream_route():
+    login_admin()
+    content = b"cutagent test mp4 payload"
+    store = app.state.object_store
+    stored = store.put_bytes(
+        store.prepare_upload("finished-preview.mp4", "finished-video"),
+        content,
+    )
+    repo = repository()
+    case_id = "case_demo"
+    job = Job(
+        id=new_id("job"),
+        type=JobType.digital_human_video,
+        case_id=case_id,
+        request_schema="DigitalHumanVideoRequest.v1",
+        request=DigitalHumanVideoRequest(
+            case_id=case_id,
+            script="preview test",
+            voice={"voice_id": "voice_sandbox"},
+        ),
+    )
+    run = WorkflowRun(
+        id=new_id("run"),
+        job_id=job.id,
+        case_id=case_id,
+        workflow_template_id="digital_human_v2",
+        workflow_version="v1",
+        status=RunStatus.succeeded,
+    )
+    repo.jobs[job.id] = job.model_copy(update={"active_run_id": run.id})
+    repo.runs[run.id] = run
+    artifact = repo.create_artifact(
+        kind=ArtifactKind.video_finished,
+        payload_schema="uri-only",
+        payload=None,
+        case_id=case_id,
+        run_id=run.id,
+        uri=stored.ref.uri,
+        size_bytes=stored.size_bytes,
+        sha256=stored.sha256,
+        media_info=MediaInfo(media_type="video", codec="h264", format="mp4", mime_type="video/mp4"),
+    )
+    finished = FinishedVideo(
+        id=new_id("fv"),
+        case_id=case_id,
+        run_id=run.id,
+        title="Preview route video",
+        video_artifact=repo.artifact_ref(artifact.id),
+    )
+    repo.finished_videos[finished.id] = finished
+
+    preview = client.get(f"/api/finished-videos/{finished.id}/preview-url")
+    assert preview.status_code == 200, preview.text
+    preview_body = preview.json()
+    assert preview_body["url"] == f"/api/finished-videos/{finished.id}/stream"
+    assert preview_body["playable"] is True
+    assert preview_body["content_type"] == "video/mp4"
+
+    media = client.get(preview_body["url"])
+    assert media.status_code == 200, media.text
+    assert media.headers["content-disposition"].startswith("inline;")
+    assert media.content == content
+
+
+def _register_finished_video(uri: str, *, title: str) -> str:
+    repo = repository()
+    # A dedicated case so these (deliberately non-downloadable) finished videos
+    # never leak into case_demo, whose last finished video other suites publish.
+    case_id = "case_stream_proxy_test"
+    run = WorkflowRun(
+        id=new_id("run"),
+        job_id=new_id("job"),
+        case_id=case_id,
+        workflow_template_id="digital_human_v2",
+        workflow_version="v1",
+        status=RunStatus.succeeded,
+    )
+    repo.runs[run.id] = run
+    artifact = repo.create_artifact(
+        kind=ArtifactKind.video_finished,
+        payload_schema="uri-only",
+        payload=None,
+        case_id=case_id,
+        run_id=run.id,
+        uri=uri,
+        media_info=MediaInfo(media_type="video", codec="h264", format="mp4", mime_type="video/mp4"),
+    )
+    finished = FinishedVideo(
+        id=new_id("fv"),
+        case_id=case_id,
+        run_id=run.id,
+        title=title,
+        video_artifact=repo.artifact_ref(artifact.id),
+    )
+    repo.finished_videos[finished.id] = finished
+    return finished.id
+
+
+def test_finished_video_preview_keeps_signed_url_for_s3_durable():
+    # An s3:// durable object (e.g. Aliyun OSS) must NOT be routed through the
+    # same-origin /stream proxy: the browser streams it directly from a presigned
+    # URL (native range support, no blocking download-through the API server).
+    login_admin()
+    s3_uri = "s3://cutagent-prod/finished/oss-finished-video.mp4"
+    finished_id = _register_finished_video(s3_uri, title="OSS finished video")
+
+    preview = client.get(f"/api/finished-videos/{finished_id}/preview-url")
+    assert preview.status_code == 200, preview.text
+    preview_url = preview.json()["url"]
+    assert preview_url != f"/api/finished-videos/{finished_id}/stream"
+    assert preview_url.startswith("s3://")
+
+
+def test_finished_video_stream_missing_bytes_returns_error():
+    # A registered local:// finished video whose bytes are absent must fail
+    # loudly (not 200 an empty/garbage body).
+    login_admin()
+    finished_id = _register_finished_video(
+        "local://cutagent-local/finished/never-materialized.mp4",
+        title="Missing bytes video",
+    )
+
+    stream = client.get(f"/api/finished-videos/{finished_id}/stream")
+    assert stream.status_code >= 400
 
 
 def test_upload_file_rejects_size_mismatch_before_completion():

@@ -126,12 +126,11 @@ export function validateStep(step: StudioStep, form: FormState, selectedVoice: s
   if (step === 1 && form.contentMode === "digital_human" && form.portraitMode !== "agent") {
     return "当前版本请使用自动模板，指定模板和序列将在素材库里程碑接入";
   }
-  if (step === 1 && form.contentMode === "seedance" && form.seedanceReferenceAssetIds.length === 0) {
-    return "Seedance 模式请至少选择一张参考图";
-  }
-  // Seedance has no TTS step, so a voice is never required for it.
+  // Seedance has no TTS step (no voice, no speed), so neither is required for it.
   if (step === 2 && form.contentMode !== "seedance" && !selectedVoice) return "请选择可用声音";
-  if (step === 2 && (form.speed < 0.5 || form.speed > 2)) return "语速需在 0.5 到 2.0 之间";
+  if (step === 2 && form.contentMode !== "seedance" && (form.speed < 0.5 || form.speed > 2))
+    return "语速需在 0.5 到 2.0 之间";
+  if (step === 3 && form.contentMode === "seedance") return null;
   if (step === 3 && form.subtitleEnabled && (form.subtitleSize < 12 || form.subtitleSize > 96)) return "字幕字号需在 12 到 96 之间";
   if (step === 3 && form.bgmEnabled && (form.bgmVolume < 0 || form.bgmVolume > 1)) return "BGM 音量需在 0 到 100% 之间";
   return null;

@@ -24,6 +24,7 @@ from packages.core.contracts import (
     UpsertPriceCatalogRequest,
     utcnow,
 )
+from packages.core.provider_balance_accounts import coalesce_balance_items
 from packages.core.storage.database import (
     ProviderCapabilityRow,
     ProviderBalanceSnapshotRow,
@@ -281,10 +282,11 @@ class SqlAlchemyProviderRepository(BaseRepository):
         environment: str | None = None,
     ) -> ProviderBalanceReport:
         snapshots = self.latest_balance_snapshots(provider_id=provider_id, environment=environment)
+        items = coalesce_balance_items(balance_snapshot_to_item(item) for item in snapshots)
         return ProviderBalanceReport(
-            items=[balance_snapshot_to_item(item) for item in snapshots],
+            items=items,
             request_id=request_id,
-            status="ok" if snapshots else "pending",
+            status="ok" if items else "pending",
         )
 
     def latest_balance_snapshots(

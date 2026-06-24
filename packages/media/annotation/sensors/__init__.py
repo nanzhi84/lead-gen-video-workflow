@@ -14,7 +14,9 @@ from .cv_quality import (
     parse_freezedetect,
 )
 from .faces import (
+    FaceDetection,
     count_faces_in_image,
+    detect_faces,
     max_faces_in_frame_paths,
     reset_detector_cache,
 )
@@ -39,7 +41,9 @@ __all__ = [
     "classify_window",
     "refine_drop_window",
     "merge_adjacent_events",
+    "FaceDetection",
     "count_faces_in_image",
+    "detect_faces",
     "max_faces_in_frame_paths",
     "reset_detector_cache",
     "extract_frame_at_time",

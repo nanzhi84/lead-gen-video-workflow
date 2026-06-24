@@ -95,38 +95,53 @@ def _validate_ctx(request: DigitalHumanVideoRequest) -> NodeContext:
 
 
 def test_build_ad_prompt_mirrors_boss_format():
-    # 纯文生(无参考素材):口播音频 + 禁 BGM/字幕,不带出镜人物行。
+    # 纯文生(无参考素材):字幕硬约束 + 信息流广告节奏 + 人物自然说话。
     p0 = _build_ad_prompt("买东西真方便", has_references=False)
     assert p0 == (
-        "请生成一条竖屏生活流短视频广告，生成自然中文旁白音频。"
-        "画面里不要主动生成任何文字。"
-        "禁止生成 BGM、背景音乐、音效铺底或任何非旁白音频；"
-        "禁止生成字幕、逐字字幕、底部字幕、口播文字上屏、标题字卡、贴纸文字、歌词、花字、CTA 文字或额外文字叠加；"
-        "只有真实拍摄场景中自然存在的文字可以保留，例如门头招牌、商品包装、价签。\n"
-        "旁白台词如下，只用于配音朗读，不属于画面内容，绝对不要把这些台词显示成画面文字或字幕：\n"
+        "画面无任何字幕。保持无字幕，避免生成任何文字或字幕。"
+        "画面中不出现标题、标语、歌词、台词文字、UI文字、Logo、水印或贴纸文案。"
+        "只生成干净画面；真实环境中的门头、包装、价签可以自然出现。"
+        "生成一条 15 秒信息流短视频广告，像本地生活商家在手机信息流里的自然推荐，"
+        "整体真实、生活化、连贯。"
+        "画面节奏：开场用门头或环境建立场景，中段用人物动作和商品细节承接卖点，"
+        "结尾回到人物或门店形成到店记忆。"
+        "画面用途是让用户快速知道这家店在哪里、卖什么、为什么方便。"
+        "声音可以有人物自然说话和轻微环境声；如果有人说话，只生成口型和声音，画面不显示说话内容。\n"
+        "人物在片中自然说出这段话，用于声音和口型，不是画面文字：\n"
         "买东西真方便"
     )
-    assert "生成自然中文旁白音频" in p0
-    assert "禁止生成 BGM" in p0
-    assert "背景音乐" in p0
-    assert "非旁白音频" in p0
-    assert "禁止生成字幕" in p0
-    assert "口播文字上屏" in p0
+    assert p0.startswith("画面无任何字幕。")
+    assert "保持无字幕，避免生成任何文字或字幕" in p0
+    assert "台词文字" in p0
+    assert "信息流短视频广告" in p0
+    assert "画面节奏：开场用门头或环境建立场景" in p0
+    assert "人物在片中自然说出这段话" in p0
+    assert "画面不显示说话内容" in p0
     assert "{买东西真方便}" not in p0
     assert "抖音信息流广告" not in p0
     assert "配 BGM" not in p0
     # 带参考素材(老板娘出镜):追加出镜人物行。
     p1 = _build_ad_prompt("买东西真方便", has_references=True)
     assert p1.startswith(
-        "请生成一条竖屏生活流短视频广告，生成自然中文旁白音频。"
-        "画面里不要主动生成任何文字。"
-        "禁止生成 BGM、背景音乐、音效铺底或任何非旁白音频；"
-        "禁止生成字幕、逐字字幕、底部字幕、口播文字上屏、标题字卡、贴纸文字、歌词、花字、CTA 文字或额外文字叠加；"
-        "只有真实拍摄场景中自然存在的文字可以保留，例如门头招牌、商品包装、价签。\n"
-        "旁白台词如下，只用于配音朗读，不属于画面内容，绝对不要把这些台词显示成画面文字或字幕：\n"
+        "画面无任何字幕。保持无字幕，避免生成任何文字或字幕。"
+        "画面中不出现标题、标语、歌词、台词文字、UI文字、Logo、水印或贴纸文案。"
+        "只生成干净画面；真实环境中的门头、包装、价签可以自然出现。"
+        "生成一条 15 秒信息流短视频广告，像本地生活商家在手机信息流里的自然推荐，"
+        "整体真实、生活化、连贯。"
+        "画面节奏：开场用门头或环境建立场景，中段用人物动作和商品细节承接卖点，"
+        "结尾回到人物或门店形成到店记忆。"
+        "画面用途是让用户快速知道这家店在哪里、卖什么、为什么方便。"
+        "声音可以有人物自然说话和轻微环境声；如果有人说话，只生成口型和声音，画面不显示说话内容。\n"
+        "人物在片中自然说出这段话，用于声音和口型，不是画面文字：\n"
         "买东西真方便"
     )
-    assert "出镜人物/场景见参考素材" in p1
+    assert "参考素材定义出镜人物或场景风格，保持自然出镜和说话状态" in p1
+
+
+def test_build_ad_prompt_flattens_multiline_script_to_avoid_caption_cues():
+    prompt = _build_ad_prompt("第一句。\n第二句。\n\n第三句。", has_references=False)
+    assert "第一句。 第二句。 第三句。" in prompt
+    assert "第一句。\n第二句。" not in prompt
 
 
 class _StaticProviderProfiles:
@@ -215,10 +230,13 @@ def test_seedance_generate_video_requests_voiceover_without_bgm_or_captions():
     assert gateway.calls
     call = gateway.calls[0]
     assert call.input["generate_audio"] is True
+    assert call.input["ratio"] == "3:4"
     prompt = str(call.input["prompt"])
-    assert "生成自然中文旁白音频" in prompt
-    assert "禁止生成 BGM" in prompt
-    assert "禁止生成字幕" in prompt
+    assert prompt.startswith("画面无任何字幕。")
+    assert "保持无字幕，避免生成任何文字或字幕" in prompt
+    assert "信息流短视频广告" in prompt
+    assert "人物在片中自然说出这段话" in prompt
+    assert "画面不显示说话内容" in prompt
     assert "{买东西真方便}" not in prompt
     assert "抖音信息流广告" not in prompt
     assert "配 BGM" not in prompt

@@ -1619,7 +1619,7 @@ def test_openai_image_generates_cover_from_b64_json(tmp_path):
     assert object_path.read_bytes() == _PNG_1x1
 
 
-def test_openai_image_edits_from_template_reference(tmp_path):
+def test_openai_image_edits_from_reference_image(tmp_path):
     import base64
 
     seen: dict = {}
@@ -1653,8 +1653,8 @@ def test_openai_image_edits_from_template_reference(tmp_path):
             capability_id="image.generate",
             input={
                 "prompt": "封面测试 cover prompt",
-                "template_image_b64": base64.b64encode(_PNG_1x1).decode("ascii"),
-                "template_filename": "ref.png",
+                "reference_image_b64": base64.b64encode(_PNG_1x1).decode("ascii"),
+                "reference_filename": "source-frame.png",
             },
             idempotency_key="cover-edit-1",
         )
@@ -1665,7 +1665,7 @@ def test_openai_image_edits_from_template_reference(tmp_path):
     # Routed to the EDIT endpoint (template-conditioned), not plain generation.
     assert seen["path"] == "/v1/images/edits"
     assert "multipart/form-data" in seen["content_type"]
-    assert b"ref.png" in seen["body"]
+    assert b"source-frame.png" in seen["body"]
     artifact = repository.artifacts[result.output["cover_artifact_id"]]
     assert artifact.media_info and artifact.media_info.media_type == "image"
 

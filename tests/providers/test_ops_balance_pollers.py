@@ -471,6 +471,69 @@ def test_refresh_balances_aggregates_each_provider_with_no_secrets():
     assert called is False  # no secrets -> no real network
 
 
+def test_refresh_balances_queries_one_profile_per_shared_account_family():
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        if request.url.host == "business.aliyuncs.com":
+            return httpx.Response(
+                200,
+                json={
+                    "Code": "200",
+                    "Success": True,
+                    "Data": {"AvailableAmount": "10", "Currency": "CNY"},
+                },
+            )
+        return httpx.Response(200, json={"Result": {"AvailableBalance": "5", "AccountID": 1}})
+
+    items = refresh_balances(
+        [
+            profile("dashscope.llm", secret_ref="dashscope.secret"),
+            profile("aliyun.billing", secret_ref="aliyun.secret"),
+            profile("volcengine.tts", secret_ref="volcengine-tts.secret"),
+            profile("volcengine.billing", secret_ref="volcengine-billing.secret"),
+        ],
+        secret_store=SecretStoreStub(
+            {
+                "dashscope.secret": "sk-dashscope",
+                "aliyun.secret": "ak:sk",
+                "volcengine-tts.secret": "ak-tts:sk",
+                "volcengine-billing.secret": "ak-billing:sk",
+            }
+        ),
+        client=client_for(handler),
+    )
+
+    assert [item.provider_id for item in items] == ["aliyun.billing", "volcengine.billing"]
+    assert len(calls) == 2
+
+
+def test_refresh_balances_skips_sandbox_profiles():
+    called = False
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal called
+        called = True
+        return httpx.Response(200, json={})
+
+    profiles = [
+        profile("sandbox", secret_ref=None),
+        profile("sandbox-f7c6ad2d", secret_ref=None),
+        profile("deepseek", secret_ref=None),
+    ]
+
+    items = refresh_balances(
+        profiles,
+        secret_store=SecretStoreStub(),
+        client=client_for(handler),
+    )
+
+    assert [item.provider_id for item in items] == ["deepseek"]
+    assert items[0].status == "unconfigured"
+    assert called is False
+
+
 def test_build_pollers_returns_one_per_family():
     keys = {p.key for p in build_pollers()}
     assert keys == {"deepseek", "kimi", "openai", "heygem", "minimax", "aliyun", "volcengine"}

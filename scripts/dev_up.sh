@@ -18,7 +18,7 @@ set -euo pipefail
 
 # Non-login SSH sessions on macOS often miss Homebrew/Docker CLI paths. Keep
 # this script self-contained so Mac mini restarts do not depend on shell init.
-export PATH="/opt/homebrew/bin:/usr/local/bin:/Applications/Docker.app/Contents/Resources/bin:$PATH"
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/Applications/Docker.app/Contents/Resources/bin:$PATH"
 
 # ── paths ──────────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

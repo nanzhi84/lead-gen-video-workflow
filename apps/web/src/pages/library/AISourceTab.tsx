@@ -1,8 +1,9 @@
-import { ArrowLeft, ArrowRight, FolderUp, ImageIcon, Loader2, Video } from "lucide-react";
+import { ArrowLeft, ArrowRight, FolderUp, ImageIcon, Loader2, Trash2, Video } from "lucide-react";
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type MediaAssetCard, type UploadKind } from "../../api/client";
 import { readCardThumbnailUrl } from "../../components/library/libraryInteractionModel";
+import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { SearchInput } from "../../components/ui/SearchInput";
 import { EmptyState, ErrorState, LoadingState } from "../../components/ui/State";
 import { useToast } from "../../components/ui/Toast";
@@ -23,6 +24,7 @@ export function AISourceTab() {
   const videoInputRef = useRef<HTMLInputElement>(null);
   const [caseSearch, setCaseSearch] = useState("");
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<MediaAssetCard | null>(null);
 
   const casesQuery = useQuery({
     queryKey: ["library", "cases", caseSearch],
@@ -54,10 +56,28 @@ export function AISourceTab() {
     onError: (error) => toast.error("上传失败", error),
   });
 
+  const deleteMut = useMutation({
+    mutationFn: (assetId: string) => api.mediaAssets.delete(assetId),
+    onError: (error) => toast.error("删除失败", error),
+  });
+
   function onPick(input: HTMLInputElement | null, kind: UploadKind) {
     const file = input?.files?.[0];
     if (file) uploadMut.mutate({ file, kind });
     if (input) input.value = "";
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    const title = deleteTarget.asset.title;
+    try {
+      await deleteMut.mutateAsync(deleteTarget.asset.id);
+      await queryClient.invalidateQueries({ queryKey: ["library", "ai-source", selectedCaseId] });
+      toast.success("素材已删除", title);
+      setDeleteTarget(null);
+    } catch {
+      // The mutation's onError already shows the toast; keep the dialog open.
+    }
   }
 
   if (!selectedCaseId) {
@@ -145,6 +165,8 @@ export function AISourceTab() {
           loading={imageQuery.isLoading}
           error={imageQuery.error}
           emptyHint="还没有 AI 图片素材，点「上传图片」添加。"
+          onDelete={setDeleteTarget}
+          deletingAssetId={deleteMut.isPending ? deleteTarget?.asset.id ?? null : null}
         />
         <AssetSection
           title="视频"
@@ -153,8 +175,25 @@ export function AISourceTab() {
           loading={videoQuery.isLoading}
           error={videoQuery.error}
           emptyHint="还没有 AI 视频素材，点「上传视频」添加。"
+          onDelete={setDeleteTarget}
+          deletingAssetId={deleteMut.isPending ? deleteTarget?.asset.id ?? null : null}
         />
       </div>
+      <ConfirmDialog
+        isOpen={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={confirmDelete}
+        title="删除 AI素材"
+        message={deleteTarget ? `确定删除「${deleteTarget.asset.title}」吗？` : ""}
+        consequences={[
+          "会从 AI素材库和创作参考素材选择器中移除",
+          "已创建的历史任务记录不受影响",
+          "源文件对象会作为审计 artifact 保留",
+        ]}
+        confirmText="删除"
+        type="danger"
+        isLoading={deleteMut.isPending}
+      />
     </section>
   );
 }
@@ -166,6 +205,8 @@ function AssetSection({
   loading,
   error,
   emptyHint,
+  onDelete,
+  deletingAssetId,
 }: {
   title: string;
   icon: React.ReactNode;
@@ -173,6 +214,8 @@ function AssetSection({
   loading: boolean;
   error: unknown;
   emptyHint: string;
+  onDelete: (card: MediaAssetCard) => void;
+  deletingAssetId: string | null;
 }) {
   return (
     <div className="grid gap-3">
@@ -191,12 +234,26 @@ function AssetSection({
           const thumb = readCardThumbnailUrl(card);
           return (
             <div key={card.asset.id} className="overflow-hidden rounded-xl border border-border/70 bg-white/55">
-              <div className="aspect-square bg-surface-hover">
+              <div className="relative aspect-square bg-surface-hover">
                 {thumb ? (
                   <img src={thumb} alt={card.asset.title} className="h-full w-full object-cover" />
                 ) : (
                   <span className="flex h-full w-full items-center justify-center text-xs text-text-tertiary">无预览</span>
                 )}
+                <button
+                  className="icon-button absolute right-2 top-2 h-8 w-8 bg-white/90 text-text-secondary shadow-sm hover:border-status-error/30 hover:text-status-error"
+                  type="button"
+                  title="删除素材"
+                  aria-label={`删除素材 ${card.asset.title}`}
+                  disabled={deletingAssetId === card.asset.id}
+                  onClick={() => onDelete(card)}
+                >
+                  {deletingAssetId === card.asset.id ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4" />
+                  )}
+                </button>
               </div>
               <div className="grid gap-0.5 p-2">
                 <p className="truncate text-xs font-medium text-text-primary" title={card.asset.title}>

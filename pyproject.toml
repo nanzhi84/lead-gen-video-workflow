@@ -37,6 +37,7 @@ dev = [
   # so tests/connectors/test_oceanengine_import.py actually runs instead of being
   # silently skipped by pytest.importorskip.
   "openpyxl>=3.1",
+  "ruff>=0.15.19",
 ]
 
 [tool.pytest.ini_options]

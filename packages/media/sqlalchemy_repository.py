@@ -162,6 +162,27 @@ class SqlAlchemyMediaRepository(BaseRepository):
         except Exception:
             return None
 
+    def _thumbnail_url_for_asset(self, session: Session, row: MediaAssetRow) -> str | None:
+        thumbnail_url = self._signed_thumbnail_url(row.thumbnail_uri)
+        if thumbnail_url is not None or row.kind != "image" or self.object_store is None:
+            return thumbnail_url
+        if not row.source_artifact_id:
+            return None
+        artifact = session.get(ArtifactRow, row.source_artifact_id)
+        if artifact is None or not artifact.uri:
+            return None
+        media_info = (
+            MediaInfo.model_validate(artifact.media_info)
+            if isinstance(artifact.media_info, dict)
+            else None
+        )
+        if media_info is not None and media_info.media_type != "image":
+            return None
+        try:
+            return self.object_store.signed_url(artifact.uri).url
+        except Exception:
+            return None
+
     def list_assets(
         self,
         *,
@@ -181,7 +202,7 @@ class SqlAlchemyMediaRepository(BaseRepository):
             statement = statement.order_by(MediaAssetRow.updated_at.desc()).limit(limit)
             cards: list[MediaAssetCard] = []
             for row in session.scalars(statement):
-                thumbnail_url = self._signed_thumbnail_url(row.thumbnail_uri)
+                thumbnail_url = self._thumbnail_url_for_asset(session, row)
                 cards.append(
                     MediaAssetCard(
                         asset=media_asset_row_to_contract(row, thumbnail_url=thumbnail_url),
@@ -199,7 +220,7 @@ class SqlAlchemyMediaRepository(BaseRepository):
             row = session.get(MediaAssetRow, asset_id)
             if row is None:
                 return None
-            thumbnail_url = self._signed_thumbnail_url(row.thumbnail_uri)
+            thumbnail_url = self._thumbnail_url_for_asset(session, row)
             return MediaAssetDetail(
                 asset=media_asset_row_to_contract(row, thumbnail_url=thumbnail_url),
                 preview_url=f"local://media/{row.id}",
@@ -310,9 +331,10 @@ class SqlAlchemyMediaRepository(BaseRepository):
             session.add(row)
             session.commit()
             session.refresh(row)
+            thumbnail_url = self._thumbnail_url_for_asset(session, row)
             return media_asset_row_to_contract(
                 row,
-                thumbnail_url=self._signed_thumbnail_url(row.thumbnail_uri),
+                thumbnail_url=thumbnail_url,
             )
 
     def media_source_for_asset(self, asset_id: str) -> tuple[str, MediaInfo | None] | None:

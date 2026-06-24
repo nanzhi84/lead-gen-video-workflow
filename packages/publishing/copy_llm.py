@@ -12,6 +12,9 @@ and the publish-center copy endpoints, so neither re-implements the wiring.
 
 from __future__ import annotations
 
+import json
+from typing import Any
+
 from packages.ai.gateway import ProviderCall
 from packages.ai.prompts.registry import PromptRegistry
 from packages.core.contracts import ErrorCode
@@ -19,6 +22,7 @@ from packages.core.workflow import NodeExecutionError
 from packages.publishing.copy_node import LlmChatPort, PublishCopyContext
 
 PUBLISHING_COPY_NODE_ID = "PublishingCopy"
+_PUBLISH_COPY_FIELDS = ("title", "publish_content", "cover_title", "cover_subtitle")
 
 
 def _select_real_llm_profile(gateway, repository):
@@ -64,6 +68,8 @@ def build_copy_llm_chat(
             node_id=PUBLISHING_COPY_NODE_ID,
             variables=variables,
             case_id=case_id,
+            run_id=run_id,
+            node_run_id=node_run_id,
             provider_profile_id=profile.id,
         )
         invocation, result = gateway.invoke(
@@ -78,6 +84,12 @@ def build_copy_llm_chat(
                 idempotency_key=f"publish-copy-{run_id}" if run_id else None,
             )
         )
+        repository.prompt_invocations[prompt_invocation.id] = prompt_invocation.model_copy(
+            update={
+                "provider_invocation_id": invocation.id,
+                "status": "failed" if invocation.error else "succeeded",
+            }
+        )
         if result is None or invocation.error:
             raise NodeExecutionError(
                 invocation.error.code if invocation.error else ErrorCode.provider_remote_failed,
@@ -85,6 +97,54 @@ def build_copy_llm_chat(
                 if invocation.error
                 else "Publishing copy LLM provider failed.",
             )
-        return result.output, invocation.id
+        return _extract_publish_copy_payload(result.output), invocation.id
 
     return _llm_chat
+
+
+def _extract_publish_copy_payload(output: Any) -> dict:
+    """Normalize generic chat provider output to the publish-copy contract shape.
+
+    Real chat providers surface model text as ``{"content": "...", "intent": {...}}``.
+    The PublishingCopy node validates the parsed JSON object itself, so unwrap the
+    generic envelope here and let ``copy_node`` remain provider-agnostic.
+    """
+    if not isinstance(output, dict):
+        raise NodeExecutionError(
+            ErrorCode.prompt_output_invalid,
+            "Publish copy output must be a JSON object.",
+        )
+    if _has_publish_copy_fields(output):
+        return output
+    intent = output.get("intent")
+    if isinstance(intent, dict) and _has_publish_copy_fields(intent):
+        return intent
+    content = output.get("content")
+    if isinstance(content, str) and content.strip():
+        parsed = _parse_json_object(content)
+        if parsed is not None:
+            return parsed
+    if isinstance(intent, dict):
+        return intent
+    return output
+
+
+def _has_publish_copy_fields(value: dict) -> bool:
+    return all(isinstance(value.get(field), str) for field in _PUBLISH_COPY_FIELDS)
+
+
+def _parse_json_object(content: str) -> dict | None:
+    stripped = content.strip()
+    if stripped.startswith("```"):
+        lines = stripped.splitlines()
+        fence = lines[0].strip()
+        if fence.startswith("```") and fence[3:].strip().lower() in {"", "json"}:
+            lines = lines[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            stripped = "\n".join(lines).strip()
+    try:
+        parsed = json.loads(stripped)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None

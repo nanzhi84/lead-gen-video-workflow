@@ -19,12 +19,12 @@ from packages.core.workflow import NodeExecutionError, NodeOutput
 from packages.production.pipeline._node_context import NodeContext
 
 _SEEDANCE_DURATION_SEC = 15
-_SEEDANCE_RATIO = "9:16"
+_SEEDANCE_RATIO = "3:4"
 _SEEDANCE_RESOLUTION = "720p"
 
 # Ad prompt template for voiceover-only Seedance ads. Keep the voiceover copy out
-# of braces/quotes: video models can interpret a visibly delimited script as
-# on-screen caption text even when the prompt says not to render captions.
+# of braces/quotes and collapse line breaks: video models can interpret visible
+# delimiters or newline-separated script lines as subtitle cues.
 #
 # NOTE: the prompt is built from the request script only, so changing this template
 # does NOT change the node's ``input_manifest_hash`` (which hashes node_id + request
@@ -33,24 +33,32 @@ _SEEDANCE_RESOLUTION = "720p"
 # old clip rather than re-render with a changed prompt. Editing this template only
 # affects fresh runs; in-flight runs must be re-run (not resumed) to pick it up.
 _AD_PROMPT_PREFIX = (
-    "请生成一条竖屏生活流短视频广告，生成自然中文旁白音频。"
-    "画面里不要主动生成任何文字。"
-    "禁止生成 BGM、背景音乐、音效铺底或任何非旁白音频；"
-    "禁止生成字幕、逐字字幕、底部字幕、口播文字上屏、标题字卡、贴纸文字、歌词、花字、CTA 文字或额外文字叠加；"
-    "只有真实拍摄场景中自然存在的文字可以保留，例如门头招牌、商品包装、价签。"
+    "画面无任何字幕。保持无字幕，避免生成任何文字或字幕。"
+    "画面中不出现标题、标语、歌词、台词文字、UI文字、Logo、水印或贴纸文案。"
+    "只生成干净画面；真实环境中的门头、包装、价签可以自然出现。"
+    "生成一条 15 秒信息流短视频广告，像本地生活商家在手机信息流里的自然推荐，"
+    "整体真实、生活化、连贯。"
+    "画面节奏：开场用门头或环境建立场景，中段用人物动作和商品细节承接卖点，"
+    "结尾回到人物或门店形成到店记忆。"
+    "画面用途是让用户快速知道这家店在哪里、卖什么、为什么方便。"
+    "声音可以有人物自然说话和轻微环境声；如果有人说话，只生成口型和声音，画面不显示说话内容。"
 )
-_AD_PROMPT_REFERENCE_LINE = "出镜人物/场景见参考素材，自然口播上述脚本。"
+_AD_PROMPT_REFERENCE_LINE = "参考素材定义出镜人物或场景风格，保持自然出镜和说话状态。"
 
 
 def _build_ad_prompt(spoken_script: str, *, has_references: bool) -> str:
     lines = [
         _AD_PROMPT_PREFIX,
-        "旁白台词如下，只用于配音朗读，不属于画面内容，绝对不要把这些台词显示成画面文字或字幕：",
-        spoken_script,
+        "人物在片中自然说出这段话，用于声音和口型，不是画面文字：",
+        _normalize_spoken_script(spoken_script),
     ]
     if has_references:
         lines.append(_AD_PROMPT_REFERENCE_LINE)
     return "\n".join(lines)
+
+
+def _normalize_spoken_script(spoken_script: str) -> str:
+    return " ".join(spoken_script.split())
 
 
 def run(ctx: NodeContext) -> NodeOutput:

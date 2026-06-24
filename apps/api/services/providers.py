@@ -15,6 +15,7 @@ from apps.api.common import (
 )
 from packages.ai.netpolicy import assert_options_hosts_allowed
 from packages.core import contracts as c
+from packages.core.provider_balance_accounts import coalesce_balance_items
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
 from packages.ops.balance import BalancePollerService, refresh_balances
@@ -246,27 +247,28 @@ def provider_balances(
     environment: str | None = None,
 ) -> c.ProviderBalanceReport:
     if provider_repository(request) is not None:
-        return provider_repository(request).balances(
-            request_id=request_id(),
+        snapshots = provider_repository(request).latest_balance_snapshots(
             provider_id=provider_id,
             environment=environment,
         )
-    repo = repository(request)
-    snapshots = list(repo.provider_balance_snapshots.values())
-    if provider_id:
-        snapshots = [item for item in snapshots if item.provider_id == provider_id]
-    if environment:
-        profile_ids = {
-            profile.id
-            for profile in repo.provider_profiles.values()
-            if profile.environment == environment and (provider_id is None or profile.provider_id == provider_id)
-        }
-        snapshots = [item for item in snapshots if item.account_group in profile_ids]
+    else:
+        repo = repository(request)
+        snapshots = list(repo.provider_balance_snapshots.values())
+        if provider_id:
+            snapshots = [item for item in snapshots if item.provider_id == provider_id]
+        if environment:
+            profile_ids = {
+                profile.id
+                for profile in repo.provider_profiles.values()
+                if profile.environment == environment and (provider_id is None or profile.provider_id == provider_id)
+            }
+            snapshots = [item for item in snapshots if item.account_group in profile_ids]
     snapshots.sort(key=lambda item: (item.provider_id, item.account_group or ""))
+    items = coalesce_balance_items(_balance_item_from_snapshot(item) for item in snapshots)
     return c.ProviderBalanceReport(
-        items=[_balance_item_from_snapshot(item) for item in snapshots],
+        items=items,
         request_id=request_id(),
-        status="ok" if snapshots else "pending",
+        status="ok" if items else "pending",
     )
 
 

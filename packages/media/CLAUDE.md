@@ -14,8 +14,9 @@
 - `rendering/timeline.py` — ffmpeg 渲染命令构建层：`render_video_timeline`（主时间线渲染）/`render_broll_montage`（b-roll 蒙太奇）/`transcode_video_segment`/`concat_video_segments`/`fit_video_to_exact_duration`（精确时长拟合）/`validate_rendered_output`，被 production 节点复用
 - `annotation/pipeline.py` — 纯编排 `run_annotation_v4`，依赖经 `V4Deps` 注入
 - `annotation/runner.py` — 标注 wiring 层：接 `ProviderGateway` 跑付费 VLM，否则降级
-- `annotation/sensors/` — 确定性传感器（shots/faces/cv_quality/frames/motion/voice_activity）
+- `annotation/sensors/` — 确定性传感器（shots/faces/cv_quality/frames/motion/voice_activity）；`faces.py` 出 `count_faces_in_image`（多脸闸）与 `detect_faces`（暴露 bbox/score/5 关键点，供封面选帧打分）
 - `annotation/` 其余：`vlm.py`（窗口 prompt 构建 + VLM 响应解析）、`windows.py`（`plan_windows` 切窗）、`boundary.py`（snap 到切镜 / safety inset）、`report.py`（质量报告）、`errors.py`（V4 错误分类）、`reclip.py`（换源重切）
+- `cover_frame.py` — 确定性「最佳人像参考帧」选择：密集抽帧 + YuNet 人脸 + Laplacian 清晰度打分，选最大/居中/清晰/正脸的单脸帧（无 VLM、无付费）；纯函数 `score_portrait_frame` + 编排 `select_best_portrait_frame`（fail-open）。被 `ExportFinishedVideo` 用作 AI 封面参考帧
 - `annotation/bgm.py` — BGM/音频资产标注：客观特征（librosa 特征 / loudnorm LUFS，`extract_audio_features`/`measure_loudness_lufs`）+ LLM 语义 mood/scene（`annotate_bgm`）
 - `annotation/assets/face_detection_yunet_2023mar.onnx` — YuNet 人脸模型权重
 - `audio/forced_alignment.py`、`audio/silence.py`、`audio/sandbox_tts.py`（sandbox 兜底 TTS）、`cover.py`、`voice_provider_bridge.py`、`assets.py`（object-store 落盘助手 `store_file`）

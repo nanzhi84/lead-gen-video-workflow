@@ -20,6 +20,7 @@ import httpx
 
 from packages.core.config import BalanceSettings, build_settings
 from packages.core.contracts import ProviderBalanceItem, ProviderProfile, utcnow
+from packages.core.provider_balance_accounts import select_balance_query_profiles
 from packages.core.storage.secret_store import SecretStore
 
 from .port import BalancePoller
@@ -48,7 +49,7 @@ def refresh_balances(
             pollers=pollers,
             checked_at=checked,
         )
-        for profile in profiles
+        for profile in select_balance_query_profiles(profiles)
     ]
 
 

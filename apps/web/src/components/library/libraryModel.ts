@@ -75,6 +75,23 @@ export function vendorLabel(vendor: string): string {
   return vendor || "未指定厂商";
 }
 
+function vendorKeyFromProviderProfileId(providerProfileId?: string | null): string {
+  const value = providerProfileId?.trim() ?? "";
+  if (!value) return "";
+  const head = value.split(".", 1)[0];
+  return head === "sandbox" ? "" : head;
+}
+
+export function voiceVendorSuffix(voice: Pick<VoiceProfile, "vendor" | "provider_profile_id">): string {
+  const vendor = voice.vendor.trim() || vendorKeyFromProviderProfileId(voice.provider_profile_id);
+  return vendor ? vendorLabel(vendor) : "";
+}
+
+export function voiceDisplayLabel(voice: Pick<VoiceProfile, "display_name" | "vendor" | "provider_profile_id">): string {
+  const suffix = voiceVendorSuffix(voice);
+  return suffix ? `${voice.display_name}（${suffix}）` : voice.display_name;
+}
+
 export function vendorTone(vendor: string) {
   if (vendor === "volcengine") return "badge-info";
   if (vendor === "minimax") return "badge-success";

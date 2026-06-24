@@ -3,6 +3,7 @@ falls back to the deterministic derivation otherwise."""
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 from apps.api.services.publishing_nodes import run_copy_node
@@ -39,12 +40,16 @@ def test_run_copy_node_uses_llm_when_armed(tmp_path):
         provider_id = "dashscope.llm"
 
         def invoke(self, call):
+            payload = {
+                "title": "补漆神器实测真香",
+                "publish_content": "实测对比，效果惊艳，强烈推荐。",
+                "cover_title": "补漆神器实测",
+                "cover_subtitle": "效果惊艳省钱",
+            }
             return ProviderResult(
                 output={
-                    "title": "补漆神器实测真香",
-                    "publish_content": "实测对比，效果惊艳，强烈推荐。",
-                    "cover_title": "补漆神器实测",
-                    "cover_subtitle": "效果惊艳省钱",
+                    "content": json.dumps(payload, ensure_ascii=False),
+                    "intent": payload,
                 }
             )
 

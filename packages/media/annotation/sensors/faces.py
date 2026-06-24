@@ -18,9 +18,20 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class FaceDetection:
+    """One YuNet detection: bounding box, score, and the 5 facial landmarks
+    (right eye, left eye, nose tip, right mouth corner, left mouth corner)."""
+
+    bbox: tuple[float, float, float, float]  # x, y, w, h
+    score: float
+    landmarks: tuple[tuple[float, float], ...]  # 5 (x, y) points
 
 # YuNet face-detection model bundled in the package (package-relative path).
 _MODEL_PATH = (
@@ -93,6 +104,49 @@ def _get_detector(score_threshold: float):
     return det
 
 
+def detect_faces(
+    image,
+    *,
+    score_threshold: float = _DEFAULT_SCORE,
+) -> list[FaceDetection]:
+    """Detect faces in a BGR image (cv2.imread result), exposing each detection's
+    bounding box, score, and 5 landmarks.
+
+    Unlike ``count_faces_in_image`` this applies no ``min_face_frac`` gate — the
+    caller decides which detections qualify. fail-open: empty image / detector
+    unavailable / detect failure returns ``[]`` (no negative evidence).
+    """
+    if image is None:
+        return []
+    det = _get_detector(score_threshold)
+    if det is None:
+        return []
+    try:
+        h, w = int(image.shape[0]), int(image.shape[1])
+        det.setInputSize((w, h))
+        _, faces = det.detect(image)
+    except Exception as exc:  # pragma: no cover
+        logger.debug("[faces] detect failed: %s", exc)
+        return []
+    if faces is None:
+        return []
+    detections: list[FaceDetection] = []
+    for f in faces:
+        # YuNet row: [x, y, w, h, x_re, y_re, x_le, y_le, x_nt, y_nt,
+        #             x_rcm, y_rcm, x_lcm, y_lcm, score]
+        landmarks = tuple(
+            (float(f[4 + 2 * i]), float(f[5 + 2 * i])) for i in range(5)
+        )
+        detections.append(
+            FaceDetection(
+                bbox=(float(f[0]), float(f[1]), float(f[2]), float(f[3])),
+                score=float(f[14]),
+                landmarks=landmarks,
+            )
+        )
+    return detections
+
+
 def count_faces_in_image(
     image,
     *,
@@ -106,20 +160,16 @@ def count_faces_in_image(
     """
     if image is None:
         return 0
-    det = _get_detector(score_threshold)
-    if det is None:
-        return 0
     try:
         h, w = int(image.shape[0]), int(image.shape[1])
-        det.setInputSize((w, h))
-        _, faces = det.detect(image)
-    except Exception as exc:  # pragma: no cover
-        logger.debug("[faces] detect failed: %s", exc)
-        return 0
-    if faces is None:
+    except (AttributeError, IndexError, TypeError, ValueError):
         return 0
     min_side = min(h, w) * float(min_face_frac)
-    return sum(1 for f in faces if min(float(f[2]), float(f[3])) >= min_side)
+    return sum(
+        1
+        for face in detect_faces(image, score_threshold=score_threshold)
+        if min(face.bbox[2], face.bbox[3]) >= min_side
+    )
 
 
 def max_faces_in_frame_paths(

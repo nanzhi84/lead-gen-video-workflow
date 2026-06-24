@@ -25,6 +25,21 @@ function formatQuota(item: ProviderBalanceItem) {
   return `${item.quota_remaining.toLocaleString("zh-CN")}${unit}`;
 }
 
+function providerLabel(providerId: string) {
+  if (providerId === "aliyun.billing") return "阿里云 / DashScope";
+  if (providerId === "volcengine.billing") return "火山引擎";
+  if (providerId === "openai.image") return "OpenAI 图片";
+  if (providerId === "runninghub.heygem") return "RunningHub HeyGem";
+  if (providerId === "minimax.tts") return "MiniMax";
+  return providerId;
+}
+
+function accountLabel(item: ProviderBalanceItem) {
+  if (item.account_group === "aliyun.shared") return "共享账户";
+  if (item.account_group === "volcengine.shared") return "共享账户";
+  return item.account_group ?? "default";
+}
+
 function EmptyPanel({ status }: { status?: ProviderBalanceReport["status"] }) {
   return (
     <div className="rounded-[22px] border border-dashed border-border bg-white/45 px-6 py-10 text-center text-sm text-text-tertiary">
@@ -67,8 +82,8 @@ export function BalanceQuotaTab({
           <table className="w-full min-w-[760px] border-separate border-spacing-0 text-left text-sm">
             <thead className="text-xs uppercase tracking-wide text-text-tertiary">
               <tr>
-                <th className="border-b border-border/70 pb-3 font-medium">Provider</th>
-                <th className="border-b border-border/70 pb-3 font-medium">Account</th>
+                <th className="border-b border-border/70 pb-3 font-medium">供应商</th>
+                <th className="border-b border-border/70 pb-3 font-medium">账户</th>
                 <th className="border-b border-border/70 pb-3 font-medium">余额</th>
                 <th className="border-b border-border/70 pb-3 font-medium">配额</th>
                 <th className="border-b border-border/70 pb-3 font-medium">状态</th>
@@ -80,8 +95,11 @@ export function BalanceQuotaTab({
                 const Icon = statusIcon(item.status);
                 return (
                   <tr key={`${item.provider_id}:${item.account_group ?? "default"}`}>
-                    <td className="py-4 pr-4 font-medium text-text-primary">{item.provider_id}</td>
-                    <td className="py-4 pr-4 font-mono text-xs text-text-secondary">{item.account_group ?? "default"}</td>
+                    <td className="py-4 pr-4">
+                      <p className="font-medium text-text-primary">{providerLabel(item.provider_id)}</p>
+                      <p className="font-mono text-xs text-text-tertiary">{item.provider_id}</p>
+                    </td>
+                    <td className="py-4 pr-4 text-xs text-text-secondary">{accountLabel(item)}</td>
                     <td className="py-4 pr-4 font-mono text-text-primary">{item.balance ? formatMoney(item.balance) : "暂无"}</td>
                     <td className="py-4 pr-4 font-mono text-text-primary">{formatQuota(item)}</td>
                     <td className="py-4 pr-4">

@@ -5,6 +5,10 @@ real LLM is armed so the copy node falls back to its deterministic derivation.
 
 from __future__ import annotations
 
+import json
+
+import pytest
+
 from packages.ai.gateway import ProviderResult
 from packages.ai.gateway.provider_gateway import (
     ProviderCall,
@@ -16,10 +20,17 @@ from packages.core.storage.object_store import LocalObjectStore
 from packages.core.storage.repository import Repository
 from packages.core.storage.secret_store import LocalSecretStore
 from packages.core.workflow import NodeExecutionError
-from packages.publishing.copy_llm import build_copy_llm_chat
+from packages.publishing.copy_llm import _extract_publish_copy_payload, build_copy_llm_chat
 from packages.publishing.copy_node import PublishCopyContext
 
 _SCRIPT = "轮毂刮花了，4S 店报价三千？别急着换，局部修复几百块就能搞定。"
+
+_COPY = {
+    "title": "轮毂刮花别急着换",
+    "publish_content": "局部修复几百块搞定。",
+    "cover_title": "轮毂修复省两千",
+    "cover_subtitle": "几百块搞定",
+}
 
 
 def _gateway(tmp_path):
@@ -66,18 +77,26 @@ def test_build_copy_llm_chat_returns_none_without_real_profile(tmp_path):
 def test_build_copy_llm_chat_invokes_gateway_and_returns_output(tmp_path):
     repository, gateway, secret_store = _gateway(tmp_path)
     _arm_llm_profile(repository, secret_store)
+    copy_payload = {
+        "title": "轮毂刮花别急着换",
+        "publish_content": "局部修复几百块搞定，省下两千多。",
+        "cover_title": "轮毂修复省两千",
+        "cover_subtitle": "几百块搞定",
+    }
     provider = _FakeLlmProvider(
         {
-            "title": "轮毂刮花别急着换",
-            "publish_content": "局部修复几百块搞定，省下两千多。",
-            "cover_title": "轮毂修复省两千",
-            "cover_subtitle": "几百块搞定",
+            "content": json.dumps(copy_payload, ensure_ascii=False),
+            "intent": copy_payload,
         }
     )
     gateway.register(provider)
 
     port = build_copy_llm_chat(
-        gateway=gateway, repository=repository, case_id="case_demo", run_id="run_1"
+        gateway=gateway,
+        repository=repository,
+        case_id="case_demo",
+        run_id="run_1",
+        node_run_id="nr_copy",
     )
     assert port is not None
 
@@ -90,6 +109,10 @@ def test_build_copy_llm_chat_invokes_gateway_and_returns_output(tmp_path):
     assert invocation_id
     # The seeded PublishingCopy prompt was rendered with the script and reached the provider.
     assert provider.prompts and _SCRIPT in provider.prompts[0]
+    prompt_invocation = next(iter(repository.prompt_invocations.values()))
+    assert prompt_invocation.run_id == "run_1"
+    assert prompt_invocation.node_run_id == "nr_copy"
+    assert prompt_invocation.provider_invocation_id == invocation_id
 
 
 def test_copy_llm_port_raises_on_provider_error(tmp_path):
@@ -116,3 +139,26 @@ def test_copy_llm_port_raises_on_provider_error(tmp_path):
         }
     else:  # pragma: no cover
         raise AssertionError("expected NodeExecutionError on provider failure")
+
+
+def test_extract_payload_prefers_copy_shaped_content_over_unrelated_intent():
+    # intent is a dict but NOT copy-shaped; the valid copy lives in content -> the
+    # content copy must win rather than the unrelated intent envelope.
+    output = {"intent": {"unrelated": "x"}, "content": json.dumps(_COPY, ensure_ascii=False)}
+    assert _extract_publish_copy_payload(output) == _COPY
+
+
+def test_extract_payload_parses_fenced_content_json():
+    fenced = "```json\n" + json.dumps(_COPY, ensure_ascii=False) + "\n```"
+    assert _extract_publish_copy_payload({"content": fenced}) == _COPY
+
+
+def test_extract_payload_parses_unfenced_content_json():
+    raw = json.dumps(_COPY, ensure_ascii=False)
+    assert _extract_publish_copy_payload({"content": raw}) == _COPY
+
+
+def test_extract_payload_rejects_non_dict_output():
+    with pytest.raises(NodeExecutionError) as exc:
+        _extract_publish_copy_payload(["not", "a", "dict"])
+    assert exc.value.error.code == ErrorCode.prompt_output_invalid

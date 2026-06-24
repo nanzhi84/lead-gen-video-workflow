@@ -16,6 +16,8 @@ gateway is fully in-memory.
 
 from __future__ import annotations
 
+import json
+
 from packages.ai.gateway import ProviderResult
 from packages.ai.gateway.provider_gateway import (
     ProviderCall,
@@ -186,7 +188,9 @@ def test_ai_cover_generates_artifact_when_profile_and_secret_active(
     provider = _MockImageProvider()
     gateway.register(provider)
 
-    state = _seed_final_state(adapter.repository, object_store, media_fixture_factory, cover_mode="ai")
+    state = _seed_final_state(
+        adapter.repository, object_store, media_fixture_factory, cover_mode="ai"
+    )
     ctx = NodeContext(adapter=adapter, run=_run(), node_run=_node_run(), state=state)
 
     from packages.production.pipeline import nodes
@@ -205,7 +209,9 @@ def test_ai_cover_generates_artifact_when_profile_and_secret_active(
     # No LLM is armed here, so the copy -- and thus the cover headline -- is derived
     # deterministically from the script ("第一句。第二句。" -> cover_title "第一句").
     assert provider.prompts and "第一句" in provider.prompts[0]
-    finished = next(v for v in adapter.repository.finished_videos.values() if v.run_id == "run_cover")
+    finished = next(
+        v for v in adapter.repository.finished_videos.values() if v.run_id == "run_cover"
+    )
     assert finished.cover_artifact is not None
     assert finished.cover_artifact.artifact_id == cover.id
 
@@ -270,7 +276,9 @@ def test_ai_cover_consumes_uploaded_cover_template_reference(
     )
     adapter.repository.media_assets[asset.id] = asset
 
-    state = _seed_final_state(adapter.repository, object_store, media_fixture_factory, cover_mode="ai")
+    state = _seed_final_state(
+        adapter.repository, object_store, media_fixture_factory, cover_mode="ai"
+    )
     state.request.cover.reference_asset_id = asset.id
     ctx = NodeContext(adapter=adapter, run=_run(), node_run=_node_run(), state=state)
 
@@ -281,16 +289,19 @@ def test_ai_cover_consumes_uploaded_cover_template_reference(
     assert output.status == NodeStatus.succeeded
     assert provider.inputs, "image provider must be invoked"
     call_input = provider.inputs[0]
-    # The uploaded template bytes were forwarded to the edit-reference path...
+    # The uploaded template and source frame are combined into one edit-reference board.
     import base64
 
-    assert call_input.get("template_image_b64") == base64.b64encode(_PNG_1x1).decode("ascii")
-    assert call_input.get("template_filename")
-    # ...and the prompt switched to the has_template style-reference instruction.
+    assert base64.b64decode(call_input.get("reference_image_b64") or "")
+    assert call_input.get("reference_filename") == "cover-reference-board.png"
+    assert call_input.get("template_image_b64") == call_input.get("reference_image_b64")
+    assert call_input.get("source_frame_time_sec") == 0.5
+    # ...and the prompt switched to the combined template + source-frame instruction.
     assert "style and layout template" in call_input["prompt"]
+    assert "two-panel board" in call_input["prompt"]
 
 
-def test_ai_cover_without_reference_asset_sends_no_template(
+def test_ai_cover_without_reference_asset_sends_source_frame_reference(
     tmp_path, media_fixture_factory, monkeypatch
 ):
     adapter, gateway, secret_store, object_store = _adapter(tmp_path)
@@ -302,7 +313,9 @@ def test_ai_cover_without_reference_asset_sends_no_template(
     provider = _TemplateAwareImageProvider()
     gateway.register(provider)
 
-    state = _seed_final_state(adapter.repository, object_store, media_fixture_factory, cover_mode="ai")
+    state = _seed_final_state(
+        adapter.repository, object_store, media_fixture_factory, cover_mode="ai"
+    )
     ctx = NodeContext(adapter=adapter, run=_run(), node_run=_node_run(), state=state)
 
     from packages.production.pipeline import nodes
@@ -311,9 +324,76 @@ def test_ai_cover_without_reference_asset_sends_no_template(
 
     assert output.status == NodeStatus.succeeded
     assert provider.inputs
-    # No reference asset -> no template bytes, text-to-image generation only.
-    assert "template_image_b64" not in provider.inputs[0]
+    # No cover template -> the selected video source frame is still passed to image edits.
+    assert provider.inputs[0].get("reference_image_b64")
+    assert provider.inputs[0].get("reference_filename") == "source-frame.png"
+    assert provider.inputs[0].get("source_frame_time_sec") == 0.5
     assert "from scratch" in provider.inputs[0]["prompt"]
+    assert "selected video frame/image2" in provider.inputs[0]["prompt"]
+
+
+def test_ai_cover_prefers_clean_lipsync_source_and_skips_vlm(
+    tmp_path, media_fixture_factory, monkeypatch
+):
+    # The cover source frame must come from the clean lipsync track (no burned
+    # subtitles / no b-roll), NOT the final video. Seed a 2.0s lipsync artifact
+    # alongside the 1.0s final: the midpoint source frame must reflect the clean
+    # source (1.0s), proving the node reads video.lipsync. The deterministic picker
+    # also makes NO vlm.annotation provider call.
+    adapter, gateway, secret_store, object_store = _adapter(tmp_path)
+    monkeypatch.setattr(
+        "packages.production.pipeline.digital_human.get_object_store", lambda: object_store
+    )
+    secret_ref = secret_store.put("openai-image-key")
+    _seed_image_profile(adapter.repository, secret_ref)
+    image_provider = _TemplateAwareImageProvider()
+    gateway.register(image_provider)
+
+    vlm_called = {"hit": False}
+
+    class _ExplodingVlmProvider:
+        provider_id = "dashscope.vlm"
+
+        def invoke(self, call):  # pragma: no cover - must not run
+            vlm_called["hit"] = True
+            raise AssertionError("deterministic selection must not call the VLM")
+
+    gateway.register(_ExplodingVlmProvider())
+
+    state = _seed_final_state(
+        adapter.repository, object_store, media_fixture_factory, cover_mode="ai"
+    )
+    lipsync_video = media_fixture_factory.video(duration_sec=2.0, filename="lipsync.mp4")
+    lipsync_stored = store_file(object_store, lipsync_video, purpose="lipsync-video")
+    lipsync = adapter.repository.create_artifact(
+        kind=ArtifactKind.video_lipsync,
+        payload_schema="uri-only",
+        payload=None,
+        case_id="case_demo",
+        run_id="run_cover",
+        uri=lipsync_stored.ref.uri,
+        sha256=lipsync_stored.sha256,
+        media_info=MediaInfo(media_type="video", codec="h264", format="mp4", duration_sec=2.0),
+    )
+    state.artifacts[ArtifactKind.video_lipsync] = lipsync
+    ctx = NodeContext(adapter=adapter, run=_run(), node_run=_node_run(), state=state)
+
+    from packages.production.pipeline import nodes
+
+    output = nodes.export_finished_video.run(ctx)
+
+    assert output.status == NodeStatus.succeeded
+    assert vlm_called["hit"] is False
+    assert image_provider.inputs
+    call_input = image_provider.inputs[0]
+    assert call_input.get("reference_image_b64")
+    # Midpoint of the 2.0s clean lipsync track, not the 1.0s final (would be 0.5).
+    assert call_input.get("source_frame_time_sec") == 1.0
+    # No vlm.annotation invocation was recorded.
+    assert not any(
+        invocation.capability_id == "vlm.annotation"
+        for invocation in adapter.repository.provider_invocations.values()
+    )
 
 
 def test_ai_cover_unconfigured_uses_frame_without_degradation(
@@ -338,7 +418,9 @@ def test_ai_cover_unconfigured_uses_frame_without_degradation(
 
     gateway.register(_ExplodingImageProvider())
 
-    state = _seed_final_state(adapter.repository, object_store, media_fixture_factory, cover_mode="ai")
+    state = _seed_final_state(
+        adapter.repository, object_store, media_fixture_factory, cover_mode="ai"
+    )
     ctx = NodeContext(adapter=adapter, run=_run(), node_run=_node_run(), state=state)
 
     from packages.production.pipeline import nodes
@@ -378,7 +460,9 @@ def test_ai_cover_profile_present_but_generation_fails_degrades_to_frame(
 
     gateway.register(_FailingImageProvider())
 
-    state = _seed_final_state(adapter.repository, object_store, media_fixture_factory, cover_mode="ai")
+    state = _seed_final_state(
+        adapter.repository, object_store, media_fixture_factory, cover_mode="ai"
+    )
     ctx = NodeContext(adapter=adapter, run=_run(), node_run=_node_run(), state=state)
 
     from packages.production.pipeline import nodes
@@ -401,7 +485,12 @@ def _arm_copy_llm(gateway, secret_store, output):
         provider_id = "dashscope.llm"
 
         def invoke(self, call):
-            return ProviderResult(output=output)
+            return ProviderResult(
+                output={
+                    "content": json.dumps(output, ensure_ascii=False),
+                    "intent": output,
+                }
+            )
 
     gateway.register(_FakeLlmProvider())
 
@@ -424,17 +513,26 @@ def test_finished_title_uses_llm_publish_copy_headline(
         },
     )
     # Frame cover (no image profile) keeps this focused on the title path.
-    state = _seed_final_state(adapter.repository, object_store, media_fixture_factory, cover_mode="frame")
+    state = _seed_final_state(
+        adapter.repository, object_store, media_fixture_factory, cover_mode="frame"
+    )
     ctx = NodeContext(adapter=adapter, run=_run(), node_run=_node_run(), state=state)
 
     from packages.production.pipeline import nodes
 
     output = nodes.export_finished_video.run(ctx)
 
-    finished = next(v for v in adapter.repository.finished_videos.values() if v.run_id == "run_cover")
+    finished = next(
+        v for v in adapter.repository.finished_videos.values() if v.run_id == "run_cover"
+    )
     # The generated headline replaces the request's persona-label title ("封面测试").
     assert finished.title == "轮毂刮花别急着换新"
     assert output.status == NodeStatus.succeeded
+    assert len(output.provider_invocation_ids) == 1
+    prompt_invocation = next(iter(adapter.repository.prompt_invocations.values()))
+    assert prompt_invocation.run_id == "run_cover"
+    assert prompt_invocation.node_run_id == "nr_export"
+    assert prompt_invocation.provider_invocation_id == output.provider_invocation_ids[0]
 
 
 def test_ai_cover_prompt_uses_llm_cover_title(tmp_path, media_fixture_factory, monkeypatch):
@@ -457,7 +555,9 @@ def test_ai_cover_prompt_uses_llm_cover_title(tmp_path, media_fixture_factory, m
     provider = _MockImageProvider()
     gateway.register(provider)
 
-    state = _seed_final_state(adapter.repository, object_store, media_fixture_factory, cover_mode="ai")
+    state = _seed_final_state(
+        adapter.repository, object_store, media_fixture_factory, cover_mode="ai"
+    )
     ctx = NodeContext(adapter=adapter, run=_run(), node_run=_node_run(), state=state)
 
     from packages.production.pipeline import nodes
@@ -469,9 +569,7 @@ def test_ai_cover_prompt_uses_llm_cover_title(tmp_path, media_fixture_factory, m
     assert provider.prompts and "轮毂修复省两千" in provider.prompts[0]
 
 
-def test_frame_cover_default_mode_has_no_degradation(
-    tmp_path, media_fixture_factory, monkeypatch
-):
+def test_frame_cover_default_mode_has_no_degradation(tmp_path, media_fixture_factory, monkeypatch):
     adapter, gateway, secret_store, object_store = _adapter(tmp_path)
     monkeypatch.setattr(
         "packages.production.pipeline.digital_human.get_object_store", lambda: object_store

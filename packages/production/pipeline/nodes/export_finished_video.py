@@ -17,7 +17,9 @@ produced, so it falls back to the deterministic copy rather than failing the exp
 from __future__ import annotations
 
 import base64
+import binascii
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 from packages.ai.gateway import ProviderCall
@@ -35,7 +37,12 @@ from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError, NodeOutput
 from packages.media.assets import store_file
 from packages.media.cover import CoverPromptInputs, build_cover_prompt
-from packages.media.video.ffmpeg import FfmpegCommandError, extract_thumbnails
+from packages.media.cover_frame import BestPortraitFrame, select_best_portrait_frame
+from packages.media.video.ffmpeg import (
+    FfmpegCommandError,
+    extract_frame_at_time,
+    extract_thumbnails,
+)
 from packages.publishing.copy_llm import build_copy_llm_chat
 from packages.publishing.copy_node import (
     PublishCopy,
@@ -55,6 +62,18 @@ COVER_PROMPT_VERSION_ID = "prompt_cover_ai_cover_v1"
 # falling back to the canonical seeded version so the cover never hard-fails on
 # prompt resolution alone.
 AI_COVER_NODE_ID = "PublishCover.ai_cover"
+# Cover source-frame selection prefers clean intermediate tracks (no burned
+# subtitles, no b-roll inserts) over the final composited video.
+_COVER_SOURCE_KINDS = (ArtifactKind.video_lipsync, ArtifactKind.video_portrait_track)
+
+
+@dataclass(frozen=True)
+class _CoverReferenceImage:
+    image_b64: str
+    filename: str
+    has_template: bool = False
+    has_source_frame: bool = False
+    source_frame_time_sec: float | None = None
 
 
 def run(ctx: NodeContext) -> NodeOutput:
@@ -77,7 +96,9 @@ def run(ctx: NodeContext) -> NodeOutput:
     )
     copy, _copy_source, copy_invocation_id = _resolve_publish_copy(ctx, script)
     cover_artifact, cover_degradations, cover_invocation_ids = _build_cover(ctx, final, copy)
-    lipsync_provider_id, lipsync_fallback_used, lipsync_fallback_reason = _resolve_lipsync_attribution(ctx)
+    lipsync_provider_id, lipsync_fallback_used, lipsync_fallback_reason = (
+        _resolve_lipsync_attribution(ctx)
+    )
     finished = FinishedVideo(
         id=new_id("fv"),
         case_id=state.request.case_id,
@@ -92,7 +113,11 @@ def run(ctx: NodeContext) -> NodeOutput:
             if ArtifactKind.subtitle_ass in state.artifacts
             else None
         ),
-        duration_sec=float(final.media_info.duration_sec if final.media_info and final.media_info.duration_sec else 0),
+        duration_sec=float(
+            final.media_info.duration_sec
+            if final.media_info and final.media_info.duration_sec
+            else 0
+        ),
         lipsync_provider_id=lipsync_provider_id,
         lipsync_fallback_used=lipsync_fallback_used,
         lipsync_fallback_reason=lipsync_fallback_reason,
@@ -164,7 +189,9 @@ def _resolve_owner_user_id(run, repository) -> str | None:
 
 def _next_video_number(repository, case_id: str) -> str:
     return next_finished_video_number(
-        video.video_number for video in repository.finished_videos.values() if video.case_id == case_id
+        video.video_number
+        for video in repository.finished_videos.values()
+        if video.case_id == case_id
     )
 
 
@@ -238,9 +265,9 @@ def _build_cover(
     wants_ai = request.cover.mode == "ai"
     profile_id = ctx.image_cover_profile_id(request) if wants_ai else None
     if profile_id is not None:
-        ai_cover, invocation_id = _generate_ai_cover(ctx, profile_id, copy)
+        ai_cover, invocation_ids = _generate_ai_cover(ctx, profile_id, copy)
         if ai_cover is not None:
-            return ai_cover, [], [invocation_id] if invocation_id else []
+            return ai_cover, [], invocation_ids
         return (
             _frame_cover(ctx, final),
             [
@@ -251,7 +278,7 @@ def _build_cover(
                     policy_id=COVER_FALLBACK_POLICY.id,
                 )
             ],
-            [],
+            invocation_ids,
         )
     return _frame_cover(ctx, final), [], []
 
@@ -333,8 +360,8 @@ def _resolve_cover_prompt_version_id(ctx: NodeContext) -> str | None:
 
 def _generate_ai_cover(
     ctx: NodeContext, profile_id: str, copy: PublishCopy
-) -> tuple[Artifact | None, str | None]:
-    """Generate the AI cover via the gateway. Returns ``(None, None)`` on any
+) -> tuple[Artifact | None, list[str]]:
+    """Generate the AI cover via the gateway. Returns ``(None, invocation_ids)`` on any
     provider failure so the caller can fall back to the frame cover.
 
     When the request references an uploaded ``cover_template`` MediaAsset
@@ -345,7 +372,9 @@ def _generate_ai_cover(
     state = ctx.state
     run = ctx.run
     node_run = ctx.node_run
+    invocation_ids: list[str] = []
     template = _resolve_cover_template(ctx)
+    reference = _build_cover_reference_image(ctx, template)
     version_id = _resolve_cover_prompt_version_id(ctx)
     version = ctx.repository.prompt_versions.get(version_id) if version_id is not None else None
     prompt = build_cover_prompt(
@@ -354,14 +383,19 @@ def _generate_ai_cover(
             subtitle=copy.cover_subtitle or None,
             description=copy.publish_content or state.request.publish_content,
             case_name=state.request.case_id,
-            has_template=template is not None,
+            has_source_frame=bool(reference and reference.has_source_frame),
+            has_template=bool(reference and reference.has_template),
         ),
         template=version.content if version is not None else None,
     )
     call_input: dict = {"prompt": prompt}
-    if template is not None:
-        call_input["template_image_b64"] = template[0]
-        call_input["template_filename"] = template[1]
+    if reference is not None:
+        call_input["reference_image_b64"] = reference.image_b64
+        call_input["reference_filename"] = reference.filename
+        call_input["template_image_b64"] = reference.image_b64
+        call_input["template_filename"] = reference.filename
+        if reference.source_frame_time_sec is not None:
+            call_input["source_frame_time_sec"] = round(reference.source_frame_time_sec, 3)
     invocation, result = ctx.provider_gateway.invoke(
         ProviderCall(
             case_id=run.case_id,
@@ -374,12 +408,156 @@ def _generate_ai_cover(
             idempotency_key=f"cover-{run.id}",
         )
     )
+    invocation_ids.append(invocation.id)
     if result is None or invocation.error:
-        return None, None
+        return None, invocation_ids
     artifact_id = result.output.get("cover_artifact_id")
     if not isinstance(artifact_id, str) or artifact_id not in ctx.repository.artifacts:
-        return None, None
-    return ctx.repository.artifacts[artifact_id], invocation.id
+        return None, invocation_ids
+    return ctx.repository.artifacts[artifact_id], invocation_ids
+
+
+def _build_cover_reference_image(
+    ctx: NodeContext,
+    template: tuple[str, str] | None,
+) -> _CoverReferenceImage | None:
+    source_frame = _select_cover_source_frame(ctx)
+    template_ref = (
+        _CoverReferenceImage(
+            image_b64=template[0],
+            filename=template[1],
+            has_template=True,
+            has_source_frame=False,
+        )
+        if template is not None
+        else None
+    )
+    if template_ref is not None and source_frame is not None:
+        return _combine_cover_reference_board(template_ref, source_frame) or source_frame
+    return source_frame or template_ref
+
+
+def _select_cover_source_frame(ctx: NodeContext) -> _CoverReferenceImage | None:
+    """Pick the cover reference frame from the cleanest available track via a
+    deterministic face-quality score (no VLM, no paid call). Falls back to the
+    source midpoint when no frame has a usable single face."""
+    source = _select_clean_cover_source(ctx)
+    best = _pick_best_portrait_frame(ctx, source)
+    if best is not None:
+        face_frame = _extract_cover_source_frame(ctx, source, time_sec=best.time_sec)
+        if face_frame is not None:
+            return face_frame
+    return _extract_cover_source_frame(ctx, source)
+
+
+def _select_clean_cover_source(ctx: NodeContext) -> Artifact:
+    """Prefer a subtitle-free, b-roll-free track (lipsync → portrait) so the cover
+    reference is a clean portrait; fall back to the final composited video."""
+    artifacts = ctx.state.artifacts
+    for kind in _COVER_SOURCE_KINDS:
+        artifact = artifacts.get(kind)
+        if artifact is not None:
+            return artifact
+    return ctx.state.require(ArtifactKind.video_final)
+
+
+def _pick_best_portrait_frame(ctx: NodeContext, source: Artifact) -> BestPortraitFrame | None:
+    duration = float(
+        source.media_info.duration_sec
+        if source.media_info and source.media_info.duration_sec
+        else 0
+    )
+    try:
+        video_path = ctx.artifact_path(source)
+    except NodeExecutionError:
+        return None
+    try:
+        with tempfile.TemporaryDirectory(prefix="cutagent-cover-pick-") as directory:
+            return select_best_portrait_frame(str(video_path), duration, temp_dir=directory)
+    except (FfmpegCommandError, OSError):
+        return None
+
+
+def _extract_cover_source_frame(
+    ctx: NodeContext,
+    source: Artifact,
+    *,
+    time_sec: float | None = None,
+) -> _CoverReferenceImage | None:
+    point = time_sec if time_sec is not None else _cover_reference_time_sec(source)
+    try:
+        with tempfile.TemporaryDirectory(prefix="cutagent-cover-source-") as directory:
+            output = Path(directory) / "source-frame.png"
+            frame = extract_frame_at_time(ctx.artifact_path(source), output, time_sec=point)
+            data = frame.path.read_bytes()
+    except (FfmpegCommandError, NodeExecutionError, FileNotFoundError, OSError):
+        return None
+    if not data:
+        return None
+    return _CoverReferenceImage(
+        image_b64=base64.b64encode(data).decode("ascii"),
+        filename="source-frame.png",
+        has_template=False,
+        has_source_frame=True,
+        source_frame_time_sec=point,
+    )
+
+
+def _cover_reference_time_sec(final: Artifact) -> float:
+    duration = float(
+        final.media_info.duration_sec if final.media_info and final.media_info.duration_sec else 0
+    )
+    return max(0.0, duration / 2.0)
+
+
+def _combine_cover_reference_board(
+    template: _CoverReferenceImage,
+    source_frame: _CoverReferenceImage,
+) -> _CoverReferenceImage | None:
+    try:
+        import cv2  # type: ignore
+        import numpy as np  # type: ignore
+
+        template_image = _decode_reference_image(cv2, np, template.image_b64)
+        source_image = _decode_reference_image(cv2, np, source_frame.image_b64)
+        if template_image is None or source_image is None:
+            return None
+        target_height = 1024
+        template_resized = _resize_reference_to_height(cv2, template_image, target_height)
+        source_resized = _resize_reference_to_height(cv2, source_image, target_height)
+        separator = np.full((target_height, 16, 3), 245, dtype=np.uint8)
+        board = np.hstack([template_resized, separator, source_resized])
+        ok, encoded = cv2.imencode(".png", board)
+        if not ok:
+            return None
+    except Exception:
+        return None
+    return _CoverReferenceImage(
+        image_b64=base64.b64encode(bytes(encoded)).decode("ascii"),
+        filename="cover-reference-board.png",
+        has_template=True,
+        has_source_frame=True,
+        source_frame_time_sec=source_frame.source_frame_time_sec,
+    )
+
+
+def _decode_reference_image(cv2, np, image_b64: str):
+    try:
+        data = base64.b64decode(image_b64)
+    except (binascii.Error, ValueError):
+        return None
+    if not data:
+        return None
+    array = np.frombuffer(data, dtype=np.uint8)
+    return cv2.imdecode(array, cv2.IMREAD_COLOR)
+
+
+def _resize_reference_to_height(cv2, image, target_height: int):
+    height, width = image.shape[:2]
+    if height <= 0 or width <= 0:
+        return image
+    target_width = max(1, round(width * (target_height / height)))
+    return cv2.resize(image, (target_width, target_height), interpolation=cv2.INTER_AREA)
 
 
 def _resolve_cover_template(ctx: NodeContext) -> tuple[str, str] | None:

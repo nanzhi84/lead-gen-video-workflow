@@ -40,9 +40,7 @@ EXPECTED_PROMPT_GROUPS = {
 
 def _format_fields(content: str) -> set[str]:
     return {
-        field_name
-        for _, field_name, _, _ in Formatter().parse(content)
-        if field_name is not None
+        field_name for _, field_name, _, _ in Formatter().parse(content) if field_name is not None
     }
 
 

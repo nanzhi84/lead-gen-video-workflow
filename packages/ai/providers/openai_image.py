@@ -60,19 +60,24 @@ class OpenAIImageProvider:
         model_id = context.profile.model_id
         size = str(call.input.get("size") or option(context, "size", "1024x1536"))
         count = int(call.input.get("n") or option(context, "n", 1) or 1)
-        template_b64 = str(call.input.get("template_image_b64") or "").strip()
+        reference_b64 = str(
+            call.input.get("reference_image_b64") or call.input.get("template_image_b64") or ""
+        ).strip()
         result: dict[str, Any] | None = None
-        if template_b64:
-            # Reference-image (style/layout) path: edit-from-template so the uploaded
-            # cover template actually conditions the result (mirrors the origin
-            # ``/images/edits`` call). Falls back to plain generation if the endpoint
-            # or model does not support edits.
-            result = self._edit_with_template(
+        if reference_b64:
+            # Reference-image path: edit from an uploaded cover template, a selected
+            # source video frame, or a combined reference board. Falls back to plain
+            # generation if the endpoint/model does not support edits.
+            result = self._edit_with_reference(
                 base_url,
                 api_key,
                 prompt,
-                template_b64=template_b64,
-                template_filename=str(call.input.get("template_filename") or "cover-template.png"),
+                reference_b64=reference_b64,
+                reference_filename=str(
+                    call.input.get("reference_filename")
+                    or call.input.get("template_filename")
+                    or "cover-reference.png"
+                ),
                 size=size,
                 count=count,
                 model_id=model_id,
@@ -131,30 +136,30 @@ class OpenAIImageProvider:
             payload["output_format"] = str(output_format)
         return payload
 
-    def _edit_with_template(
+    def _edit_with_reference(
         self,
         base_url: str,
         api_key: str,
         prompt: str,
         *,
-        template_b64: str,
-        template_filename: str,
+        reference_b64: str,
+        reference_filename: str,
         size: str,
         count: int,
         model_id: str,
         context: ProviderInvocationContext,
     ) -> dict[str, Any] | None:
-        """POST the prompt + reference image to ``/images/edits`` so the uploaded
-        cover template conditions the result. Returns the decoded JSON, or ``None``
-        to signal the caller should fall back to plain text-to-image generation
-        (when the endpoint/model rejects edits, e.g. HTTP 400/404/422)."""
+        """POST the prompt + reference image to ``/images/edits`` so a cover
+        template and/or source frame conditions the result. Returns decoded JSON, or
+        ``None`` to signal text-to-image fallback when the endpoint/model rejects
+        edits, e.g. HTTP 400/404/422."""
         try:
-            template_bytes = base64.b64decode(template_b64)
+            reference_bytes = base64.b64decode(reference_b64)
         except (binascii.Error, ValueError):
             return None
-        if not template_bytes:
+        if not reference_bytes:
             return None
-        mime = mimetypes.guess_type(template_filename)[0] or "image/png"
+        mime = mimetypes.guess_type(reference_filename)[0] or "image/png"
         data = {"model": model_id, "prompt": prompt, "size": size, "n": str(count)}
         # Try the canonical ``image`` field first, then ``image[]`` (some mirrors
         # only accept the array form) — mirrors the origin's two-field attempt.
@@ -166,7 +171,7 @@ class OpenAIImageProvider:
                     f"{base_url}/images/edits",
                     headers={"Authorization": f"Bearer {api_key}"},
                     data=data,
-                    files={image_field: (template_filename, template_bytes, mime)},
+                    files={image_field: (reference_filename, reference_bytes, mime)},
                     timeout=float(context.profile.timeout_sec),
                 )
             except ProviderRuntimeError as exc:

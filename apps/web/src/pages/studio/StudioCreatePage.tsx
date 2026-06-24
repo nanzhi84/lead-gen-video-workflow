@@ -35,6 +35,7 @@ import { ScriptToolBar } from "../../components/script-tools/ScriptToolBar";
 import { useScriptToolbox } from "../../components/script-tools/useScriptToolbox";
 import type { ScriptToolItem, ScriptToolMode } from "../../components/script-tools/scriptToolModel";
 import { FlowStepper } from "../../components/ui/FlowStepper";
+import { voiceDisplayLabel } from "../../components/library/libraryModel";
 import { routes } from "../../routes";
 import { shortId } from "../../lib/format";
 import type { AdoptedAgentScriptState } from "./CaseAgentPage";
@@ -99,7 +100,8 @@ export default function StudioCreatePage() {
 
   const voiceOptions = useMemo(() => voices.data?.items.filter((voice) => voice.enabled) ?? [], [voices.data?.items]);
   const selectedVoice = form.voiceId || voiceOptions[0]?.id || "";
-  const selectedVoiceLabel = voiceOptions.find((voice) => voice.id === selectedVoice)?.display_name ?? selectedVoice;
+  const selectedVoiceOption = voiceOptions.find((voice) => voice.id === selectedVoice);
+  const selectedVoiceLabel = selectedVoiceOption ? voiceDisplayLabel(selectedVoiceOption) : selectedVoice;
   const scriptCount = form.script.trim().length;
   // Surface why "下一步" is blocked instead of leaving a silently-disabled button.
   const stepBlockMessage = validateStep(step, form, selectedVoice);

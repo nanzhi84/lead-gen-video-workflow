@@ -17,6 +17,17 @@ def login_admin(client: TestClient) -> None:
     assert response.status_code == 200, response.text
 
 
+class EmptySecretStore:
+    def get(self, secret_ref: str) -> None:
+        return None
+
+    def put(self, plaintext: str, *, secret_ref: str | None = None) -> str:
+        return secret_ref or "test.secret"
+
+    def disable(self, secret_ref: str) -> None:
+        return None
+
+
 def test_provider_balances_reads_snapshots_instead_of_mock_values():
     app = create_app()
 
@@ -43,6 +54,74 @@ def test_provider_balances_reads_snapshots_instead_of_mock_values():
     assert body["items"][0]["quota_remaining"] == 10
 
 
+def test_provider_balances_coalesces_shared_cloud_account_snapshots():
+    app = create_app()
+
+    with TestClient(app) as client:
+        checked_at = utcnow()
+        snapshots = [
+            ProviderBalanceSnapshot(
+                id="pbs_aliyun",
+                provider_id="aliyun.billing",
+                account_group="aliyun.billing.prod",
+                balance=Money(amount=Decimal("113.24"), currency="CNY"),
+                status="ok",
+                detail="账户级总余额（OSS / DashScope 等共享）",
+                checked_at=checked_at,
+            ),
+            ProviderBalanceSnapshot(
+                id="pbs_dashscope_llm",
+                provider_id="dashscope.llm",
+                account_group="dashscope.llm.prod",
+                status="unsupported",
+                checked_at=checked_at,
+            ),
+            ProviderBalanceSnapshot(
+                id="pbs_volcengine_billing",
+                provider_id="volcengine.billing",
+                account_group="volcengine.billing.prod",
+                balance=Money(amount=Decimal("39.24"), currency="CNY"),
+                status="ok",
+                checked_at=checked_at,
+            ),
+            ProviderBalanceSnapshot(
+                id="pbs_volcengine_tts",
+                provider_id="volcengine.tts",
+                account_group="volcengine.tts.prod",
+                balance=Money(amount=Decimal("39.24"), currency="CNY"),
+                status="ok",
+                checked_at=checked_at,
+            ),
+            ProviderBalanceSnapshot(
+                id="pbs_sandbox",
+                provider_id="sandbox",
+                account_group="sandbox.prod",
+                status="unsupported",
+                checked_at=checked_at,
+            ),
+            ProviderBalanceSnapshot(
+                id="pbs_sandbox_generated",
+                provider_id="sandbox-f7c6ad2d",
+                account_group="sandbox-f7c6ad2d.prod",
+                status="unsupported",
+                checked_at=checked_at,
+            ),
+        ]
+        for snapshot in snapshots:
+            app.state.repository.provider_balance_snapshots[snapshot.id] = snapshot
+        login_admin(client)
+        response = client.get("/api/providers/balances")
+
+    assert response.status_code == 200, response.text
+    items = response.json()["items"]
+    assert [(item["provider_id"], item["account_group"]) for item in items] == [
+        ("aliyun.billing", "aliyun.shared"),
+        ("volcengine.billing", "volcengine.shared"),
+    ]
+    assert items[0]["balance"]["amount"] == "113.24"
+    assert items[1]["balance"]["amount"] == "39.24"
+
+
 def test_provider_balances_without_snapshots_returns_pending_empty_report():
     with TestClient(create_app()) as client:
         login_admin(client)
@@ -54,7 +133,10 @@ def test_provider_balances_without_snapshots_returns_pending_empty_report():
 
 
 def test_refresh_provider_balances_writes_snapshots_without_real_network():
-    with TestClient(create_app()) as client:
+    app = create_app()
+
+    with TestClient(app) as client:
+        app.state.secret_store = EmptySecretStore()
         login_admin(client)
         response = client.post("/api/providers/balances/refresh")
 

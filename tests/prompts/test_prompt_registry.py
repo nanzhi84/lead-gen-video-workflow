@@ -60,7 +60,7 @@ def test_prompt_render_replaces_double_braced_variables():
     version = PromptVersion(
         id="prompt_test_v1",
         prompt_template_id=template.id,
-        content="产品：{{product_name}}\n输出示例：{{\"script\":\"...\"}}",
+        content='产品：{{product_name}}\n输出示例：{{"script":"..."}}',
         status="published",
     )
     binding = PromptBinding(

@@ -13,7 +13,7 @@ Case 领域：自进化闭环算法、指标导入匹配、Case/学习的 DB 落
 - 自进化算法（`evolution.py`）为纯函数：评分/特征抽取不查 DB、不调 provider，便于测试。
 - `CaseMemory` 仅保留为用户手钉硬约束/品牌红线；自动学习走 `CaseRubric` / `RewardSignal` / `ScorePrediction`，不再走逐条记忆提案审批。
 - cookie **自动刷新**刻意不实现：`refresh_status()` 恒返回 `auto_refresh_supported=False`，对应 `/api/creative/reference-extractor/refresh-cookies` 返回 410；运营手动粘贴 cookie（`reference_cookies.py` 本身从不启动浏览器）。
-- 但 cookie-free 抓流兜底已实现：`reference_browser.py` 用 Playwright 起无头浏览器以访客模式播放抖音视频、从网络层截取真实视频流 URL（非录屏），仅在 HTTP/yt-dlp 路径被拦时由 `reference_extract.py` 兜底调用。
+- 注意区分：刻意不实现的只是 cookie **自动刷新**；cookie-free 的浏览器抓流兜底（`reference_browser.py`，见「职责」）是**已实现**的生产兜底。
 
 ## 测试
 - `pytest tests/creative`：参考抽取/兜底/cookie/SSRF（`test_reference_extract.py` / `test_reference_browser.py` / `test_reference_cookies.py` / `test_reference_security.py`）+ 自进化与评分卡纯逻辑（`test_case_evolution_logic.py` / `test_case_rubric_logic.py`）+ 评分卡仓储（`test_sqlalchemy_case_rubric_repository.py`）。SQLAlchemy 落库另见 `tests/integration/test_sqlalchemy_case_learning.py` 与 `tests/integration/test_sqlalchemy_cases.py`。

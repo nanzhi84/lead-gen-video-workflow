@@ -10,7 +10,7 @@
 
 ## 关键文件 / 子目录
 - `sqlalchemy_repository.py` — 媒体/音色仓储实现（对外导出 `SqlAlchemyMediaRepository`）
-- `video/ffmpeg.py` — 所有 ffmpeg/ffprobe 子进程封装，`ffmpeg_bin()`/`ffprobe_bin()`；含 HDR→SDR（BT.709）tonemap 整套逻辑
+- `video/ffmpeg.py` — 所有 ffmpeg/ffprobe 子进程封装，`ffmpeg_bin()`/`ffprobe_bin()`；含 HDR→SDR（BT.709）tonemap
 - `rendering/timeline.py` — ffmpeg 渲染命令构建层：`render_video_timeline`（主时间线渲染）/`render_broll_montage`（b-roll 蒙太奇）/`transcode_video_segment`/`concat_video_segments`/`fit_video_to_exact_duration`（精确时长拟合）/`validate_rendered_output`，被 production 节点复用
 - `annotation/pipeline.py` — 纯编排 `run_annotation_v4`，依赖经 `V4Deps` 注入
 - `annotation/runner.py` — 标注 wiring 层：接 `ProviderGateway` 跑付费 VLM，否则降级

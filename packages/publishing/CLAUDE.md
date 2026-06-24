@@ -5,7 +5,7 @@
 ## 职责
 - 持久化：`sqlalchemy_repository.py` 的 `SqlAlchemyPublishingRepository` —— package/batch/item/attempt 的 CRUD、`submit_batch` 状态机、§9.5 漏斗事件落库。
 - 平台适配：`platform_adapter.py` 的 `PublishPlatformAdapter` 端口 + 两个适配器——`SandboxPublishAdapter`（`adapter_id="sandbox.publish"`，沙盒/测试，不触达平台）与 `XiaoVmaoPublishAdapter`（`adapter_id="xiaovmao.cdp"`，**生产默认**），经 `select_adapter()` / `resolve_adapter_id()` 选择实现。
-- 真实发布：`XiaoVmaoPublishAdapter` 经 CDP 驱动小V猫桌面端真实发布到抖音/快手/视频号/小红书 四平台（无 bilibili）；小V猫不可达时显式失败、绝不伪造成功；未知 adapter id 走 `_UnregisteredPublishAdapter` 诚实失败。
+- 真实发布：`XiaoVmaoPublishAdapter` 经 CDP 驱动小V猫桌面端真实发布到抖音/快手/视频号/小红书 四平台（无 bilibili）；小V猫不可达或 adapter id 未知（`_UnregisteredPublishAdapter`）均显式失败、绝不伪造成功。
 - 文案/封面：`copy_node.py`（§28.3 generate-copy：`generate_publish_copy`/`derive_publish_copy` + `LlmChatPort` + 确定性 fallback）、`cover_node.py`（generate-cover / preview-cover-frame：`generate_publish_cover`/`preview_cover_frame` + `AiCoverPort`）。
 - 发布执行：`publish_executor.py` 的 `run_item_publish` —— 多账号发布执行编排。
 - 账号：`account_matching.py`（账号组过滤、账号匹配、`normalize_scheduled_at`/`normalize_publish_tags`）+ `accounts_repository.py`/`accounts_mappers.py`（Client/PublishAccount/CasePublishTarget 仓储与映射）。
@@ -30,5 +30,5 @@
 - `pytest tests/integration/test_sqlalchemy_publishing.py`、`tests/api/test_publishing_funnel.py`
 
 ## 注意 / 坑
-- 生产发布走 `XiaoVmaoPublishAdapter`（CDP 驱动小V猫桌面端），CDP 地址经 env `CUTAGENT_XIAOVMAO_CDP_HOST`（默认 `127.0.0.1`）、`CUTAGENT_XIAOVMAO_CDP_PORT`（默认 `9222`）配置；小V猫不可达即诚实失败，绝不伪造成功。
+- 生产发布走 `XiaoVmaoPublishAdapter`（CDP 驱动小V猫桌面端），CDP 地址经 env `CUTAGENT_XIAOVMAO_CDP_HOST`（默认 `127.0.0.1`）、`CUTAGENT_XIAOVMAO_CDP_PORT`（默认 `9222`）配置。
 - 改发布相关 contract 后须重生成 openapi.json + schema.d.ts。

@@ -12,7 +12,7 @@
 - `material/keywords.py` — 确定性 jieba 关键词抽取 + 脚本分句（匹配的底料）。
 - `material/matching.py` — `score_segment`/`best_match`；`MatchResult.has_overlap` 区分真实语义重叠 vs. 仅时长契合的 tie-breaker。
 - `selection/recency.py` — `compute_recency`/`recency_penalty_for`，台账驱动的衰减惩罚。
-- `editing/plan.py` — 顶层入口 `plan_boundary_timeline`；`editing/frame_grid.py` 是 30fps 帧网格的唯一真源。子步骤拆在 `boundary.py`（语义+停顿边界装配）→ `beam.py`（定宽 beam 搜索）→ `packing.py`（容量打包）→ `rescue.py`（回溯救援）；`constants.py` 是 beam 宽度/容量上限/救援上限等权重常量的集中真源。
+- `editing/plan.py` — 顶层入口 `plan_boundary_timeline`；`editing/frame_grid.py` 是 30fps 帧网格的唯一真源。子步骤：`boundary.py`（语义+停顿边界装配）→ `packing.py`（容量打包，内部跑 `beam.py` 定宽搜索 + `rescue.py` 回溯救援）；`constants.py` 是 beam 宽度/容量上限/救援上限等权重常量的集中真源。
 - `material/__init__` / `selection/__init__` / `editing/__init__` — 各子域公开 API（从这里 import）。
 
 ## 约定与要求

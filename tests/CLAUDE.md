@@ -3,15 +3,15 @@
 按域组织的 pytest 套件（200+ 个测试文件）。默认只跑不依赖外部基础设施的单测；DB / Temporal 集成测试通过 env flag 显式 opt-in。
 
 ## 布局
-- 按域分目录：`api` `core` `creative` `media` `planning` `production` `publishing` `ops` `observability` `providers` `prompts` `connectors` `import` `scripts` `workflow` `frontend` `storage`。其中 `media/annotation/` 是最大的嵌套测试簇（约 16 个 `test_*.py`）。
+- 按域分目录：`api` `core` `creative` `media` `planning` `production` `publishing` `ops` `observability` `providers` `prompts` `connectors` `import` `scripts` `workflow` `frontend` `storage`。其中 `media/annotation/` 是唯一的二级嵌套测试簇（16 个 `test_*.py`）。
 - `contract/` — 契约/schema 守卫：OpenAPI 矩阵、DB schema、状态机、错误信封、单一依赖方向（`test_api_contract_matrix.py`/`test_openapi_matrix.py`/`test_database_schema.py`/`test_state_machines.py`/`test_single_source_dependencies.py` 等）。
 - `golden/` — 端到端 golden 流程（用 seeded sandbox provider 跑）。
-- `integration/` — `test_sqlalchemy_*.py`（SQLAlchemy 后端集成）与 `test_parity_*.py`（后端 parity），均需 Postgres，同走 `CUTAGENT_RUN_DB_TESTS` gate。
+- `integration/` — `test_sqlalchemy_*.py`（SQLAlchemy 后端集成）与 `test_parity_*.py`（parity 集成：`test_parity_run.py` 后端 / `test_parity_mapper.py` mapper），均需 Postgres，同走 `CUTAGENT_RUN_DB_TESTS` gate。
 - `temporal/` — Temporal 运行时集成。
 - `fixtures/` — 共享夹具（`fixtures/media.py` 的 `MediaFixtureFactory` 等）。
 
 ## 关键文件
-- `conftest.py` — 全局夹具与默认 env：`CUTAGENT_STORAGE_BACKEND=memory`、`CUTAGENT_DISABLE_BACKGROUND_DISPATCHER=1`、`CUTAGENT_ALLOW_SANDBOX_FALLBACK=1`（让 golden/fallback 夹具走 seeded sandbox）、`CUTAGENT_PUBLISH_ADAPTER=sandbox.publish`（生产默认走小V猫 `xiaovmao.cdp`，测试用 sandbox 发布适配器确定性跑通发布流程），并把对象存储指向临时目录；内含进程内 ASGI 测试客户端 `_ASGISyncTestClient`，并全局 monkeypatch `fastapi/starlette` 的 `TestClient` 指向它，配合 `_ASGIWebSocketSession` 支持 WebSocket。
+- `conftest.py` — 全局夹具与默认 env：`CUTAGENT_STORAGE_BACKEND=memory`、`CUTAGENT_DISABLE_BACKGROUND_DISPATCHER=1`、`CUTAGENT_ALLOW_SANDBOX_FALLBACK=1`（让 golden/fallback 夹具走 seeded sandbox）、`CUTAGENT_PUBLISH_ADAPTER=sandbox.publish`（测试用确定性发布适配器；生产默认 `xiaovmao.cdp`），并把对象存储指向临时目录；内含进程内 ASGI 测试客户端 `_ASGISyncTestClient`，并全局 monkeypatch `fastapi/starlette` 的 `TestClient` 指向它，配合 `_ASGIWebSocketSession` 支持 WebSocket。
 
 ## 约定与要求
 - 默认套件**不得**依赖外部 infra：用内存后端 + sandbox provider，跑在 `pytest -q`（`pyproject.toml` 已配 `pythonpath=["."]` / `testpaths=["tests"]`）。

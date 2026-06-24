@@ -14,10 +14,10 @@
 - `pipeline/node_sequence.py` — 三套节点序列 + 模板节点数的唯一真源（轻量、无重依赖，供 UI/进度复用）
 - `pipeline/nodes/` — 每节点一个 `run(ctx: NodeContext)`，能力开发改这里
 - `pipeline/_node_context.py` — 节点拿到的 `NodeContext`（repository/provider_gateway/prompt/object store/artifact 助手）
-- `pipeline/_provider_profiles.py` — 真实 vs sandbox profile 选取、`sandbox_fallback_allowed()` 判定（从 adapter 抽出）
+- `pipeline/_provider_profiles.py` — 真实 vs sandbox profile 选取、应用 `sandbox_fallback_allowed()` 闸门（函数定义在 `packages/core/config`，逻辑从 adapter 抽出）
 - `pipeline/reuse.py` — resume 复用计划；`pipeline/_run_state.py` — 跨节点 `RunState` + `degradation_notice`
-- `pipeline/degradation_policies.py` — 降级分级策略；`pipeline/ephemeral_gc.py` — 终态 run 的 ephemeral 资产 GC
-- `pipeline/_timeline_grid.py` — 30fps 帧网格；`pipeline/_subtitles.py` — ASS 字幕；`pipeline/_selection.py` — 选材 ledger 条目
+- `pipeline/degradation_policies.py` — 具名降级策略（lipsync 故障转移 / ASR 估算回退 / 封面回退等版本化策略对象）；`pipeline/ephemeral_gc.py` — 终态 run 的 ephemeral 资产 GC
+- `pipeline/_timeline_grid.py` — 帧网格 helper（fps 由调用方传入，`TIMELINE_FPS=30` 在 `planning/editing/frame_grid.py`）；`pipeline/_subtitles.py` — ASS 字幕；`pipeline/_selection.py` — 选材 ledger 条目
 - `finished_video_numbering.py` — 成片编号（`V-NNN`）
 
 ## 约定与要求

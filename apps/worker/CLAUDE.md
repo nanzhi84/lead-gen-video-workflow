@@ -5,7 +5,7 @@ Temporal worker 进程：连接 Temporal，注册数字人成片（digital-human
 ## 职责
 - `Client.connect` 连接 Temporal，在 `settings.temporal_task_queue` 上启动 `Worker`，注册 `temporal_workflows()` / `temporal_activities()`。
 - `bootstrap_sqlalchemy_storage_if_enabled()` + `get_sqlalchemy_session_factory_if_enabled()` 初始化 SQLAlchemy 存储并取得 `session_factory`。
-- 装配 worker 级「无状态模板」运行时：`ProviderGateway`（密钥活性以 DB 为准——SQL 后端启用时 secret store 用 `SqlAlchemySecretStore(session_factory, fallback=LocalSecretStore)`，无 SQL 后端才纯 `LocalSecretStore`；并注入 `budget_guard=BudgetEnforcementGuard`（预算硬阻断）+ `circuit_breaker=ProviderCircuitBreaker`（熔断））、`PromptRegistry`、`build_digital_human_workflow(...)`（默认 `seed_media=True`，会一次性 ffmpeg 生成 demo 媒体）。
+- 装配 worker 级「无状态模板」运行时：`ProviderGateway`（secret store：SQL 后端用 `SqlAlchemySecretStore`（密钥活性以 DB 为准），否则 `LocalSecretStore`；并挂 `BudgetEnforcementGuard`（预算硬阻断）+ `ProviderCircuitBreaker`（熔断））、`PromptRegistry`、`build_digital_human_workflow(...)`（默认 `seed_media=True`，会一次性 ffmpeg 生成 demo 媒体）。
 - 经 `configure_temporal_activity_context(TemporalActivityContext(...))` 注入 repository / local_runtime / production_repository。
 - 就绪后打日志 `Cutagent Temporal worker ready`（logger `cutagent.worker`，event `worker_ready`）。
 

@@ -3,8 +3,8 @@
 跨包共享的基础包：Pydantic v2 领域契约、状态机、存储/迁移、配置、认证、可观测性、工作流运行时适配。所有其他包（apps/api、worker、providers 等）都依赖它，是整个系统的"地基 + 单一事实源"。
 
 ## 职责
-- 定义所有跨包领域类型：`contracts/` 下按域拆分（base/providers/jobs/auth/media/prompts/cases/artifacts/publishing/ops），经 `contracts/__init__.py` 统一 re-export，`__all__` 即权威公开面。
-- 定义全部状态机与合法迁移（job/run/node/provider/prompt_version/case_memory/upload_session/publish_*），由 `assert_transition()` 强制。
+- 定义所有跨包领域类型：`contracts/` 下按域拆分（base/providers/jobs/auth/media/prompts/cases/publishing/ops/preferences/publish_accounts），经 `contracts/__init__.py` 统一 re-export，`__all__` 即权威公开面。**例外**：`contracts/artifacts.py`（`MaterialCandidate`/`CreativeIntentArtifact`/`NarrationUnit` 等）**不**经 `__init__.py` re-export、不在 `__all__`，下游一律直接 `from packages.core.contracts.artifacts import ...`。
+- 定义全部状态机与合法迁移（job/run/node/provider/prompt_version/case_memory/case_rubric/rubric_bump/upload_session/publish_*），由 `assert_transition()` 强制。
 - 提供持久化层：`storage/database.py`（SQLAlchemy ORM/`Base.metadata`）、`storage/repository.py`（内存 `Repository`）、seed 与 Alembic 迁移。
 - 集中基础设施配置（`config/settings.py`）、argon2 认证与限流（`auth/`）、Prometheus 遥测与 outbox/funnel（`observability/`）、工作流运行时适配（`workflow/`）、对象存储与密钥库（`storage/`）。
 
@@ -14,9 +14,13 @@
 - `contracts/state_machines.py` — 各域 `*_TRANSITIONS` 表 + `assert_transition(kind, from, to)`。
 - `config/settings.py` — `build_settings()`/`Settings`（按域分组，frozen）、`sandbox_fallback_allowed()`；`CUTAGENT_*` env 在调用时读取，无模块级单例。
 - `storage/database.py` / `repository.py` / `bootstrap.py` — ORM 后端 / 内存后端 / 按 `storage.backend`(memory|sqlalchemy|postgres) 选型。
-- `storage/alembic/versions/` — 0001..0011，仓库内**唯一**的 Alembic 迁移目录。
+- `storage/alembic/versions/` — 0001..0021（单一 head `0021_voice_vendor_status`；链中有过 merge revision `0014`），仓库内**唯一**的 Alembic 迁移目录。
 - `storage/seed.py` / `seed_media.py` / `provider_seed.py` — 用户/注册码、媒体、provider 配置 seed。
-- `storage/secret_store.py` — `SecretStore` 协议 + `LocalSecretStore`（密钥落盘信封，不入 env/Settings）。
+- `storage/secret_store.py` — `SecretStore` 协议 + `LocalSecretStore`；自 `0017` 起做 **Fernet 信封加密**（`envelope_prefix = "fernet:v1:"`，key 来源 `CUTAGENT_SECRET_ENCRYPTION_KEY`，缺省落盘 `.db_encryption_key`），密钥不入 env/Settings。
+- `storage/` 其余基建：对象存储 `object_store.py` / `tiered_object_store.py`；SQLAlchemy 后端实现 `sqlalchemy_secrets.py` / `sqlalchemy_uploads.py` / `sqlalchemy_idempotency.py`；`selection_ledger.py`（选材账本，确定性近期降权）、`row_mapper.py`（ORM 行 ↔ 契约映射）。
+- `observability/` — `events.py`（SSE 事件 fanout hub）、`outbox.py`（outbox writer/dispatcher）、`failure_taxonomy.py`（失败分类）、`funnel.py`（漏斗）、`telemetry.py`（Prometheus 遥测）。
+- `auth/` — `service.py` / `sqlalchemy_service.py`（认证服务）、`password_policy.py`（argon2 口令策略）、`rate_limit.py`（限流）。
+- `registration_codes.py`（包根）— 注册码生成/校验。
 - `workflow/runtime.py` — `WorkflowRuntimeAdapter` 协议、`NodeExecutionError`、`canonical_json`/`manifest_hash`；`temporal_adapter.py` 的 `TemporalRuntimeAdapter` 为 Temporal 实现。
 
 ## 约定与要求
@@ -24,11 +28,11 @@
 - `ContractModel` 设 `extra="forbid"`，未声明字段会报错；新契约务必继承它并在 `__init__.py` 同步导出。
 - 状态变更一律走 `assert_transition()`，禁止绕过状态机直接改 status。
 - 密钥只存 `SecretStore`/`ProviderProfile`，**永不**进 env 或 `Settings`（settings 仅放 infra/policy）。
-- 所有 Alembic revision 只能放在 `storage/alembic/versions/`，保持单一 head 线性链。
+- 所有 Alembic revision 只能放在 `storage/alembic/versions/`，保持单一 head（当前 `0021`）；链中存在过 merge revision（`0014` 合并两支）。
 - 配置经 `build_settings()` 取快照（frozen、调用时读 env），勿引入缓存单例。
 
 ## 测试
-- `pytest tests/core`（目前 `tests/core/test_password_policy.py`）；契约/状态机/DB schema 相关另见 `tests/contract`。多数测试以 `CUTAGENT_STORAGE_BACKEND=memory` 跑内存后端。
+- `pytest tests/core`（`test_password_policy.py` / `test_row_mapper.py`）；契约/状态机/DB schema 相关另见 `tests/contract`。多数测试以 `CUTAGENT_STORAGE_BACKEND=memory` 跑内存后端。
 
 ## 注意 / 坑
 - `sandbox_fallback_allowed()` 默认 False：真实运行只走真 provider、无 provider 时显式报错，绝不静默降级到 sandbox；测试经 conftest 置 `CUTAGENT_ALLOW_SANDBOX_FALLBACK=1` 才走 sandbox 路径。

@@ -1,14 +1,16 @@
 # packages/ops
 
-Ops / 成本 / 成品率 / 治理域：既有 §9/§26 的**指标计算**（成本、成品率、预算、告警规则、失败分类），也有持久化门面与 provider 余额轮询。支撑 Ops 控制台（spec §9 / §1.6：降级与成本必须显式上报，不得隐藏）。
+Ops / 成本 / 成品率 / 治理域：既有 §9/§26 的**指标计算**（成本、成品率、预算、失败分类），也有 provider 调用前的**预算硬阻断 + 熔断**、持久化门面与 provider 余额轮询。支撑 Ops 控制台（spec §9 / §1.6：降级与成本必须显式上报，不得隐藏）。
 
 ## 职责
 - 指标计算（纯函数，均在 `__init__.py` 导出）：`cost_metrics.py`（§9.4/§26.2 `compute_cost_metrics`）、`yield_rates.py`（§9.5/§26.3 `compute_yield_rates`，基于 `yield_funnel_events`）、`budget_evaluation.py`（§9.8 `evaluate_budget`/`period_start`）、`failure_taxonomy.py`（§9.6 `classify_error_code`，薄再导出）。
-- 持久化门面：`sqlalchemy_repository.py` 的 `SqlAlchemyOpsRepository` 聚合 dashboard / cost rollups / yield funnel / budgets / alerts / QC / approval / audit / billing reconcile；`sqlalchemy_mappers.py` 做 Row→contract；`provider_usage_metrics.py` 用 SQL 聚合 provider 成功率/成本。
+- 调用前闸门（被 `apps/api` 与 `apps/worker` 接线注入 gateway）：`budget_guard.py` 的 `BudgetEnforcementGuard`（provider 调用前预算硬阻断，超额返回 `ProviderError`/`provider_quota_exceeded`、`retryable=False`）、`circuit_breaker.py` 的 `ProviderCircuitBreaker`（按 `provider_profile` 错误率熔断，返回 `provider_circuit_open`；受 env `CUTAGENT_PROVIDER_CIRCUIT_BREAKER`（默认 OFF）/ 阈值 0.5 / 窗口 24h 控制）。
+- 持久化门面：`sqlalchemy_repository.py` 的 `SqlAlchemyOpsRepository` 聚合 dashboard / cost rollups / yield funnel / budgets / alerts / QC / approval / audit / billing reconcile（`evaluate_budgets`/`_sync_budget_alerts` 生成 `budget.exceeded` 告警行）；`sqlalchemy_mappers.py` 做 Row→contract；`provider_usage_metrics.py` 用 SQL 聚合 provider 成功率/成本，并产出 `ProviderProfileHealthMetrics` 作为熔断输入。
 - Provider 余额：`balance/`（`port.py` PORT、`registry.py` `build_pollers`/`query_balance`、`service.py` `refresh_balances` + 可选后台 `BalancePollerService`、`base.py` 共享助手、`providers/` 各家插件）拉真实余额，失败 graceful degrade（unconfigured/unsupported/unauthorized/error），绝不编造、绝不抛。
 
 ## 关键文件
-- 计算：`cost_metrics.py` / `yield_rates.py` / `budget_evaluation.py` / `alert_rules.py` / `failure_taxonomy.py`。
+- 计算：`cost_metrics.py` / `yield_rates.py` / `budget_evaluation.py` / `failure_taxonomy.py`。
+- 调用前闸门：`budget_guard.py` / `circuit_breaker.py`。
 - 持久化：`sqlalchemy_repository.py` / `sqlalchemy_mappers.py` / `provider_usage_metrics.py`。
 - 余额：`balance/`。
 

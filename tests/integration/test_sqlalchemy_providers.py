@@ -131,14 +131,39 @@ def test_sqlalchemy_provider_configuration_and_price_catalog_flow_is_persisted()
         assert len(capabilities.json()) > 0
 
         # Balances serve persisted snapshots; with the periodic poller OFF (default),
-        # populate them via an explicit refresh. No real network is hit because every
-        # profile is unconfigured without an active secret, so the just-created
-        # provider lands in the report as an unconfigured/unsupported snapshot.
+        # populate them via an explicit refresh. Balance reporting intentionally
+        # EXCLUDES sandbox providers (account-level balances only apply to real
+        # vendors), so assert against a NON-sandbox profile. No real network is hit:
+        # the profile is unconfigured (no active secret) -> unconfigured/unsupported
+        # snapshot.
+        billable = client.post(
+            "/api/providers/profiles",
+            json={
+                "provider_id": f"acme-{suffix}",
+                "model_id": "acme-model",
+                "capability": "text.generate",
+                "display_name": "Billable Provider",
+                "environment": "local",
+                "options_schema_ref": {"schema_id": "provider.options", "schema_version": "v1"},
+                "default_options": {},
+            },
+        )
+        assert billable.status_code == 201, billable.text
+        billable_profile = billable.json()
+
         refreshed = client.post("/api/providers/balances/refresh")
         assert refreshed.status_code == 200, refreshed.text
-        balances = client.get("/api/providers/balances", params={"provider_id": profile["provider_id"]})
+        balances = client.get(
+            "/api/providers/balances", params={"provider_id": billable_profile["provider_id"]}
+        )
         assert balances.status_code == 200, balances.text
-        assert balances.json()["items"][0]["provider_id"] == profile["provider_id"]
+        assert balances.json()["items"][0]["provider_id"] == billable_profile["provider_id"]
+        # The sandbox profile is intentionally omitted from balance reporting.
+        sandbox_balances = client.get(
+            "/api/providers/balances", params={"provider_id": profile["provider_id"]}
+        )
+        assert sandbox_balances.status_code == 200, sandbox_balances.text
+        assert sandbox_balances.json()["items"] == []
 
         upserted = client.post(
             "/api/providers/price-catalogs",

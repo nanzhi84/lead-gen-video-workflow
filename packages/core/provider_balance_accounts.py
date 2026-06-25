@@ -100,7 +100,15 @@ def _is_better_balance_item(candidate: ProviderBalanceItem, current: ProviderBal
 
 
 def coalesce_balance_items(items: Iterable[ProviderBalanceItem]) -> list[ProviderBalanceItem]:
-    """Collapse capability-level duplicates into one account-level balance row."""
+    """Collapse capability-level duplicates into one account-level balance row.
+
+    Items that map to the same shared cloud account (e.g. ``dashscope.llm`` and
+    ``aliyun.billing`` both settle on the Aliyun account) are de-duplicated to a
+    single representative row -- the best-status snapshot carrying a balance value
+    (see ``_is_better_balance_item``). Balances are intentionally **NOT summed**:
+    every duplicate reports the *same* account-level balance, so summing would
+    double-count. Sandbox providers are dropped (no real vendor balance).
+    """
 
     grouped: dict[tuple[str, str], ProviderBalanceItem] = {}
     for item in items:

@@ -433,7 +433,11 @@ def _build_cover_reference_image(
         else None
     )
     if template_ref is not None and source_frame is not None:
-        return _combine_cover_reference_board(template_ref, source_frame) or source_frame
+        # Both present: combine into a two-panel reference board. If combining
+        # fails (cv2 missing / decode error), prefer the user's explicitly
+        # uploaded template over the auto-selected source frame -- an uploaded
+        # cover template is an explicit user choice that must not be dropped.
+        return _combine_cover_reference_board(template_ref, source_frame) or template_ref
     return source_frame or template_ref
 
 

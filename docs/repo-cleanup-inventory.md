@@ -67,6 +67,8 @@ Removed after replacement by current module-based docs:
 - Added `docs/README.md`, `docs/modules.md`, and `docs/operations.md`.
 - Rewrote `docs/ROADMAP.md` and `docs/spec-questions.md` around current facts.
 - Removed stale references to deleted historical docs; the remaining docs set is intentionally small.
+- Updated root `README.md`, `AGENTS.md`, `CLAUDE.md`, `apps/api/CLAUDE.md`,
+  and `tests/CLAUDE.md` to avoid stale doc topology and volatile file counts.
 - `scripts/export_openapi.py` clears local proxy env before app import.
 - `scripts/ci_gate.sh` now works on macOS without GNU `timeout`.
 

@@ -1,6 +1,6 @@
 # tests
 
-按域组织的 pytest 套件（200+ 个测试文件）。默认只跑不依赖外部基础设施的单测；DB / Temporal 集成测试通过 env flag 显式 opt-in。
+按域组织的 pytest 套件。默认只跑不依赖外部基础设施的单测；DB / Temporal 集成测试通过 env flag 显式 opt-in。
 
 ## 布局
 - 按域分目录：`api` `core` `creative` `media` `planning` `production` `publishing` `ops` `observability` `providers` `prompts` `connectors` `import` `scripts` `workflow` `frontend` `storage`。其中 `media/annotation/` 是唯一的二级嵌套测试簇（16 个 `test_*.py`）。

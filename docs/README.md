@@ -15,7 +15,7 @@ current facts have been folded into the files below.
 | Quick repo orientation | [README.md](../README.md) | Setup, major capabilities, commands, env, and CI. |
 | Module map | [docs/modules.md](modules.md) | Current code layout by app/package, verified from live routes, worker entrypoints, pipeline node order, provider registry, and migrations. |
 | Operations runbook | [docs/operations.md](operations.md) | Local infra, ObjectStore/OSS, DashScope ASR prerequisites, provider balance refresh, media cleanup scripts, and validation commands. |
-| Roadmap | [docs/ROADMAP.md](ROADMAP.md) | Current engineering priorities only. Historical M1/M2/M6 diary files were removed. |
+| Roadmap | [docs/ROADMAP.md](ROADMAP.md) | Current engineering priorities only. Historical milestone diary files were removed. |
 | Spec decisions | [docs/spec-questions.md](spec-questions.md) | Open or resolved architecture/spec decisions that still matter. |
 | Cleanup evidence | [log](repo-cleanup-log.md), [inventory](repo-cleanup-inventory.md), [PR body](repo-cleanup-pr.md) | Review evidence for the repository hygiene PR. |
 

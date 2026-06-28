@@ -53,6 +53,7 @@ Historical docs/assets:
 - Added `docs/README.md`, `docs/modules.md`, and `docs/operations.md`.
 - Rewrote `docs/ROADMAP.md` and `docs/spec-questions.md` around current facts.
 - Removed old `docs/milestones`, `docs/superpowers`, `docs/audit`, fragmented `docs/ops`, and dated top-level plan docs.
+- Calibrated README/root/module guide links and removed volatile file-count claims.
 - Condensed `docs/repo-cleanup-log.md`, `docs/repo-cleanup-inventory.md`, and this PR body to review-critical summaries.
 
 ## Dependencies Removed
@@ -78,6 +79,7 @@ Passed locally:
 - Temporal integration tests with shared durable + ephemeral MinIO buckets.
 - Runtime duplicate scan with generated files, docs, tests, and migrations excluded.
 - Stale-reference scans for removed documentation paths.
+- Markdown local-link validation across README, root guides, module guides, and docs.
 
 Remote GitHub Actions must be green before merge.
 

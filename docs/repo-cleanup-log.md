@@ -94,6 +94,8 @@ Condensed after the final documentation cleanup request. This file keeps the rev
   - `docs/operations.md`
   - current `docs/ROADMAP.md`
   - current `docs/spec-questions.md`
+- Calibrated root guide references (`README.md`, `AGENTS.md`, `CLAUDE.md`)
+  to point at the new docs entrypoint and removed volatile stale counts.
 - Compressed cleanup documentation to summary form after the user requested less redundant documentation.
 
 ## Evidence Methods
@@ -108,6 +110,7 @@ Condensed after the final documentation cleanup request. This file keeps the rev
 - Runtime duplicate scan with generated files, migrations, docs, and tests excluded.
 - Remote GitHub Actions checks.
 - Docs reference scans for removed `docs/ops`, `docs/milestones`, `docs/superpowers`, `docs/audit`, and orphaned PNG paths.
+- Markdown local-link validation across README, root guides, module guides, and docs.
 
 ## Validation
 

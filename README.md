@@ -3,7 +3,7 @@
 > **Case 优先（Case-first）的数字人短视频内容生产系统。**
 > 围绕「Case（账号/品牌长期边界）→ 脚本生成 → 数字人成片 → 发布 → 数据回流 → 自进化」打通全链路，并以 **contract-first** 的方式把每一条能力落到可校验的接口契约上。
 
-本仓库是对 [`docs/树影_Cutagent_CleanSlate重写Spec_v3_2026-06-11.md`](docs/树影_Cutagent_CleanSlate重写Spec_v3_2026-06-11.md) 所描述系统的一次 **clean-room 重写**：FastAPI 即 OpenAPI 的唯一事实源，领域类型用 Pydantic v2 表达，数据层用 SQLAlchemy 2 + Alembic，长流程编排走 Temporal，前端类型从 OpenAPI 自动生成。Spec §2「必须保留的用户流程」是能力保留的权威清单。
+本仓库是对 [`docs/树影_Cutagent_CleanSlate重写Spec_v3_2026-06-11.md`](docs/树影_Cutagent_CleanSlate重写Spec_v3_2026-06-11.md) 所描述系统的一次 **clean-room 重写**：FastAPI 即 OpenAPI 的唯一事实源，领域类型用 Pydantic v2 表达，数据层用 SQLAlchemy 2 + Alembic，长流程编排走 Temporal，前端类型从 OpenAPI 自动生成。Spec §2「必须保留的用户流程」是能力保留的权威清单；当前文档入口见 [`docs/README.md`](docs/README.md)。
 
 ---
 
@@ -76,7 +76,7 @@ packages/
   publishing/   发布仓储与平台适配、文案/封面生成
   ops/          成品率漏斗、余额/对账、预算/告警、Ops 仓储
   migrations/   迁移目录约定（仅 CLAUDE.md，**非** Alembic；DB 迁移在 packages/core/storage/alembic）
-tests/          按域组织的 pytest（约 140 文件）：api/core/creative/media/.../integration/temporal/golden/contract
+tests/          按域组织的 pytest：api/core/creative/media/.../integration/temporal/golden/contract
 scripts/        bootstrap_database · migrate · export_openapi · gc_objectstore · dev_up.sh · ci_gate.sh 等
 deploy/         Temporal 动态配置（无 k8s/terraform 清单）
 docs/           文档入口、模块图、运维 runbook、Roadmap、Spec、清理证据

@@ -55,8 +55,9 @@ Router registration is centralized in `apps/api/app.py`:
 - `ops`: dashboard, cost/yield/provider metrics, failure taxonomy, alerts, budgets, quality checks, approvals, audit events.
 - `imports`: generic import batches.
 
-The generated OpenAPI snapshot currently has 144 paths and 176 HTTP operations.
-Regenerate it after any API shape change.
+The generated OpenAPI snapshot is checked into
+`apps/web/src/api/openapi.json`. Regenerate it after any API shape change; do
+not hand-edit the snapshot or `schema.d.ts`.
 
 ## Packages
 
@@ -117,7 +118,7 @@ allowed.
 - SQLAlchemy storage is configured through `CUTAGENT_STORAGE_BACKEND=sqlalchemy`
   or `postgres` plus `CUTAGENT_DATABASE_URL`.
 - Alembic migrations live in `packages/core/storage/alembic/versions/`; the
-  latest migration file is `0022_drop_publish_hashtags.py`.
+  current single head is `0022_drop_publish_hashtags`.
 - Temporal runtime uses `CUTAGENT_WORKFLOW_RUNTIME=temporal`,
   `CUTAGENT_TEMPORAL_ADDRESS`, `CUTAGENT_TEMPORAL_NAMESPACE`, and
   `CUTAGENT_TEMPORAL_TASK_QUEUE`.

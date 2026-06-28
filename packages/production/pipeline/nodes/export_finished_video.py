@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
+import re
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,7 +38,12 @@ from packages.core.contracts import (
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError, NodeOutput
 from packages.media.assets import store_file
-from packages.media.cover import CoverPromptInputs, build_cover_prompt
+from packages.media.cover import (
+    DEFAULT_COVER_SIZE,
+    SEEDREAM_COVER_REQUEST_SIZE,
+    CoverPromptInputs,
+    build_cover_prompt,
+)
 from packages.media.cover_frame import BestPortraitFrame, select_best_portrait_frame
 from packages.media.video.ffmpeg import (
     FfmpegCommandError,
@@ -74,6 +81,8 @@ class _CoverReferenceImage:
     has_template: bool = False
     has_source_frame: bool = False
     source_frame_time_sec: float | None = None
+    source_artifact_id: str | None = None
+    reference_asset_id: str | None = None
 
 
 def run(ctx: NodeContext) -> NodeOutput:
@@ -94,7 +103,9 @@ def run(ctx: NodeContext) -> NodeOutput:
         media_info=final.media_info,
     )
     copy, _copy_source, copy_invocation_id = _resolve_publish_copy(ctx, script)
-    cover_artifact, cover_degradations, cover_invocation_ids = _build_cover(ctx, final, copy)
+    cover_artifact, cover_degradations, cover_invocation_ids, cover_extra_artifacts = _build_cover(
+        ctx, final, copy
+    )
     lipsync_provider_id, lipsync_fallback_used, lipsync_fallback_reason = (
         _resolve_lipsync_attribution(ctx)
     )
@@ -138,7 +149,7 @@ def run(ctx: NodeContext) -> NodeOutput:
     )
     return NodeOutput(
         status=NodeStatus.degraded if cover_degradations else NodeStatus.succeeded,
-        artifacts=[video_artifact, cover_artifact, package_artifact],
+        artifacts=[video_artifact, cover_artifact, package_artifact, *cover_extra_artifacts],
         degradations=cover_degradations,
         provider_invocation_ids=cover_invocation_ids
         + ([copy_invocation_id] if copy_invocation_id else []),
@@ -270,21 +281,43 @@ def _resolve_lipsync_attribution(ctx: NodeContext) -> tuple[str | None, bool, st
 
 def _build_cover(
     ctx: NodeContext, final: Artifact, copy: PublishCopy
-) -> tuple[Artifact, list[DegradationNotice], list[str]]:
-    """Resolve the cover artifact, returning ``(artifact, degradations, invocation_ids)``.
+) -> tuple[Artifact, list[DegradationNotice], list[str], list[Artifact]]:
+    """Resolve the cover artifact, returning
+    ``(artifact, degradations, invocation_ids, extra_artifacts)``.
 
     AI cover is the default and the frame cover the fallback; the degradation
     semantics (when ``cover_frame_fallback`` is and isn't emitted) are explained in
     the module docstring."""
     request = ctx.state.request
     wants_ai = request.cover.mode == "ai"
-    profile_id = ctx.image_cover_profile_id(request) if wants_ai else None
-    if profile_id is not None:
-        ai_cover, invocation_ids = _generate_ai_cover(ctx, profile_id, copy)
-        if ai_cover is not None:
-            return ai_cover, [], invocation_ids
+    profile_ids = ctx.image_cover_profile_ids(request) if wants_ai else []
+    if profile_ids:
+        invocation_ids: list[str] = []
+        extra_artifacts: list[Artifact] = []
+        for index, profile_id in enumerate(profile_ids):
+            ai_cover, attempt_invocation_ids, request_artifact = _generate_ai_cover(
+                ctx, profile_id, copy
+            )
+            invocation_ids.extend(attempt_invocation_ids)
+            if request_artifact is not None:
+                extra_artifacts.append(request_artifact)
+            if ai_cover is not None:
+                if isinstance(ai_cover.payload, dict):
+                    payload = dict(ai_cover.payload)
+                    payload["attempted_provider_profile_ids"] = profile_ids[: index + 1]
+                    payload["provider_invocation_ids"] = invocation_ids
+                    if index > 0:
+                        payload["fallback_from_provider_profile_ids"] = profile_ids[:index]
+                    ai_cover = _apply_cover_source_payload(ctx, ai_cover, payload)
+                return ai_cover, [], invocation_ids, extra_artifacts
         return (
-            _frame_cover(ctx, final),
+            _frame_cover(
+                ctx,
+                final,
+                reason="ai_failed",
+                attempted_provider_profile_ids=profile_ids,
+                provider_invocation_ids=invocation_ids,
+            ),
             [
                 DegradationNotice(
                     code=WarningCode.cover_frame_fallback,
@@ -294,8 +327,10 @@ def _build_cover(
                 )
             ],
             invocation_ids,
+            extra_artifacts,
         )
-    return _frame_cover(ctx, final), [], []
+    reason = "ai_unavailable" if wants_ai else "requested_frame"
+    return _frame_cover(ctx, final, reason=reason), [], [], []
 
 
 def _resolve_publish_copy(
@@ -327,7 +362,14 @@ def _resolve_publish_copy(
         return derive_publish_copy(context), "deterministic", None
 
 
-def _frame_cover(ctx: NodeContext, final: Artifact) -> Artifact:
+def _frame_cover(
+    ctx: NodeContext,
+    final: Artifact,
+    *,
+    reason: str,
+    attempted_provider_profile_ids: list[str] | None = None,
+    provider_invocation_ids: list[str] | None = None,
+) -> Artifact:
     try:
         with tempfile.TemporaryDirectory(prefix="cutagent-cover-") as directory:
             thumbnails = extract_thumbnails(
@@ -339,14 +381,21 @@ def _frame_cover(ctx: NodeContext, final: Artifact) -> Artifact:
             cover_stored = store_file(ctx.object_store(), selected.path, purpose="covers")
     except FfmpegCommandError as exc:
         raise NodeExecutionError(exc.error_code, "Finished video cover extraction failed.") from exc
-    return ctx.artifact(
+    artifact = ctx.artifact(
         ArtifactKind.cover_image,
-        None,
-        "uri-only",
+        _cover_source_payload(
+            source="frame",
+            reason=reason,
+            source_artifact_id=final.id,
+            attempted_provider_profile_ids=attempted_provider_profile_ids,
+            provider_invocation_ids=provider_invocation_ids,
+        ),
+        "CoverImageArtifact.v1",
         uri=cover_stored.ref.uri,
         sha256=cover_stored.sha256,
         media_info=selected.media_info,
     )
+    return artifact
 
 
 def _resolve_cover_prompt_version_id(ctx: NodeContext) -> str | None:
@@ -375,7 +424,7 @@ def _resolve_cover_prompt_version_id(ctx: NodeContext) -> str | None:
 
 def _generate_ai_cover(
     ctx: NodeContext, profile_id: str, copy: PublishCopy
-) -> tuple[Artifact | None, list[str]]:
+) -> tuple[Artifact | None, list[str], Artifact | None]:
     """Generate the AI cover via the gateway. Returns ``(None, invocation_ids)`` on any
     provider failure so the caller can fall back to the frame cover.
 
@@ -392,6 +441,11 @@ def _generate_ai_cover(
     reference = _build_cover_reference_image(ctx, template)
     version_id = _resolve_cover_prompt_version_id(ctx)
     version = ctx.repository.prompt_versions.get(version_id) if version_id is not None else None
+    profile = ctx.repository.provider_profiles.get(profile_id)
+    generation_size = _cover_generation_size(profile)
+    template_content = (
+        _normalize_cover_prompt_template(version.content) if version is not None else None
+    )
     prompt = build_cover_prompt(
         CoverPromptInputs(
             title=copy.cover_title or copy.title or state.request.title or "",
@@ -400,10 +454,13 @@ def _generate_ai_cover(
             case_name=state.request.case_id,
             has_source_frame=bool(reference and reference.has_source_frame),
             has_template=bool(reference and reference.has_template),
+            size=generation_size,
         ),
-        template=version.content if version is not None else None,
+        template=template_content,
     )
     call_input: dict = {"prompt": prompt}
+    if profile is not None and profile.provider_id == "volcengine.seedream":
+        call_input["size"] = generation_size
     if reference is not None:
         call_input["reference_image_b64"] = reference.image_b64
         call_input["reference_filename"] = reference.filename
@@ -411,6 +468,17 @@ def _generate_ai_cover(
         call_input["template_filename"] = reference.filename
         if reference.source_frame_time_sec is not None:
             call_input["source_frame_time_sec"] = round(reference.source_frame_time_sec, 3)
+    request_artifact = _record_ai_cover_request_artifact(
+        ctx=ctx,
+        profile_id=profile_id,
+        profile=profile,
+        version_id=version.id if version is not None else None,
+        copy=copy,
+        prompt=prompt,
+        generation_size=generation_size,
+        reference=reference,
+        call_input=call_input,
+    )
     invocation, result = ctx.provider_gateway.invoke(
         ProviderCall(
             case_id=run.case_id,
@@ -420,16 +488,177 @@ def _generate_ai_cover(
             capability_id="image.generate",
             prompt_version_id=version.id if version is not None else None,
             input=call_input,
-            idempotency_key=f"cover-{run.id}",
+            idempotency_key=f"cover-{run.id}-{_provider_key(profile_id)}",
         )
     )
     invocation_ids.append(invocation.id)
     if result is None or invocation.error:
-        return None, invocation_ids
+        return None, invocation_ids, request_artifact
+    if reference is not None and result.output.get("reference_image_used") is False:
+        return None, invocation_ids, request_artifact
     artifact_id = result.output.get("cover_artifact_id")
     if not isinstance(artifact_id, str) or artifact_id not in ctx.repository.artifacts:
-        return None, invocation_ids
-    return ctx.repository.artifacts[artifact_id], invocation_ids
+        return None, invocation_ids, request_artifact
+    artifact = _apply_cover_source_payload(
+        ctx,
+        ctx.repository.artifacts[artifact_id],
+        _cover_source_payload(
+            source="ai",
+            provider_profile_id=profile_id,
+            provider_id=getattr(profile, "provider_id", None),
+            provider_label=_cover_provider_label(getattr(profile, "provider_id", None)),
+            model_id=getattr(profile, "model_id", None),
+            provider_invocation_id=invocation.id,
+            prompt_version_id=version.id if version is not None else None,
+            size=generation_size,
+        ),
+    )
+    return artifact, invocation_ids, request_artifact
+
+
+def _record_ai_cover_request_artifact(
+    *,
+    ctx: NodeContext,
+    profile_id: str,
+    profile,
+    version_id: str | None,
+    copy: PublishCopy,
+    prompt: str,
+    generation_size: str,
+    reference: _CoverReferenceImage | None,
+    call_input: dict,
+) -> Artifact:
+    payload = {
+        "capability_id": "image.generate",
+        "provider_profile_id": profile_id,
+        "provider_id": getattr(profile, "provider_id", None),
+        "model_id": getattr(profile, "model_id", None),
+        "prompt_version_id": version_id,
+        "size": generation_size,
+        "cover_title": copy.cover_title or copy.title or ctx.state.request.title or "",
+        "cover_subtitle": copy.cover_subtitle or "",
+        "publish_title": copy.title or "",
+        "publish_content": copy.publish_content or ctx.state.request.publish_content or "",
+        "prompt": prompt,
+        "request_json": _sanitize_image_call_input(call_input),
+        "reference": _cover_reference_snapshot(reference, ctx.state.request.cover.reference_asset_id),
+    }
+    return ctx.artifact(
+        ArtifactKind.provider_raw_request,
+        payload,
+        "ImageGenerationRequestSnapshot.v1",
+    )
+
+
+def _sanitize_image_call_input(call_input: dict) -> dict:
+    sanitized: dict = {}
+    for key, value in call_input.items():
+        if key.endswith("_image_b64") and isinstance(value, str):
+            sanitized[key] = _b64_digest_summary(value)
+        else:
+            sanitized[key] = value
+    return sanitized
+
+
+def _cover_reference_snapshot(
+    reference: _CoverReferenceImage | None,
+    request_reference_asset_id: str | None,
+) -> dict:
+    if reference is None:
+        return {"provided": False, "request_reference_asset_id": request_reference_asset_id}
+    return {
+        "provided": True,
+        "filename": reference.filename,
+        "has_template": reference.has_template,
+        "has_source_frame": reference.has_source_frame,
+        "source_frame_time_sec": reference.source_frame_time_sec,
+        "source_artifact_id": reference.source_artifact_id,
+        "reference_asset_id": reference.reference_asset_id or request_reference_asset_id,
+        "image_b64": _b64_digest_summary(reference.image_b64),
+    }
+
+
+def _b64_digest_summary(value: str) -> dict:
+    try:
+        raw = base64.b64decode(value)
+    except (binascii.Error, ValueError):
+        raw = value.encode("utf-8")
+    return {
+        "omitted": True,
+        "encoding": "base64",
+        "length": len(value),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+    }
+
+
+def _cover_generation_size(profile) -> str:
+    if profile is not None and profile.provider_id == "volcengine.seedream":
+        return SEEDREAM_COVER_REQUEST_SIZE
+    return DEFAULT_COVER_SIZE
+
+
+def _provider_key(profile_id: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_-]+", "-", profile_id).strip("-") or "image"
+
+
+def _cover_provider_label(provider_id: str | None) -> str | None:
+    if provider_id == "openai.image":
+        return "image2"
+    if provider_id == "volcengine.seedream":
+        return "seedream"
+    return provider_id
+
+
+def _cover_source_payload(
+    *,
+    source: str,
+    reason: str | None = None,
+    source_artifact_id: str | None = None,
+    attempted_provider_profile_ids: list[str] | None = None,
+    provider_invocation_ids: list[str] | None = None,
+    provider_profile_id: str | None = None,
+    provider_id: str | None = None,
+    provider_label: str | None = None,
+    model_id: str | None = None,
+    provider_invocation_id: str | None = None,
+    prompt_version_id: str | None = None,
+    size: str | None = None,
+) -> dict:
+    payload = {
+        "source": source,
+        "reason": reason,
+        "source_artifact_id": source_artifact_id,
+        "attempted_provider_profile_ids": attempted_provider_profile_ids or [],
+        "provider_invocation_ids": provider_invocation_ids or [],
+        "provider_profile_id": provider_profile_id,
+        "provider_id": provider_id,
+        "provider_label": provider_label,
+        "model_id": model_id,
+        "provider_invocation_id": provider_invocation_id,
+        "prompt_version_id": prompt_version_id,
+        "size": size,
+    }
+    return {key: value for key, value in payload.items() if value is not None}
+
+
+def _apply_cover_source_payload(ctx: NodeContext, artifact: Artifact, payload: dict) -> Artifact:
+    artifact.payload_schema = "CoverImageArtifact.v1"
+    artifact.payload = payload
+    ctx.repository.artifacts[artifact.id] = artifact
+    return artifact
+
+
+def _normalize_cover_prompt_template(content: str) -> str:
+    return (
+        content.replace(
+            "Create one polished vertical Chinese short-video cover image at {size}.",
+            "Create one polished vertical 9:16 Chinese short-video cover image at {size}.",
+        )
+        .replace("center-cropped to 3:4", "center-cropped to 9:16")
+        .replace("3:4 preview", "9:16 preview")
+        .replace("尺寸为 3:4", "尺寸为 9:16")
+        .replace("居中裁切为 3:4", "居中裁切为 9:16")
+    )
 
 
 def _build_cover_reference_image(
@@ -443,6 +672,7 @@ def _build_cover_reference_image(
             filename=template[1],
             has_template=True,
             has_source_frame=False,
+            reference_asset_id=ctx.state.request.cover.reference_asset_id,
         )
         if template is not None
         else None
@@ -457,27 +687,37 @@ def _build_cover_reference_image(
 
 
 def _select_cover_source_frame(ctx: NodeContext) -> _CoverReferenceImage | None:
-    """Pick the cover reference frame from the cleanest available track via a
-    deterministic face-quality score (no VLM, no paid call). Falls back to the
-    source midpoint when no frame has a usable single face."""
-    source = _select_clean_cover_source(ctx)
-    best = _pick_best_portrait_frame(ctx, source)
-    if best is not None:
-        face_frame = _extract_cover_source_frame(ctx, source, time_sec=best.time_sec)
-        if face_frame is not None:
-            return face_frame
-    return _extract_cover_source_frame(ctx, source)
+    """Pick the cover reference frame from the cleanest readable track.
+
+    Prefer subtitle-free / b-roll-free tracks (lipsync -> portrait), but keep trying
+    later sources when an earlier artifact exists yet cannot be locally decoded.
+    """
+    for source in _cover_source_candidates(ctx):
+        best = _pick_best_portrait_frame(ctx, source)
+        if best is not None:
+            face_frame = _extract_cover_source_frame(ctx, source, time_sec=best.time_sec)
+            if face_frame is not None:
+                return face_frame
+        fallback_frame = _extract_cover_source_frame(ctx, source)
+        if fallback_frame is not None:
+            return fallback_frame
+    return None
 
 
-def _select_clean_cover_source(ctx: NodeContext) -> Artifact:
-    """Prefer a subtitle-free, b-roll-free track (lipsync → portrait) so the cover
-    reference is a clean portrait; fall back to the final composited video."""
+def _cover_source_candidates(ctx: NodeContext) -> list[Artifact]:
+    """Readable-source priority: lipsync -> portrait -> final, de-duped by artifact id."""
     artifacts = ctx.state.artifacts
+    sources: list[Artifact] = []
+    seen: set[str] = set()
     for kind in _COVER_SOURCE_KINDS:
         artifact = artifacts.get(kind)
-        if artifact is not None:
-            return artifact
-    return ctx.state.require(ArtifactKind.video_final)
+        if artifact is not None and artifact.id not in seen:
+            sources.append(artifact)
+            seen.add(artifact.id)
+    final = ctx.state.require(ArtifactKind.video_final)
+    if final.id not in seen:
+        sources.append(final)
+    return sources
 
 
 def _pick_best_portrait_frame(ctx: NodeContext, source: Artifact) -> BestPortraitFrame | None:
@@ -488,7 +728,7 @@ def _pick_best_portrait_frame(ctx: NodeContext, source: Artifact) -> BestPortrai
     )
     try:
         video_path = ctx.artifact_path(source)
-    except NodeExecutionError:
+    except Exception:
         return None
     try:
         with tempfile.TemporaryDirectory(prefix="cutagent-cover-pick-") as directory:
@@ -509,7 +749,7 @@ def _extract_cover_source_frame(
             output = Path(directory) / "source-frame.png"
             frame = extract_frame_at_time(ctx.artifact_path(source), output, time_sec=point)
             data = frame.path.read_bytes()
-    except (FfmpegCommandError, NodeExecutionError, FileNotFoundError, OSError):
+    except Exception:
         return None
     if not data:
         return None
@@ -519,6 +759,7 @@ def _extract_cover_source_frame(
         has_template=False,
         has_source_frame=True,
         source_frame_time_sec=point,
+        source_artifact_id=source.id,
     )
 
 
@@ -557,6 +798,8 @@ def _combine_cover_reference_board(
         has_template=True,
         has_source_frame=True,
         source_frame_time_sec=source_frame.source_frame_time_sec,
+        source_artifact_id=source_frame.source_artifact_id,
+        reference_asset_id=template.reference_asset_id,
     )
 
 

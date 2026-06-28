@@ -38,6 +38,7 @@ export function RunDetailModal({
   const artifacts = detail?.artifacts ?? [];
   const stages = buildStages(nodes);
   const editClips = buildEditClips(detail);
+  const coverSource = coverSourceInfo(detail, card);
   const [activeClipId, setActiveClipId] = useState<string | null>(null);
 
   const videoPreview = useQuery({
@@ -99,6 +100,11 @@ export function RunDetailModal({
               )}
               <div className="mx-auto flex w-full max-w-[320px] flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
+                  {coverSource ? (
+                    <span className={coverSource.tone === "warning" ? "badge-warning" : "badge-info"} title={coverSource.detail}>
+                      {coverSource.label}
+                    </span>
+                  ) : null}
                   {lipsyncProviderLabel(finishedVideo.lipsync_provider_id, finishedVideo.lipsync_fallback_used) ? (
                     <span
                       className={finishedVideo.lipsync_fallback_used ? "badge-warning" : "badge-info"}
@@ -108,7 +114,7 @@ export function RunDetailModal({
                     </span>
                   ) : null}
                 </div>
-                <EditorHandoffActions finishedVideoId={finishedVideo?.id} videoDownloadUrl={videoUrl} compact />
+                <EditorHandoffActions finishedVideoId={finishedVideo?.id} compact />
               </div>
               {finishedVideo.lipsync_fallback_used && finishedVideo.lipsync_fallback_reason ? (
                 <p className="mx-auto w-full max-w-[320px] rounded-xl border border-status-warning/20 bg-status-warning/10 px-3 py-2 text-xs text-status-warning">
@@ -217,6 +223,100 @@ function DetailMetric({ label, value }: { label: string; value: ReactNode }) {
       <div className="mt-1 text-sm font-medium text-text-primary">{value}</div>
     </div>
   );
+}
+
+type CoverSourceInfo = {
+  label: string;
+  detail?: string;
+  tone: "info" | "warning";
+};
+
+function coverSourceInfo(detail?: RunDetailResponse, card?: RunCard): CoverSourceInfo | null {
+  const cover = detail?.artifacts.find((artifact) => artifact.kind === "cover.image");
+  const payload = asRecord(cover ? detail?.artifact_payloads?.[cover.artifact_id] : undefined);
+  const degradedToFrame =
+    card?.warnings?.includes("cover.frame_fallback") ||
+    detail?.node_runs.some((node) =>
+      (node.degradations ?? []).some((notice) => notice.code === "cover.frame_fallback"),
+    );
+  if (payload) {
+    const source = asString(payload.source);
+    const reason = asString(payload.reason);
+    if (source === "ai") {
+      const providerId = asString(payload.provider_id);
+      const providerLabel = coverProviderName(providerId, asString(payload.provider_label));
+      const fallbackFrom = asStringArray(payload.fallback_from_provider_profile_ids);
+      const fallbackUsed = fallbackFrom.length > 0;
+      return {
+        label: fallbackUsed ? `${providerLabel} 兜底封面` : `${providerLabel} 生成封面`,
+        detail: compactDetail([
+          fallbackUsed ? `兜底自 ${fallbackFrom.join(", ")}` : undefined,
+          asString(payload.provider_profile_id),
+          providerId,
+          asString(payload.model_id),
+        ]),
+        tone: fallbackUsed ? "warning" : "info",
+      };
+    }
+    if (source === "frame") {
+      if (reason === "ai_failed") {
+        return { label: "帧封面（AI 失败）", detail: "AI 封面生成失败后回退到视频帧。", tone: "warning" };
+      }
+      if (reason === "ai_unavailable") {
+        return { label: "帧封面（AI 未启用）", detail: "没有可用的真实图片生成供应商或密钥。", tone: "info" };
+      }
+      return { label: "帧封面", detail: "封面来自视频帧。", tone: "info" };
+    }
+  }
+  if (degradedToFrame) {
+    return { label: "帧封面（AI 失败）", detail: "旧运行没有封面来源快照；根据降级记录判断。", tone: "warning" };
+  }
+  return imageRequestCoverSourceInfo(detail);
+}
+
+function imageRequestCoverSourceInfo(detail?: RunDetailResponse): CoverSourceInfo | null {
+  const requestSnapshots = Object.values(detail?.artifact_payloads ?? {})
+    .filter((payload): payload is Record<string, unknown> => Boolean(payload))
+    .filter((payload) => asString(payload.capability_id) === "image.generate");
+  const payload = requestSnapshots[requestSnapshots.length - 1];
+  if (!payload) return null;
+  const providerId = asString(payload.provider_id);
+  const providerLabel = coverProviderName(providerId, undefined);
+  return {
+    label: `${providerLabel} 生成封面`,
+    detail: compactDetail([
+      "来自生成请求快照",
+      asString(payload.provider_profile_id),
+      providerId,
+      asString(payload.model_id),
+    ]),
+    tone: "info",
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : [];
+}
+
+function coverProviderName(providerId: string | undefined, providerLabel: string | undefined): string {
+  if (providerLabel === "image2" || providerId === "openai.image") return "image2";
+  if (providerLabel === "seedream" || providerId === "volcengine.seedream") return "Seedream";
+  return providerId || "AI";
+}
+
+function compactDetail(values: Array<string | undefined>): string | undefined {
+  const detail = values.filter(Boolean).join(" · ");
+  return detail || undefined;
 }
 
 function NodeDetail({ node }: { node: NodeRun }) {

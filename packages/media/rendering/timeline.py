@@ -91,6 +91,7 @@ def validate_rendered_output(
         raise NodeExecutionError(
             ErrorCode.render_invalid_timeline,
             frame_count_message,
+            details={"expected_frames": expected_frames, "actual_frames": frame_count},
         )
     if (
         (expected_width is not None and media_info.width != expected_width)
@@ -496,7 +497,9 @@ def render_video_timeline(
     filters = [
         (
             f"[0:v]fps={fps},scale={width}:{height}:force_original_aspect_ratio=increase,"
-            f"crop={width}:{height},trim=start_frame=0:end_frame={total_frames},"
+            f"crop={width}:{height},"
+            f"tpad=stop_mode=clone:stop={total_frames},"
+            f"trim=start_frame=0:end_frame={total_frames},"
             "setpts=PTS-STARTPTS,setsar=1[base0]"
         )
     ]
@@ -556,6 +559,8 @@ def render_video_timeline(
             "yuv420p",
             "-r",
             str(fps),
+            "-frames:v",
+            str(total_frames),
             "-movflags",
             "+faststart",
             str(output_path),

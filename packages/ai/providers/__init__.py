@@ -11,7 +11,7 @@ from .dashscope import (
     DashScopeVLMProvider,
 )
 from .minimax import MiniMaxTTSProvider
-from .openai_image import OpenAIImageProvider
+from .openai_image import ArkSeedreamImageProvider, OpenAIImageProvider
 from .volcengine_tts import VolcengineTTSProvider
 from .runninghub import RunningHubHeyGemProvider
 from .seedance import ArkSeedanceProvider
@@ -33,6 +33,7 @@ def register_real_provider_plugins(gateway: ProviderGateway) -> None:
         RunningHubHeyGemProvider(client),
         DashScopeVideoReTalkProvider(client),
         ArkSeedanceProvider(client),
+        ArkSeedreamImageProvider(client),
         OpenAIImageProvider(client),
     ):
         gateway.register(plugin)

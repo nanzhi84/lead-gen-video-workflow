@@ -48,6 +48,7 @@ ARK_DEFAULT_REGION = "cn-beijing"
 ARK_SERVICE = "ark"
 ARK_OPENAPI_HOST = "ark.cn-beijing.volcengineapi.com"
 ARK_OPENAPI_VERSION = "2024-01-01"
+ARK_TEMPORARY_API_KEY_TTL_SECONDS = 604800
 # Terminal task states that are not ``succeeded`` (poll loop stops + raises).
 _FAILED_STATES = {"failed", "expired", "cancelled", "canceled"}
 _OPENAPI_AUTH_ERROR_CODES = frozenset(
@@ -376,7 +377,14 @@ class ArkSeedanceProvider:
         project_name: str | None,
         timeout: float,
     ) -> str:
-        ttl = int(option(context, "temporary_api_key_ttl_seconds", 86400) or 86400)
+        ttl = int(
+            option(
+                context,
+                "temporary_api_key_ttl_seconds",
+                ARK_TEMPORARY_API_KEY_TTL_SECONDS,
+            )
+            or ARK_TEMPORARY_API_KEY_TTL_SECONDS
+        )
         # Do not key the cache by the secret itself; a short hash is enough to
         # avoid cross-account collisions without retaining plaintext credentials.
         secret_hash = hashlib.sha256(secret.encode("utf-8")).hexdigest()[:16]

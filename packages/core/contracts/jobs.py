@@ -94,8 +94,8 @@ class CoverOptions(ContractModel):
     # AI cover is the default; the frame-extracted cover is the honest fallback when
     # AI is unavailable (no real image.generate profile / secret) or the paid call fails.
     mode: Literal["none", "frame", "ai"] = "ai"
-    # Selects the image.generate ProviderProfile for the AI cover (when None, the
-    # first eligible real profile is used). NOT a media asset id.
+    # Selects the image.generate ProviderProfile for the AI cover (when None,
+    # eligible real profiles are tried in failover order). NOT a media asset id.
     template_id: str | None = None
     # Optional uploaded ``cover_template`` MediaAsset whose image conditions the AI
     # cover's style/layout: its bytes are passed to the image-edit reference path so

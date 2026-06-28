@@ -110,6 +110,9 @@ class NodeContext:
     def image_cover_profile_id(self, request: DigitalHumanVideoRequest) -> str | None:
         return self.adapter.provider_profiles.image_cover_profile_id(request)
 
+    def image_cover_profile_ids(self, request: DigitalHumanVideoRequest) -> list[str]:
+        return self.adapter.provider_profiles.image_cover_profile_ids(request)
+
     def resolve_lipsync_profile(self, request: DigitalHumanVideoRequest):
         return self.adapter.provider_profiles.resolve_lipsync(request)
 

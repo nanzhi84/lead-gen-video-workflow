@@ -61,6 +61,37 @@ def _profile(
     )
 
 
+class _ProviderReader:
+    def __init__(self, profiles: list[ProviderProfile]) -> None:
+        self._profiles = {profile.id: profile for profile in profiles}
+
+    def get_profile(self, profile_id: str) -> ProviderProfile | None:
+        return self._profiles.get(profile_id)
+
+    def list_profiles(
+        self,
+        *,
+        provider_id: str | None = None,
+        capability: str | None = None,
+        environment: str | None = None,
+        limit: int = 200,
+    ) -> list[ProviderProfile]:
+        profiles = list(self._profiles.values())
+        if provider_id:
+            profiles = [profile for profile in profiles if profile.provider_id == provider_id]
+        if capability:
+            profiles = [profile for profile in profiles if profile.capability == capability]
+        if environment:
+            profiles = [profile for profile in profiles if profile.environment == environment]
+        return profiles[:limit]
+
+    def list_price_items(self) -> list:
+        return []
+
+    def secret_is_active(self, secret_ref: str) -> bool:
+        return True
+
+
 def _tts_request(*, provider_profile_id: str | None = None, voice_id: str = "voice_unbound"):
     # "voice_unbound" is intentionally NOT the seeded "voice_sandbox": it carries no
     # provider binding, so the no-binding fallback/raise path is exercised.
@@ -160,6 +191,71 @@ def test_image_cover_profile_gated_on_active_secret(tmp_path):
 
     secret_store.put("openai-image-key", secret_ref="openai.image.secret")
     assert resolver.image_cover_profile_id(request) == "openai.image.real"
+
+
+def test_image_cover_profile_prefers_image2_then_seedream(tmp_path):
+    resolver, repository, gateway, secret_store = _resolver(tmp_path)
+    repository.provider_profiles["openai.image.real"] = _profile(
+        "image.generate", profile_id="openai.image.real", provider_id="openai.image", secret_ref="openai.image.secret"
+    )
+    repository.provider_profiles["volcengine.seedream.real"] = _profile(
+        "image.generate",
+        profile_id="volcengine.seedream.real",
+        provider_id="volcengine.seedream",
+        secret_ref="volcengine.seedream.secret",
+    )
+    gateway.plugins["openai.image"] = object()
+    gateway.plugins["volcengine.seedream"] = object()
+    request = DigitalHumanVideoRequest(
+        case_id="case_demo",
+        script="第一句。",
+        voice={"voice_id": "voice_sandbox"},
+        cover={"mode": "ai"},
+    )
+
+    secret_store.put("ark-key", secret_ref="volcengine.seedream.secret")
+    assert resolver.image_cover_profile_id(request) == "volcengine.seedream.real"
+    assert resolver.image_cover_profile_ids(request) == ["volcengine.seedream.real"]
+
+    secret_store.put("openai-image-key", secret_ref="openai.image.secret")
+    assert resolver.image_cover_profile_id(request) == "openai.image.real"
+    assert resolver.image_cover_profile_ids(request) == [
+        "openai.image.real",
+        "volcengine.seedream.real",
+    ]
+
+    explicit_seedream = request.model_copy(
+        update={"cover": request.cover.model_copy(update={"template_id": "volcengine.seedream.real"})}
+    )
+    assert resolver.image_cover_profile_ids(explicit_seedream) == ["volcengine.seedream.real"]
+
+
+def test_image_cover_profiles_can_come_from_runtime_reader(tmp_path):
+    resolver, _, gateway, _ = _resolver(tmp_path)
+    seedream = _profile(
+        "image.generate",
+        profile_id="volcengine.seedream.real",
+        provider_id="volcengine.seedream",
+    )
+    image2 = _profile(
+        "image.generate",
+        profile_id="openai.image.real",
+        provider_id="openai.image",
+    )
+    gateway.provider_reader = _ProviderReader([seedream, image2])
+    gateway.plugins["openai.image"] = object()
+    gateway.plugins["volcengine.seedream"] = object()
+    request = DigitalHumanVideoRequest(
+        case_id="case_demo",
+        script="第一句。",
+        voice={"voice_id": "voice_sandbox"},
+        cover={"mode": "ai"},
+    )
+
+    assert resolver.image_cover_profile_ids(request) == [
+        "openai.image.real",
+        "volcengine.seedream.real",
+    ]
 
 
 # ------------------------------------------------------------------ first_available

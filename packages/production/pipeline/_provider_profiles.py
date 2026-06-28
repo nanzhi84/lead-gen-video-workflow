@@ -43,8 +43,8 @@ class ProviderProfileResolver:
     def first_available(
         self, capability: str, *, include_sandbox: bool = True
     ) -> "ProviderProfile | None":
-        for profile in self.repository.provider_profiles.values():
-            if profile.capability != capability or not profile.enabled:
+        for profile in self._profiles_for_capability(capability):
+            if not profile.enabled:
                 continue
             if not include_sandbox and profile.provider_id == "sandbox":
                 continue
@@ -92,14 +92,37 @@ class ProviderProfileResolver:
         is requested AND an enabled real profile + active secret exist. Otherwise
         ``None`` -> the cover node uses the existing frame-based cover. AI cover is
         PAID, so without a configured+secret-active image profile we never call it."""
+        profile_ids = self.image_cover_profile_ids(request)
+        return profile_ids[0] if profile_ids else None
+
+    def image_cover_profile_ids(self, request: DigitalHumanVideoRequest) -> list[str]:
+        """Return eligible AI-cover profiles in failover order.
+
+        Automatic selection prefers the GPT image2/OpenAI-compatible mirror first,
+        then Seedream as the standing fallback. An explicit cover profile remains
+        explicit and does not fan out to other providers.
+        """
         explicit_profile_id = request.cover.template_id
         if explicit_profile_id:
             profile = self._profile_by_id(explicit_profile_id)
-            return profile.id if self._is_real_image(profile) else None
-        for profile in self.repository.provider_profiles.values():
+            return [profile.id] if self._is_real_image(profile) else []
+        profiles = sorted(
+            self._profiles_for_capability("image.generate"),
+            key=self._image_profile_sort_key,
+        )
+        profile_ids: list[str] = []
+        for profile in profiles:
             if self._is_real_image(profile):
-                return profile.id
-        return None
+                profile_ids.append(profile.id)
+        return profile_ids
+
+    @staticmethod
+    def _image_profile_sort_key(profile) -> tuple[int, str]:
+        priority = {
+            "openai.image": 0,
+            "volcengine.seedream": 1,
+        }.get(profile.provider_id, 2)
+        return priority, profile.id
 
     def _is_real_image(self, profile) -> bool:
         if profile is None or profile.capability != "image.generate" or not profile.enabled:
@@ -119,6 +142,19 @@ class ProviderProfileResolver:
             if profile is not None:
                 return profile
         return self.repository.provider_profiles.get(profile_id)
+
+    def _profiles_for_capability(self, capability: str) -> list["ProviderProfile"]:
+        reader = getattr(self.provider_gateway, "provider_reader", None)
+        list_profiles = getattr(reader, "list_profiles", None)
+        if callable(list_profiles):
+            profiles = list_profiles(capability=capability, limit=200)
+            if profiles:
+                return list(profiles)
+        return [
+            profile
+            for profile in self.repository.provider_profiles.values()
+            if profile.capability == capability
+        ]
 
     def _is_real_lipsync(self, profile) -> bool:
         """A real lipsync path is active only when the profile is enabled, its
@@ -156,7 +192,7 @@ class ProviderProfileResolver:
         )
         if target_provider is None:
             return None
-        for profile in self.repository.provider_profiles.values():
+        for profile in self._profiles_for_capability("lipsync.video"):
             if profile.provider_id != target_provider:
                 continue
             if self._is_real_lipsync(profile):

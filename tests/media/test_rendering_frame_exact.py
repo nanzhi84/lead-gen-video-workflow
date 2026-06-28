@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 
 from packages.core.contracts import Artifact, ArtifactKind, MediaInfo
-from packages.media.rendering import render_video_timeline, transcode_video_segment
+from packages.media.rendering import render_video_timeline, transcode_video_segment, validate_rendered_output
 import packages.media.rendering.timeline as rendering_timeline
 from packages.production.pipeline._timeline_grid import to_frame
 
@@ -69,6 +69,40 @@ def test_render_video_timeline_uses_frame_boundaries_for_broll_overlay(monkeypat
     assert "enable='gte(n\\,2)*lt(n\\,32)'" in filter_complex
     assert "between(t," not in filter_complex
     assert re.search(r"trim=start=\d+(?:\.\d+)?", filter_complex) is None
+
+
+def test_render_video_timeline_pads_short_main_track_to_exact_frames(
+    tmp_path,
+    media_fixture_factory,
+):
+    main_path = media_fixture_factory.video(
+        duration_sec=1.0,
+        width=160,
+        height=90,
+        fps=30,
+        filename="short_main.mp4",
+    )
+    output_path = tmp_path / "rendered_padded_main.mp4"
+
+    render_video_timeline(
+        main_path=main_path,
+        output_path=output_path,
+        broll_segments=[],
+        total_frames=33,
+        width=160,
+        height=90,
+        fps=30,
+        source_artifact_for_asset=lambda _asset_id: (_ for _ in ()).throw(AssertionError("unused")),
+        artifact_path=lambda source_artifact: Path(source_artifact.local_path),
+    )
+
+    validate_rendered_output(
+        output_path,
+        expected_frames=33,
+        expected_width=160,
+        expected_height=90,
+        expected_fps=30,
+    )
 
 
 def test_render_video_timeline_pads_broll_overlay_to_timeline_window(monkeypatch, tmp_path):

@@ -68,6 +68,16 @@ class ProviderRuntimeReader(Protocol):
     def get_profile(self, profile_id: str) -> ProviderProfile | None:
         ...
 
+    def list_profiles(
+        self,
+        *,
+        provider_id: str | None = None,
+        capability: str | None = None,
+        environment: str | None = None,
+        limit: int = 200,
+    ) -> Iterable[ProviderProfile]:
+        ...
+
     def list_price_items(self) -> Iterable[ProviderPriceItem]:
         ...
 

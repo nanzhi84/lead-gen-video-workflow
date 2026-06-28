@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import logging
 import mimetypes
+import re
+import tempfile
+import zipfile
 from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -17,15 +20,19 @@ from apps.api.common import (
     production_repository,
     repository,
     request_id,
+    run_owner,
     signed,
     visible_owner_filter,
 )
 from apps.api.dependencies import current_user
 from packages.core import contracts as c
-from packages.core.storage.database import ArtifactRow
+from packages.core.storage.database import ArtifactRow, CaseRow
+from packages.core.storage.object_store import parse_object_uri
+from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
 from packages.creative.cases import evolution
-from packages.media.assets import local_object_path
+from packages.media.assets import local_object_path, store_file
+from packages.media.video import FfmpegCommandError, extract_frame_at_time
 from packages.production.editor_handoff import EditorHandoffAsset, EditorHandoffBuilder, EditorHandoffInput
 from packages.production.jianying_draft import (
     JianyingDraftBuilder,
@@ -34,11 +41,18 @@ from packages.production.jianying_draft import (
     build_text_segments_from_narration,
     build_video_segments_from_plans,
 )
-from packages.production.sqlalchemy_mappers import artifact_row_to_contract
+from packages.production.sqlalchemy_mappers import artifact_ref_from_row, artifact_row_to_contract
 
 
 _BROWSER_DOWNLOAD_PREFIXES = ("http://", "https://", "/")
 _VIDEO_PROXY_EXPIRES_IN = timedelta(minutes=15)
+_VIDEO_ARTIFACT_KINDS = {
+    c.ArtifactKind.video_portrait_track,
+    c.ArtifactKind.video_lipsync,
+    c.ArtifactKind.video_rendered,
+    c.ArtifactKind.video_final,
+    c.ArtifactKind.video_finished,
+}
 logger = logging.getLogger(__name__)
 
 
@@ -131,7 +145,21 @@ def finished_video_preview(request: Request, id: str) -> c.SignedUrlResponse:
 
 
 def finished_video_download(request: Request, id: str) -> c.SignedUrlResponse:
-    return finished_video_preview(request, id)
+    assert_owner_or_404(current_user(request), finished_video_owner(request, id))
+    finished = _finished_video_for_package(request, id)
+    package_artifact = _build_finished_video_publish_package(request, finished)
+    download_url, expires_at = _browser_download_fields(
+        request,
+        package_artifact.artifact_id,
+        package_artifact.uri,
+    )
+    return c.SignedUrlResponse(
+        url=download_url,
+        expires_at=expires_at,
+        request_id=request_id(),
+        content_type="application/zip",
+        playable=False,
+    )
 
 
 def finished_video_stream(request: Request, id: str) -> FileResponse:
@@ -154,6 +182,145 @@ def finished_video_stream(request: Request, id: str) -> FileResponse:
         filename=Path(urlsplit(uri).path).name or f"{id}.mp4",
         content_disposition_type="inline",
     )
+
+
+def _finished_video_for_package(request: Request, finished_video_id: str) -> c.FinishedVideo:
+    if production_repository(request) is not None:
+        detail = production_repository(request).finished_video_detail(finished_video_id)
+        if detail is None:
+            raise NodeExecutionError(c.ErrorCode.artifact_missing, "Finished video is missing.")
+        return detail.finished_video
+    return _finished_video_or_error(request, finished_video_id)
+
+
+def _build_finished_video_publish_package(
+    request: Request,
+    finished: c.FinishedVideo,
+) -> c.ArtifactRef:
+    with tempfile.TemporaryDirectory(prefix="cutagent-publish-package-") as directory:
+        work_dir = Path(directory)
+        video_path = _download_ref_for_package(
+            request,
+            finished.video_artifact,
+            work_dir / f"video{_artifact_suffix(finished.video_artifact, '.mp4')}",
+        )
+        cover_path = _cover_path_for_package(request, finished, video_path, work_dir)
+        title_path = work_dir / "title.txt"
+        title_path.write_text(f"{finished.title.strip() or finished.id}\n", encoding="utf-8")
+
+        package_name = f"{_safe_package_name(finished.title or finished.id)}_publish_package.zip"
+        zip_path = work_dir / package_name
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.write(title_path, "title.txt")
+            archive.write(cover_path, f"cover{cover_path.suffix or '.jpg'}")
+            archive.write(video_path, f"video{video_path.suffix or '.mp4'}")
+
+        stored = store_file(object_store(request), zip_path, purpose="publish-packages")
+        payload = {
+            "finished_video_id": finished.id,
+            "title": finished.title,
+            "files": {
+                "title": "title.txt",
+                "cover": f"cover{cover_path.suffix or '.jpg'}",
+                "video": f"video{video_path.suffix or '.mp4'}",
+            },
+            "portable_resources": True,
+        }
+        return _create_publish_package_artifact(
+            request,
+            finished=finished,
+            uri=stored.ref.uri,
+            sha256=stored.sha256,
+            size_bytes=stored.size_bytes,
+            payload=payload,
+        )
+
+
+def _download_ref_for_package(request: Request, artifact_ref: c.ArtifactRef, target: Path) -> Path:
+    uri = _artifact_uri_for_ref(request, artifact_ref)
+    try:
+        return object_store(request).download_file(parse_object_uri(uri), target)
+    except (ValueError, OSError) as exc:
+        raise NodeExecutionError(c.ErrorCode.artifact_missing, "Publish package asset is not readable.") from exc
+
+
+def _cover_path_for_package(
+    request: Request,
+    finished: c.FinishedVideo,
+    video_path: Path,
+    work_dir: Path,
+) -> Path:
+    if finished.cover_artifact is not None:
+        return _download_ref_for_package(
+            request,
+            finished.cover_artifact,
+            work_dir / f"cover{_artifact_suffix(finished.cover_artifact, '.jpg')}",
+        )
+    try:
+        return extract_frame_at_time(video_path, work_dir / "cover.png", time_sec=0).path
+    except FfmpegCommandError as exc:
+        raise NodeExecutionError(c.ErrorCode.artifact_missing, "Finished video cover is missing.") from exc
+
+
+def _artifact_uri_for_ref(request: Request, artifact_ref: c.ArtifactRef) -> str:
+    artifact = _artifact_for_download(request, artifact_ref.artifact_id)
+    if artifact is not None and artifact.uri:
+        return artifact.uri
+    if artifact_ref.uri and not artifact_ref.uri.startswith("artifact://"):
+        return artifact_ref.uri
+    raise NodeExecutionError(c.ErrorCode.artifact_missing, "Artifact URI is missing.")
+
+
+def _artifact_suffix(artifact_ref: c.ArtifactRef, fallback: str) -> str:
+    suffix = Path(urlsplit(artifact_ref.uri or "").path).suffix.lower()
+    if suffix and re.fullmatch(r"\.[a-z0-9]{1,5}", suffix):
+        return suffix
+    return fallback
+
+
+def _safe_package_name(title: str) -> str:
+    cleaned = re.sub(r"[\\/:*?\"<>|\\s]+", "_", title.strip()).strip("._")
+    return (cleaned or "finished_video")[:80]
+
+
+def _create_publish_package_artifact(
+    request: Request,
+    *,
+    finished: c.FinishedVideo,
+    uri: str,
+    sha256: str,
+    size_bytes: int,
+    payload: dict,
+) -> c.ArtifactRef:
+    session_factory = getattr(request.app.state, "sqlalchemy_session_factory", None)
+    if session_factory is not None:
+        with session_factory() as session:
+            artifact = ArtifactRow(
+                id=new_id("art"),
+                case_id=finished.case_id,
+                run_id=finished.run_id,
+                kind=c.ArtifactKind.publish_package.value,
+                uri=uri,
+                size_bytes=size_bytes,
+                sha256=sha256,
+                payload_schema="FinishedVideoPublishPackageArtifact.v1",
+                payload=payload,
+            )
+            session.add(artifact)
+            session.commit()
+            session.refresh(artifact)
+            return artifact_ref_from_row(artifact)
+    artifact = repository(request).create_artifact(
+        kind=c.ArtifactKind.publish_package,
+        payload_schema="FinishedVideoPublishPackageArtifact.v1",
+        payload=payload,
+        case_id=finished.case_id,
+        run_id=finished.run_id,
+        uri=uri,
+        sha256=sha256,
+        size_bytes=size_bytes,
+    )
+    return repository(request).artifact_ref(artifact.id)
 
 
 def latest_jianying_draft(id: str, request: Request) -> c.LatestJianyingDraftPackageResponse:
@@ -309,9 +476,9 @@ def artifact_download(request: Request, artifact_id: str) -> FileResponse | Redi
         raise NodeExecutionError(c.ErrorCode.artifact_missing, "Artifact is not locally readable.")
     return FileResponse(
         path,
-        media_type="application/zip",
+        media_type=_artifact_download_content_type(artifact),
         filename=Path(urlsplit(artifact.uri).path).name or f"{artifact.id}.zip",
-        content_disposition_type="attachment",
+        content_disposition_type=_artifact_download_disposition(artifact),
     )
 
 
@@ -412,13 +579,99 @@ def _artifact_for_download(request: Request, artifact_id: str) -> c.Artifact | N
 
 
 def _assert_package_download_allowed(request: Request, artifact: c.Artifact) -> None:
-    if artifact.kind not in {c.ArtifactKind.jianying_draft, c.ArtifactKind.editor_handoff}:
+    if artifact.kind == c.ArtifactKind.cover_image:
+        _assert_cover_download_allowed(request, artifact)
+        return
+    if _is_video_download_artifact(artifact):
+        _assert_video_download_allowed(request, artifact)
+        return
+    if artifact.kind not in {
+        c.ArtifactKind.jianying_draft,
+        c.ArtifactKind.editor_handoff,
+        c.ArtifactKind.publish_package,
+    }:
         raise NodeExecutionError(c.ErrorCode.artifact_missing, "Artifact is not downloadable.")
     payload = artifact.payload if isinstance(artifact.payload, dict) else {}
     finished_video_id = payload.get("finished_video_id")
     if not isinstance(finished_video_id, str) or not finished_video_id:
         raise NodeExecutionError(c.ErrorCode.artifact_missing, "Artifact is not downloadable.")
     assert_owner_or_404(current_user(request), finished_video_owner(request, finished_video_id))
+
+
+def _assert_cover_download_allowed(request: Request, artifact: c.Artifact) -> None:
+    user = current_user(request)
+    if user.role == c.UserRole.admin:
+        return
+    if not artifact.case_id:
+        raise NodeExecutionError(c.ErrorCode.artifact_missing, "Artifact is not downloadable.")
+    session_factory = getattr(request.app.state, "sqlalchemy_session_factory", None)
+    if session_factory is not None:
+        with session_factory() as session:
+            case = session.get(CaseRow, artifact.case_id)
+            assert_owner_or_404(user, case.owner_user_id if case is not None else None)
+            return
+    case = repository(request).cases.get(artifact.case_id)
+    assert_owner_or_404(user, getattr(case, "owner_user_id", None))
+
+
+def _is_video_download_artifact(artifact: c.Artifact) -> bool:
+    if artifact.kind in _VIDEO_ARTIFACT_KINDS:
+        return True
+    if artifact.kind != c.ArtifactKind.uploaded_file:
+        return False
+    payload = artifact.payload if isinstance(artifact.payload, dict) else {}
+    content_type = payload.get("content_type")
+    upload_kind = payload.get("kind")
+    return (
+        getattr(artifact.media_info, "media_type", None) == "video"
+        or (isinstance(content_type, str) and content_type.startswith("video/"))
+        or upload_kind in {"publish_video", "video", "portrait", "broll"}
+    )
+
+
+def _assert_video_download_allowed(request: Request, artifact: c.Artifact) -> None:
+    user = current_user(request)
+    if user.role == c.UserRole.admin:
+        return
+    payload = artifact.payload if isinstance(artifact.payload, dict) else {}
+    finished_video_id = payload.get("finished_video_id")
+    if isinstance(finished_video_id, str) and finished_video_id:
+        assert_owner_or_404(user, finished_video_owner(request, finished_video_id))
+        return
+    if artifact.run_id:
+        assert_owner_or_404(user, run_owner(request, artifact.run_id))
+        return
+    case_id = artifact.case_id or (payload.get("case_id") if isinstance(payload.get("case_id"), str) else None)
+    if case_id:
+        assert_owner_or_404(user, _case_owner_user_id(request, case_id))
+        return
+    raise NodeExecutionError(c.ErrorCode.artifact_missing, "Artifact is not downloadable.")
+
+
+def _case_owner_user_id(request: Request, case_id: str) -> str | None:
+    session_factory = getattr(request.app.state, "sqlalchemy_session_factory", None)
+    if session_factory is not None:
+        with session_factory() as session:
+            case = session.get(CaseRow, case_id)
+            return case.owner_user_id if case is not None else None
+    case = repository(request).cases.get(case_id)
+    return getattr(case, "owner_user_id", None)
+
+
+def _artifact_download_content_type(artifact: c.Artifact) -> str:
+    if artifact.kind == c.ArtifactKind.cover_image:
+        return mimetypes.guess_type(Path(urlsplit(artifact.uri or "").path).name)[0] or "image/jpeg"
+    if _is_video_download_artifact(artifact):
+        return (
+            getattr(artifact.media_info, "mime_type", None)
+            or mimetypes.guess_type(Path(urlsplit(artifact.uri or "").path).name)[0]
+            or "video/mp4"
+        )
+    return "application/zip"
+
+
+def _artifact_download_disposition(artifact: c.Artifact) -> str:
+    return "inline" if artifact.kind == c.ArtifactKind.cover_image or _is_video_download_artifact(artifact) else "attachment"
 
 
 def _artifact_local_path(request: Request, artifact_ref: c.ArtifactRef) -> Path:

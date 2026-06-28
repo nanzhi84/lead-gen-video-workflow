@@ -1,5 +1,5 @@
 import { Loader2, RotateCcw, Save, Send, Trash2, Wand2 } from "lucide-react";
-import type { PublishBatch, PublishBatchItem, PublishPackage } from "../../api/client";
+import type { ArtifactRef, PublishBatch, PublishBatchItem, PublishPackage } from "../../api/client";
 import { StatusPill } from "../ui/StatusPill";
 import { CoverPanel } from "./CoverPanel";
 import { PlatformChips } from "./PlatformChips";
@@ -19,6 +19,7 @@ import {
 type DraftEditorStepProps = {
   batch: PublishBatch;
   packagesById: Map<string, PublishPackage>;
+  originalCoversByPackageId: Map<string, ArtifactRef>;
   drafts: Record<string, PublishDraft>;
   defaults: BatchDefaults;
   activeItemId: string | null;
@@ -36,6 +37,7 @@ type DraftEditorStepProps = {
 export function DraftEditorStep({
   batch,
   packagesById,
+  originalCoversByPackageId,
   drafts,
   defaults,
   activeItemId,
@@ -72,8 +74,8 @@ export function DraftEditorStep({
 
   return (
     <section className="grid gap-4">
-      <details className="card grid gap-4" open>
-        <summary className="cursor-pointer list-none text-lg font-semibold text-text-primary [&::-webkit-details-marker]:hidden">
+      <details className="card grid gap-4 px-6 pb-6 !pt-8" open>
+        <summary className="flex min-h-9 cursor-pointer list-none items-center text-lg font-semibold leading-none text-text-primary [&::-webkit-details-marker]:hidden">
           批次默认设置
         </summary>
         <div className="grid gap-4 border-t border-border/70 pt-4">
@@ -231,7 +233,7 @@ export function DraftEditorStep({
               item={activeItem}
               draft={activeDraft}
               publishPackage={packagesById.get(activeItem.publish_package_id)}
-              onDraftChange={(patch) => onDraftChange(activeItem.id, patch)}
+              originalCoverArtifact={originalCoversByPackageId.get(activeItem.publish_package_id)}
               onCoverArtifact={onCoverArtifact}
             />
           </div>

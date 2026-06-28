@@ -86,7 +86,7 @@ def _safe_frame_cover(ctx: NodeContext, video):
     ffmpeg extraction failure on a readable file carries a render error code and
     must NOT be hidden (no silent degrade), so it propagates and fails the node."""
     try:
-        return _frame_cover(ctx, video)
+        return _frame_cover(ctx, video, reason="seedance_frame")
     except NodeExecutionError as exc:
         if exc.error.code == ErrorCode.artifact_missing:
             return None

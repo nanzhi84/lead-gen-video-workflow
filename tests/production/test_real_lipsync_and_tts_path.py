@@ -23,6 +23,7 @@ from packages.core.contracts import (
     ProviderOptionsSchemaRef,
     ProviderProfile,
     RunStatus,
+    WarningCode,
     WorkflowRun,
 )
 from packages.core.storage.object_store import LocalObjectStore
@@ -275,7 +276,7 @@ def test_real_tts_subtitle_becomes_primary_narration_source(tmp_path, media_fixt
     assert narration["units"][1]["end"] == 2.0
 
 
-def test_real_heygem_failure_does_not_fall_back_to_videoretalk(tmp_path, media_fixture_factory, monkeypatch):
+def test_real_heygem_failure_falls_back_to_videoretalk(tmp_path, media_fixture_factory, monkeypatch):
     adapter, gateway, secret_store, object_store = _adapter(tmp_path)
     monkeypatch.setattr(
         "packages.production.pipeline.digital_human.get_object_store", lambda: object_store
@@ -299,12 +300,16 @@ def test_real_heygem_failure_does_not_fall_back_to_videoretalk(tmp_path, media_f
     ctx = NodeContext(adapter=adapter, run=_run(), node_run=_node_run(), state=state)
     from packages.production.pipeline import nodes
 
-    with pytest.raises(NodeExecutionError) as exc:
-        nodes.lipsync.run(ctx)
+    output = nodes.lipsync.run(ctx)
 
-    assert exc.value.error.code == ErrorCode.provider_remote_failed
-    assert exc.value.error.message == "boom"
-    assert videoretalk.calls == []
+    assert output.status == NodeStatus.degraded
+    assert output.warnings == [WarningCode.lipsync_fallback_used]
+    assert [notice.code for notice in output.degradations] == [WarningCode.lipsync_fallback_used]
+    assert videoretalk.calls == ["run_1:nr_lipsync:lipsync:videoretalk.real"]
+    report = next(artifact for artifact in output.artifacts if artifact.kind == ArtifactKind.lipsync_report)
+    assert report.payload["fallback_from"] == "heygem.real"
+    assert report.payload["fallback_to"] == "videoretalk.real"
+    assert report.payload["fallback_reason"] == "boom"
 
 
 def test_real_lipsync_call_carries_request_timeout_minutes(tmp_path, media_fixture_factory, monkeypatch):

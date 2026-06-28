@@ -155,6 +155,25 @@ class SqlAlchemyProviderRuntimeRepository(BaseRepository):
             row = session.get(ProviderProfileRow, profile_id)
             return provider_profile_row_to_contract(row) if row is not None else None
 
+    def list_profiles(
+        self,
+        *,
+        provider_id: str | None = None,
+        capability: str | None = None,
+        environment: str | None = None,
+        limit: int = 200,
+    ) -> list[ProviderProfile]:
+        with self.session_factory() as session:
+            statement = select(ProviderProfileRow)
+            if provider_id:
+                statement = statement.where(ProviderProfileRow.provider_id == provider_id)
+            if capability:
+                statement = statement.where(ProviderProfileRow.capability == capability)
+            if environment:
+                statement = statement.where(ProviderProfileRow.environment == environment)
+            statement = statement.order_by(ProviderProfileRow.id.asc()).limit(limit)
+            return [provider_profile_row_to_contract(row) for row in session.scalars(statement)]
+
     def list_price_items(self) -> list[ProviderPriceItem]:
         with self.session_factory() as session:
             statement = select(ProviderPriceItemRow)

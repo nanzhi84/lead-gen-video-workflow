@@ -18,7 +18,7 @@ def test_run_detail_places_jianying_export_before_developer_details() -> None:
     assert "EditorHandoffActions" not in developer_section
     assert "交接包" not in developer_section
     assert '<h4 className="text-base font-semibold text-text-primary">剪映工程包</h4>' not in modal
-    assert "videoDownloadUrl={videoUrl}" in modal
+    assert "finishedVideoId={finishedVideo?.id}" in modal
 
 
 def test_jianying_export_action_is_the_only_frontstage_editor_package() -> None:
@@ -30,7 +30,8 @@ def test_jianying_export_action_is_the_only_frontstage_editor_package() -> None:
     assert "导出交接包" not in actions
     assert "编辑交接包" not in actions
     assert "下载剪映工程包" in actions
-    assert "下载 MP4" in actions
+    assert "下载发布包" in actions
+    assert "api.finishedVideos.download" in actions
 
 
 def test_jianying_export_uses_signed_download_url_and_auto_downloads() -> None:
@@ -38,7 +39,8 @@ def test_jianying_export_uses_signed_download_url_and_auto_downloads() -> None:
 
     assert "triggerDownload(value.download_url" in actions
     assert "packageResult?.download_url" in actions
-    assert "package_uri" not in actions.split("href={", 1)[1].split("}", 1)[0]
+    assert "href={packageResult" not in actions
+    assert "href={videoUrl" not in actions
 
 
 def test_jianying_action_bar_has_no_result_card_or_summary_title() -> None:

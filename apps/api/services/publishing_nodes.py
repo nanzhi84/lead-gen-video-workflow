@@ -9,8 +9,10 @@ from __future__ import annotations
 
 from fastapi import Request
 
-from apps.api.common import object_store, repository
+from apps.api.common import object_store, publishing_repository, repository
 from packages.core import contracts as c
+from packages.core.storage.database import ArtifactRow
+from packages.core.storage.repository import new_id
 from packages.publishing import (
     PublishCopyContext,
     generate_publish_copy,
@@ -19,6 +21,7 @@ from packages.publishing import (
 )
 from packages.publishing.copy_llm import build_copy_llm_chat
 from packages.publishing.cover_node import CoverArtifact
+from packages.publishing.sqlalchemy_mappers import artifact_ref_from_row
 
 
 def resolve_copy_context(repo, package: c.PublishPackage | None, item) -> PublishCopyContext:
@@ -97,6 +100,27 @@ def run_copy_node(
 
 
 def _cover_artifact_writer(request: Request, *, run_id: str | None = None):
+    session_factory = getattr(request.app.state, "sqlalchemy_session_factory", None)
+    if publishing_repository(request) is not None and session_factory is not None:
+        def _write(*, uri: str, sha256: str, case_id: str | None) -> c.ArtifactRef:
+            with session_factory() as session:
+                artifact = ArtifactRow(
+                    id=new_id("art"),
+                    case_id=case_id,
+                    run_id=run_id,
+                    kind=c.ArtifactKind.cover_image.value,
+                    uri=uri,
+                    sha256=sha256,
+                    payload_schema="uri-only",
+                    payload=None,
+                )
+                session.add(artifact)
+                session.commit()
+                session.refresh(artifact)
+                return artifact_ref_from_row(artifact)
+
+        return _write
+
     repo = repository(request)
 
     def _write(*, uri: str, sha256: str, case_id: str | None) -> c.ArtifactRef:

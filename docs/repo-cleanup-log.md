@@ -389,6 +389,30 @@ Evidence:
 - Before this batch, `scripts/ci_gate.sh` failed before running tests at `timeout -k 5 600 ...`.
 - After this batch, `scripts/ci_gate.sh` ran through default pytest, OpenAPI/schema drift checks, frontend build, DB integration, and Temporal integration using a temporary database.
 
+### Batch 12: frontend object-helper blind-spot cleanup
+
+Files changed:
+
+- `apps/web/src/api/r6.ts`
+- `apps/web/src/routes.ts`
+- `apps/web/CLAUDE.md`
+- `docs/repo-cleanup-log.md`
+- `docs/repo-cleanup-inventory.md`
+- `docs/repo-cleanup-pr.md`
+
+Changes:
+
+- Removed unused `caseAgentApi.drafts`, `caseAgentApi.adoptDraft`, and `editorHandoffApi.createEditorHandoff` frontend helper methods. The backend routes and generated OpenAPI contract remain intact.
+- Removed unused frontend route-helper object properties `routePatterns.overview` and `routes.caseRuns`; the actual `/studio/:caseId/runs` compatibility route remains in `App.tsx`.
+- Removed stale live web-guide text claiming `/publish-center*` is currently registered as a compatibility redirect.
+
+Evidence:
+
+- Full frontend Knip was clean but does not report individual unused object properties, so a targeted property-reference scan was needed.
+- `rg` found no callers for `caseAgentApi.drafts`, `caseAgentApi.adoptDraft`, `editorHandoffApi.createEditorHandoff`, `routePatterns.overview`, or `routes.caseRuns` outside their definitions.
+- `tests/frontend/test_jianying_draft_actions.py` explicitly asserts `createEditorHandoff` is no longer part of the frontstage editor-package action.
+- `App.tsx` and `routes.ts` contain no `/publish-center*` route; current mentions outside the live web guide are historical milestone/audit records or React Query cache keys.
+
 ## Validation Log
 
 Baseline validation is recorded above. Targeted validation will be appended after each cleanup batch.
@@ -505,6 +529,17 @@ After Batch 11:
 | `env -u ... PYTHON_BIN="$(pwd)/.venv/bin/python" CUTAGENT_DATABASE_URL=... CUTAGENT_TEMPORAL_TASK_QUEUE=... scripts/ci_gate.sh` | pass | Full local gate passed on macOS using temporary DB `cutagent_ci_gate_c5a6_0628`; covered default pytest, OpenAPI/schema drift, frontend `npm ci` + build, DB integration, and Temporal integration. |
 | Temporary DB cleanup | pass | Dropped `cutagent_ci_gate_c5a6_0628` after validation. |
 
+After Batch 12:
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `cd apps/web && npx tsc -p tsconfig.json --noEmit --noUnusedLocals --noUnusedParameters` | pass | Route/API helper pruning leaves no TypeScript unused-symbol errors. |
+| `cd apps/web && npm run build` | pass | Frontend production build passed after helper pruning. |
+| `cd apps/web && npx --yes knip --reporter compact` | pass | Full frontend Knip scan remains clean. |
+| `uv run --extra dev python -m pytest -q tests/frontend/test_jianying_draft_actions.py` | pass | `4` frontend probe tests passed; confirms the current UI stays on Jianying draft actions instead of the old editor-handoff action. |
+| Targeted frontend helper/live-doc reference scans | pass | No references remain for the removed object helper properties, and no live docs still claim `/publish-center*` is registered. |
+| `npx --yes jscpd apps packages scripts ...` with generated API/schema exclusions | pass | Runtime source scan reported zero clones across `380` files after excluding generated OpenAPI/schema files. |
+
 Final validation:
 
 | Command | Result | Notes |
@@ -524,6 +559,13 @@ Final validation:
 | `scripts/ci_gate.sh` with `PYTHON_BIN=.venv/bin/python` | pass | Re-run after Batch 11 on a clean temporary DB; macOS fallback removed the previous missing-`timeout` blocker. |
 | `uv run --extra dev ruff check .` | pass | Re-run after Batch 11. |
 | `git diff --check` | pass | Re-run after Batch 11. |
+| `cd apps/web && npx tsc -p tsconfig.json --noEmit --noUnusedLocals --noUnusedParameters` | pass | Re-run after Batch 12. |
+| `cd apps/web && npm run build` | pass | Re-run after Batch 12. |
+| `cd apps/web && npx --yes knip --reporter compact` | pass | Re-run after Batch 12. |
+| `uv run --extra dev python -m pytest -q tests/frontend/test_jianying_draft_actions.py` | pass | Re-run after Batch 12. |
+| `git diff --check` | pass | Re-run after Batch 12. |
+| `uv run --extra dev ruff check .` | pass | Re-run after Batch 12. |
+| `env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy uv run --extra dev python -m pytest -q` | pass | Re-run after Batch 12; full default suite passed. |
 | `CUTAGENT_RUN_DB_TESTS=1 CUTAGENT_STORAGE_BACKEND=sqlalchemy CUTAGENT_DATABASE_URL=postgresql+psycopg://cutagent:cutagent@localhost:55432/cutagent .venv/bin/python scripts/bootstrap_database.py` | pass | Existing local dev DB migrated to 0022 but inserted 0 seed rows; not used for final integration verdict because it was not a clean CI DB. |
 | Same integration command against existing local dev DB | environment failure | Failed on admin login because the existing local DB had non-CI auth state; classified as dirty local data, not a code regression. |
 | `CREATE DATABASE cutagent_ci_cleanup_8e2d` then bootstrap against that DB | pass | Fresh temporary DB migrated from empty to 0022 and inserted 118 seed rows plus 3 demo media source artifacts. |
@@ -549,6 +591,8 @@ Final validation:
 - Command error during Batch 10 stale-reference search: a shell command included unescaped backticks, so zsh attempted command substitution and scanned noisy output. Re-run with single-quoted patterns was used for the actual `ci_gate.sh` check.
 - Reviewed deptry findings during Batch 10: no dependency was removed because reported issues were package/module aliasing (`argon2`, `cv2`), expected runtime/tool dependencies (`python-multipart`, `pytest`, `ruff`), transitive `botocore`, or explicitly optional `fontTools`.
 - Resolved by Batch 11: direct `scripts/ci_gate.sh` on this macOS host no longer fails for missing GNU `timeout`; it falls back to a Python timeout wrapper and the full local gate passed.
+- Command error during Batch 12 live-doc stale search: one shell command again included unescaped backticks in a pattern, so zsh attempted command substitution. Corrected searches used quoted patterns and are recorded as passing.
+- Discovery-only false positive during Batch 12: an initial `jscpd` run scanned generated `apps/web/src/api/openapi.json` and `schema.d.ts`, reporting generated-contract clones. Re-run with generated API/schema exclusions found zero runtime clones.
 - Environment failure during final OpenAPI validation: first export inherited local SOCKS proxy env and failed in `httpx`; rerun with proxy vars unset passed.
 - Environment failure during DB integration on the existing dev DB: local auth seed state was dirty (`admin@local.cutagent` login 401); clean temporary DB integration passed.
 - Passing baseline: default pytest, frontend build, OpenAPI JSON drift check, generated TypeScript schema drift check.
@@ -566,6 +610,8 @@ Final validation:
 - Round 7: repeated the post-Batch-10 set. It again found clean full/prod Knip, no vulture output, no orphan sample env vars, no tracked build/cache artifacts, and zero runtime clones.
 - Round 8: completed after Batch 11. Full/prod frontend Knip scans remained clean, vulture at confidence 80 returned no output, tracked build-artifact scan had no matches, and low-threshold runtime `jscpd` reported zero clones across `373` files.
 - Round 9: repeated the post-Batch-11 set and added `.env.example` reverse scanning. It again found clean full/prod Knip, no vulture output, no orphan sample env vars, and zero runtime clones.
+- Round 10: completed after Batch 12. Targeted object-helper and live-doc scans found no references to removed helper properties or stale `/publish-center*` live-doc text; production Knip and vulture confidence 80 remained clean.
+- Round 11: repeated after Batch 12 with full Knip, tracked build-artifact scan, `.env.example` reverse scanning, and generated-excluded `jscpd`; no new candidates were found and runtime clone scan reported zero clones across `380` files.
 
 ## Adversarial Self Review
 
@@ -573,11 +619,12 @@ Final validation:
 - Rechecked generated API files after export/generate; no drift.
 - Rechecked that no tracked build/cache artifacts are present.
 - Rechecked `apps/web/package.json`'s `export:openapi` script after proving the old bare-`python` command unsafe; the package script now runs successfully and Knip is clean.
+- Rechecked removed frontend route/API helper properties with direct reference scans, TypeScript unused-symbol checking, Knip, build, and frontend probe tests; the backend endpoints and generated OpenAPI contracts were not changed.
 - Kept migrations, generated clients, Temporal registration, provider registries, seed scripts, fixtures, manual DB/OSS scripts, and external deployment hooks untouched unless there was direct evidence.
 
 ## Final Rescan
 
-- Final rescan completed after full validation, after Batch 8, after Batch 9, through two consecutive post-Batch-10 discovery rounds, and through two consecutive post-Batch-11 discovery rounds.
+- Final rescan completed after full validation, after Batch 8, after Batch 9, through two consecutive post-Batch-10 discovery rounds, through two consecutive post-Batch-11 discovery rounds, and through two consecutive post-Batch-12 discovery rounds.
 
 ## Remaining Risks
 

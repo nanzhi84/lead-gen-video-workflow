@@ -6,7 +6,7 @@ Maintenance: deep repository hygiene cleanup
 
 ## Executive Summary
 
-This PR performs a behavior-preserving deep hygiene pass across the repo. It fixes stale docs/config references, resolves baseline lint failures, deletes obsolete frontend wrappers and contract probe files, removes production-unused frontend exports, consolidates duplicate runtime helpers, completes Settings/env sample coverage, cleans static-dead test parameters, hardens the frontend OpenAPI export entrypoint, makes the local CI gate macOS-compatible, and records the audit/validation trail.
+This PR performs a behavior-preserving deep hygiene pass across the repo. It fixes stale docs/config references, resolves baseline lint failures, deletes obsolete frontend wrappers and contract probe files, removes production-unused frontend exports and object-helper properties, consolidates duplicate runtime helpers, completes Settings/env sample coverage, cleans static-dead test parameters, hardens the frontend OpenAPI export entrypoint, makes the local CI gate macOS-compatible, and records the audit/validation trail.
 
 The aggressive second pass intentionally added a few small canonical helpers, but removed substantially more repeated implementation: tracked changes after that pass were roughly `+166/-1215`, with four new helper files totaling 333 lines.
 
@@ -49,6 +49,7 @@ The aggressive second pass intentionally added a few small canonical helpers, bu
 - `apps/web/src/App.tsx`
 - `apps/web/src/api/client.ts`
 - `apps/web/src/api/r6.ts`
+- `apps/web/src/routes.ts`
 - `apps/web/src/components/AppShell.tsx`
 - `apps/web/src/components/RequireAuth.tsx`
 - `apps/web/src/components/account/AdminMembersPanel.tsx`
@@ -149,6 +150,7 @@ None.
 - Fixed README prose to reference `scripts/ci_gate.sh` instead of a nonexistent root `ci_gate.sh`.
 - Updated live test docs so the full gate script owns timeout protection instead of asking macOS users to invoke GNU `timeout` directly.
 - Removed stale `apps/web/CLAUDE.md` references to deleted typecheck probes.
+- Removed stale `apps/web/CLAUDE.md` text that claimed `/publish-center*` is still a registered compatibility redirect.
 
 ## Validation Commands Run
 
@@ -160,6 +162,7 @@ None.
 - `(cd apps/web && npm run export:openapi)`
 - `git diff --exit-code -- apps/web/src/api/openapi.json apps/web/src/api/schema.d.ts`
 - `(cd apps/web && npx --yes knip --reporter compact)`
+- `(cd apps/web && npx tsc -p tsconfig.json --noEmit --noUnusedLocals --noUnusedParameters)`
 - `(cd apps/web && npx --yes knip --production --reporter compact && npx tsc -p tsconfig.json --noEmit --noUnusedLocals --noUnusedParameters && npm run build)`
 - `uvx --from vulture vulture apps packages scripts tests --min-confidence 90 --exclude 'apps/web/node_modules,apps/web/dist,.venv'`
 - `bash -c 'set -euo pipefail; set -a; source .env.example; set +a; test "$CUTAGENT_STORAGE_BACKEND" = sqlalchemy; test "$CUTAGENT_PUBLISH_ADAPTER" = xiaovmao.cdp'`
@@ -168,9 +171,11 @@ None.
 - Deptry scan reviewed for dependency issues; no dependency removal accepted because findings were aliases, runtime/tool deps, transitive deps, or optional fallbacks.
 - `scripts/ci_gate.sh` on macOS with `PYTHON_BIN=.venv/bin/python`, a clean temporary database, and local Postgres/MinIO/Temporal infra.
 - Targeted Python suites for imports, mappers, BGM/loudness, timeline/export nodes, digital-human runtime, workflow reuse, and frontend probes.
+- `uv run --extra dev python -m pytest -q tests/frontend/test_jianying_draft_actions.py`
 - DB integration tests on clean temporary database `cutagent_ci_cleanup_8e2d`.
 - Temporal tests against the same clean DB plus shared MinIO durable/ephemeral buckets.
-- Runtime source duplicate scan with `jscpd --min-lines 20 --min-tokens 120`, excluding docs/tests/generated/migrations.
+- Runtime source duplicate scan with `jscpd --min-lines 20 --min-tokens 120`, excluding docs/tests/generated/migrations and generated OpenAPI/schema files.
+- Frontend route/API helper property-reference scans for object properties that Knip/tsc do not report individually.
 
 ## Tests Passing
 
@@ -186,6 +191,7 @@ None.
 - Full local `scripts/ci_gate.sh` on macOS using the Python timeout fallback.
 - DB integration tests on a clean temporary database.
 - Temporal integration tests with shared MinIO durable + ephemeral buckets.
+- Frontend probe tests for the Jianying draft action bar after removing the old unused editor-handoff helper.
 
 ## Known Preexisting Failures
 
@@ -200,6 +206,7 @@ None.
 - The removed frontend typecheck probes had no package/CI/import references and were covered by `tsc`, frontend build, `knip`, and full pytest.
 - The `export:openapi` package script is retained and fixed; Knip's `uv` binary is ignored narrowly because it is a repository-level Python tool, not an npm dependency.
 - The `ci_gate.sh` timeout fallback only affects hosts without GNU `timeout`/`gtimeout`; Linux CI continues to use GNU `timeout`.
+- Removed frontend route/API object helper properties were checked with targeted `rg`, `tsc --noUnused*`, Knip, build, and frontend probe tests; backend routes and generated OpenAPI contracts were left intact.
 - Mapper/helper consolidations were validated with targeted mapper/import/media/workflow tests plus full pytest.
 - A first full pytest caught an unsafe `defaultForm` export deletion; the test now uses the public `loadStoredForm()` entry and the full suite passes.
 

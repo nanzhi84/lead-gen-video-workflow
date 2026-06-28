@@ -34,6 +34,12 @@ Candidates start as observations. They move to actionable cleanup only after at 
 
 - Removed production-unused frontend exports surfaced by `knip --production`, except where tests were moved to a public entrypoint instead of retaining a production-unused export.
 - Removed duplicate/unused API type exports from `apps/web/src/api/client.ts` and `apps/web/src/api/r6.ts`.
+- Removed frontend object-helper dead properties that Knip/tsc cannot report individually:
+  - `caseAgentApi.drafts`
+  - `caseAgentApi.adoptDraft`
+  - `editorHandoffApi.createEditorHandoff`
+  - `routePatterns.overview`
+  - `routes.caseRuns`
 
 ## Unused Dependencies
 
@@ -79,6 +85,7 @@ No accepted candidates yet.
 - `README.md`: prose referred to `ci_gate.sh` without the `scripts/` prefix even though the root file does not exist.
 - `README.md` / `tests/CLAUDE.md`: default local pytest command assumed GNU `timeout`, which is absent on this macOS host. The full gate script now owns timeout protection, and default docs use plain `python -m pytest -q`.
 - `apps/web/CLAUDE.md`: referenced stale `src/contracts/*.typecheck.ts` frontend probe files after those probes were removed.
+- `apps/web/CLAUDE.md`: still claimed `/publish-center*` is a current compatibility redirect, but `App.tsx` / `routes.ts` no longer register that route; only historical docs and React Query cache keys retain the string.
 - `AGENTS.md`, `CLAUDE.md`, `apps/api/CLAUDE.md`, `apps/web/CLAUDE.md`: live contract-regeneration guidance now points at the working `uv run --extra dev python scripts/export_openapi.py` path.
 - `docs/ROADMAP.md`: current milestone discipline assigned Codex worktrees to `.claude/worktrees`; current Codex desktop worktrees use `.codex/worktrees/<id>/<repo>`.
 - `.env.example`: preamble said every variable maps to `Settings`; render/ephemeral debug switches are valid but read directly by their runtime consumers.

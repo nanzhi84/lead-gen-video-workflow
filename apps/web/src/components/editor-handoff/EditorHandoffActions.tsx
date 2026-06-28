@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "../../api/client";
 import { editorHandoffApi, type JianyingDraftResult } from "../../api/r6";
 import { toDisplayUrl } from "../../lib/url";
-import { useToast } from "../Toast";
+import { useToast } from "../ui/Toast";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 
 type Props = {

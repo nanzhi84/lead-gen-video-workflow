@@ -40,7 +40,7 @@ export type FormState = {
 
 export const STORAGE_KEY = "m6ar_studio_create_preferences_v1";
 
-export const defaultForm: FormState = {
+const defaultForm: FormState = {
   title: "",
   script: "",
   scriptVersionId: null,

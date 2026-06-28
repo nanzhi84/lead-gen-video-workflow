@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, Loader2, Scissors } from "lucide-react";
 import { useEffect, useState } from "react";
+import { api } from "../../api/client";
 import { editorHandoffApi, type JianyingDraftResult } from "../../api/r6";
 import { toDisplayUrl } from "../../lib/url";
 import { useToast } from "../Toast";
@@ -8,15 +9,15 @@ import { ConfirmDialog } from "../ui/ConfirmDialog";
 
 type Props = {
   finishedVideoId?: string | null;
-  videoDownloadUrl?: string | null;
   compact?: boolean;
 };
 
-export function EditorHandoffActions({ finishedVideoId, videoDownloadUrl, compact = false }: Props) {
+export function EditorHandoffActions({ finishedVideoId, compact = false }: Props) {
   const toast = useToast();
   const queryClient = useQueryClient();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
+  const [isDownloadingPublishPackage, setIsDownloadingPublishPackage] = useState(false);
   const [result, setResult] = useState<JianyingDraftResult | null>(null);
   const queryKey = ["finished-video", finishedVideoId, "jianying-draft-latest"];
   const latest = useQuery({
@@ -60,16 +61,37 @@ export function EditorHandoffActions({ finishedVideoId, videoDownloadUrl, compac
     setConfirmOpen(true);
   }
 
-  if (!finishedVideoId && !videoDownloadUrl) return null;
+  async function handlePublishPackageDownload() {
+    if (!finishedVideoId) return;
+    setIsDownloadingPublishPackage(true);
+    try {
+      const response = await api.finishedVideos.download(finishedVideoId);
+      const downloaded = triggerDownload(response.url, `${finishedVideoId}_publish_package.zip`);
+      if (!downloaded) {
+        toast.error("发布包下载地址不可用");
+        return;
+      }
+      toast.success("发布包已生成", "包含标题、封面和视频。");
+    } catch (error) {
+      toast.error("生成发布包失败", error);
+    } finally {
+      setIsDownloadingPublishPackage(false);
+    }
+  }
+
+  if (!finishedVideoId) return null;
 
   return (
     <div className={compact ? "flex flex-wrap items-center gap-2" : "flex flex-wrap items-center gap-2"}>
-      {videoDownloadUrl ? (
-        <a className="btn-secondary compactButton text-sm no-underline" href={videoDownloadUrl} target="_blank" rel="noopener noreferrer" download>
-          <Download className="h-4 w-4" />
-          <span>下载 MP4</span>
-        </a>
-      ) : null}
+      <button
+        className="btn-secondary compactButton text-sm"
+        type="button"
+        disabled={isDownloadingPublishPackage}
+        onClick={() => void handlePublishPackageDownload()}
+      >
+        {isDownloadingPublishPackage ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+        <span>下载发布包</span>
+      </button>
       <button
         className={`${packageResult ? "btn-secondary" : "btn-primary"} compactButton`}
         type="button"

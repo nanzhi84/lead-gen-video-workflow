@@ -109,6 +109,9 @@ def test_generate_cover_uses_frame_fallback_without_ai(tmp_path):
     detail = client.get(f"/api/publish/batches/{batch_id}").json()
     item = next(i for i in detail["items"] if i["id"] == item_id)
     assert item["cover_artifact_id"] == body["cover_artifact"]["artifact_id"]
+    packages = client.get("/api/publish/packages").json()["items"]
+    package = next(entry for entry in packages if entry["id"] == item["publish_package_id"])
+    assert package["cover_artifact"]["artifact_id"] == body["cover_artifact"]["artifact_id"]
 
 
 def test_preview_cover_frame_extracts_frame(tmp_path):
@@ -123,6 +126,20 @@ def test_preview_cover_frame_extracts_frame(tmp_path):
     body = response.json()
     assert body["frame_time_sec"] == 1.0
     assert body["frame_artifact"]["artifact_id"]
+    preview = client.get(f"/api/artifacts/{body['frame_artifact']['artifact_id']}/download")
+    assert preview.status_code == 200, preview.text
+    assert preview.headers["content-type"].startswith("image/")
+
+
+def test_publish_video_artifact_download_is_inline_video(tmp_path):
+    _login_admin()
+    artifact_id = _upload_publish_video(tmp_path)
+
+    response = client.get(f"/api/artifacts/{artifact_id}/download")
+
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith("video/")
+    assert response.headers["content-disposition"].startswith("inline;")
 
 
 def test_platform_accounts_reports_xiaovmao_unavailable_without_fabricating_accounts(tmp_path, monkeypatch):

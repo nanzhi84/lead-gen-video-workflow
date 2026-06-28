@@ -53,7 +53,13 @@ class SqlAlchemyPublishingRepository(BaseRepository):
     def list_packages(self, *, limit: int = 50) -> list[PublishPackage]:
         with self.session_factory() as session:
             statement = select(PublishPackageRow).order_by(PublishPackageRow.updated_at.desc()).limit(limit)
-            return [publish_package_row_to_contract(row) for row in session.scalars(statement)]
+            rows = list(session.scalars(statement))
+            changed = False
+            for row in rows:
+                changed = self._backfill_package_cover_from_finished(session, row) or changed
+            if changed:
+                session.commit()
+            return [publish_package_row_to_contract(row) for row in rows]
 
     def create_package(self, payload: CreatePublishPackageRequest) -> PublishPackage:
         if payload.source_finished_video_id:
@@ -130,6 +136,11 @@ class SqlAlchemyPublishingRepository(BaseRepository):
                     row.cover_artifact = artifact_ref_from_row(artifact).model_dump(mode="json")
                 else:
                     row.cover_artifact = None
+                    for item in session.scalars(
+                        select(PublishBatchItemRow).where(PublishBatchItemRow.publish_package_id == package_id)
+                    ):
+                        item.cover_artifact_id = None
+                        item.updated_at = utcnow()
             row.updated_at = utcnow()
             session.commit()
             session.refresh(row)
@@ -177,6 +188,7 @@ class SqlAlchemyPublishingRepository(BaseRepository):
                 package = session.get(PublishPackageRow, package_id)
                 if package is None:
                     raise NodeExecutionError(ErrorCode.artifact_missing, "Publish package is required.")
+                self._backfill_package_cover_from_finished(session, package)
                 packages[package_id] = package
 
             batch = PublishBatchRow(id=new_id("pub_batch"), status="draft")
@@ -204,6 +216,16 @@ class SqlAlchemyPublishingRepository(BaseRepository):
             session.commit()
             session.refresh(batch)
             return publish_batch_row_to_contract(session, batch)
+
+    def _backfill_package_cover_from_finished(self, session, package: PublishPackageRow) -> bool:
+        if package.cover_artifact or not package.source_finished_video_id:
+            return False
+        finished = session.get(FinishedVideoRow, package.source_finished_video_id)
+        if finished is None or not finished.cover_artifact:
+            return False
+        package.cover_artifact = ArtifactRef.model_validate(finished.cover_artifact).model_dump(mode="json")
+        package.updated_at = utcnow()
+        return True
 
     def delete_batch(self, batch_id: str) -> bool:
         with self.session_factory() as session:

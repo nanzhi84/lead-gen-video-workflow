@@ -150,6 +150,30 @@ def seed_real_provider_configuration(repository) -> None:
             },
         ),
         ProviderProfile(
+            id="volcengine.seedream.prod",
+            provider_id="volcengine.seedream",
+            model_id="doubao-seedream-5-0-260128",
+            capability="image.generate",
+            display_name="Volcengine Ark Seedream Production",
+            environment="prod",
+            # Ark Seedream and Seedance share the same Ark AK/SK; the provider
+            # exchanges it for a temporary OpenAI-compatible API key at runtime.
+            secret_ref="volcengine_seedance_prod.secret",
+            concurrency_key="volcengine:image.generate",
+            timeout_sec=180,
+            options_schema_ref=ProviderOptionsSchemaRef(schema_id="provider.image.options"),
+            default_options={
+                "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+                "auth_type": "auto",
+                "project_name": "default",
+                "temporary_api_key_ttl_seconds": 604800,
+                "size": "1440x2560",
+                "response_format": "url",
+                "watermark": False,
+                "n": 1,
+            },
+        ),
+        ProviderProfile(
             id="openai.image.prod",
             provider_id="openai.image",
             model_id="gpt-image-2-all",
@@ -218,6 +242,7 @@ def seed_real_provider_configuration(repository) -> None:
                 "resolution": "720p",
                 "duration": 15,
                 "param_style": "json_fields",
+                "temporary_api_key_ttl_seconds": 604800,
                 "poll_interval": 8,
                 "poll_max_attempts": 180,
             },
@@ -315,6 +340,9 @@ def _seed_price_catalogs(repository) -> None:
         ),
         ProviderPriceCatalog(id="price_openai_image_prod", provider_id="openai.image", status="published"),
         ProviderPriceCatalog(
+            id="price_volcengine_seedream_prod", provider_id="volcengine.seedream", status="published"
+        ),
+        ProviderPriceCatalog(
             id="price_runninghub_heygem_prod", provider_id="runninghub.heygem", status="published"
         ),
         ProviderPriceCatalog(
@@ -410,6 +438,17 @@ def _seed_price_catalogs(repository) -> None:
         catalog_id="price_openai_image_prod",
         provider_id="openai.image",
         model_id="gpt-image-2-all",
+        capability_id="image.generate",
+        unit="call",
+        unit_price=Money(currency="CNY", amount=Decimal("0.4")),
+    )
+    # Seedream pricing is account-side and can be tuned in the operator price
+    # catalog; keep the existing image-call estimate until live billing is calibrated.
+    repository.price_items["price_volcengine_seedream_call"] = ProviderPriceItem(
+        id="price_volcengine_seedream_call",
+        catalog_id="price_volcengine_seedream_prod",
+        provider_id="volcengine.seedream",
+        model_id="doubao-seedream-5-0-260128",
         capability_id="image.generate",
         unit="call",
         unit_price=Money(currency="CNY", amount=Decimal("0.4")),

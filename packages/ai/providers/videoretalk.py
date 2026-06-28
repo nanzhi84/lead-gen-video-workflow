@@ -14,6 +14,7 @@ import tempfile
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -91,7 +92,7 @@ class DashScopeVideoReTalkProvider:
         ).content
         artifact = context.store_media_bytes(
             content=video_bytes,
-            filename=Path(str(result_url)).name or "videoretalk-result.mp4",
+            filename=_filename_from_url(result_url, "videoretalk-result.mp4"),
             purpose="generated-video",
             kind=ArtifactKind.video_lipsync,
             call=call,
@@ -245,3 +246,7 @@ class DashScopeVideoReTalkProvider:
             if isinstance(value, str) and value.startswith(("http://", "https://")):
                 return value
         return None
+
+
+def _filename_from_url(url: str, fallback: str) -> str:
+    return Path(urlparse(str(url)).path).name or fallback

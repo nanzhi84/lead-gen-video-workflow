@@ -153,7 +153,7 @@ def defaults_title_should_be_empty() -> str:
 
 
 def defaults_script_from_base() -> str:
-    return "先指出内容生产低效。再展示 Case Memory 如何复用经验。最后推动发布复盘。"
+    return ""
 
 
 def test_batch_request_builds_one_item_per_script() -> None:

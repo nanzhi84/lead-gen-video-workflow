@@ -100,6 +100,26 @@ def test_prompt_group_seed_does_not_change_existing_bindings():
         assert (binding.prompt_template_id, binding.prompt_version_id, binding.node_id) == expected
 
 
+def test_seeded_ai_cover_prompt_targets_9_16():
+    content = Repository().prompt_versions["prompt_cover_ai_cover_v1"].content
+
+    assert "9:16" in content
+    assert "3:4" not in content
+    assert "生成一张" in content
+    assert "不是普通截图贴字" in content
+    assert "由模型自主设计" in content
+    assert "Main headline" not in content
+    assert "selected video frame" not in content
+
+
+def test_seeded_cover_reference_style_prompt_requests_chinese_style_guide():
+    content = Repository().prompt_versions["prompt_cover_reference_style_v1"].content
+
+    assert "中文风格说明" in content
+    assert "商业包装感" in content
+    assert "English style guide" not in content
+
+
 def test_prompt_template_view_exposes_seed_variable_hints():
     repository = Repository()
     template = repository.prompt_templates["prompt_script_ip_persona_fresh_generate"]

@@ -70,7 +70,10 @@ def test_seed_provider_profiles_and_prompt_binding_are_ready_for_workflow():
         "dashscope.vlm.prod",
         "dashscope.llm.prod",
         "runninghub.heygem.prod",
+        "volcengine.seedream.prod",
     } <= profile_ids
+    seedream_profile = next(row for row in rows if row.id == "volcengine.seedream.prod")
+    assert seedream_profile.default_options["size"] == "1440x2560"
     assert "prompt_creative_intent_v1" in prompt_versions
     assert "prompt_case_agent_script_v1" in prompt_versions
     assert "prompt_vlm_annotation_v1" in prompt_versions

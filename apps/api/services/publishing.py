@@ -3,9 +3,11 @@ from __future__ import annotations
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
 
 from apps.api.common import (
     accounts_repository,
@@ -20,6 +22,7 @@ from apps.api.dependencies import not_found_response
 from apps.api.services import publishing_nodes as nodes
 from packages.core import contracts as c
 from packages.core.contracts.state_machines import assert_transition
+from packages.core.storage.database import PublishBatchItemRow, PublishPackageRow
 from packages.core.storage.object_store import parse_object_uri
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
@@ -255,6 +258,17 @@ def patch_publish_package(
         updates["cover_artifact"] = (
             ensure_artifact_ref(request, payload.cover_artifact_id) if payload.cover_artifact_id else None
         )
+        if payload.cover_artifact_id is None:
+            for batch in repository(request).publish_batches.values():
+                items = [
+                    item.model_copy(update={"cover_artifact_id": None, "updated_at": c.utcnow()})
+                    if item.publish_package_id == package_id
+                    else item
+                    for item in batch.items
+                ]
+                repository(request).publish_batches[batch.id] = batch.model_copy(
+                    update={"items": items, "updated_at": c.utcnow()}
+                )
     if updates:
         updates["updated_at"] = c.utcnow()
     updated = package.model_copy(update=updates)
@@ -654,15 +668,100 @@ def generate_publish_copy(
     )
 
 
+def _sql_publish_cover_inputs(batch_id: str, item_id: str, request: Request):
+    session_factory = getattr(request.app.state, "sqlalchemy_session_factory", None)
+    if session_factory is None:
+        raise NodeExecutionError(c.ErrorCode.artifact_missing, "Publishing repository is unavailable.")
+    with session_factory() as session:
+        item = session.scalar(
+            select(PublishBatchItemRow).where(
+                PublishBatchItemRow.batch_id == batch_id,
+                PublishBatchItemRow.id == item_id,
+            )
+        )
+        if item is None:
+            return None, None
+        package = session.get(PublishPackageRow, item.publish_package_id)
+        if package is None:
+            raise NodeExecutionError(c.ErrorCode.artifact_missing, "Publish package is missing.")
+        video_ref = c.ArtifactRef.model_validate(package.video_artifact)
+        item_input = SimpleNamespace(
+            title=item.title,
+            description=item.description,
+            publish_content=item.publish_content,
+            cover_title=item.cover_title,
+            cover_subtitle=item.cover_subtitle,
+            tags=list(item.tags or []),
+        )
+        package_input = SimpleNamespace(
+            id=package.id,
+            case_id=package.case_id,
+            video_uri=video_ref.uri,
+        )
+        return item_input, package_input
+
+
+def _write_sql_cover_result(
+    batch_id: str,
+    item_id: str,
+    cover_artifact: c.ArtifactRef,
+    request: Request,
+) -> None:
+    session_factory = getattr(request.app.state, "sqlalchemy_session_factory", None)
+    if session_factory is None:
+        return
+    with session_factory() as session:
+        item = session.scalar(
+            select(PublishBatchItemRow).where(
+                PublishBatchItemRow.batch_id == batch_id,
+                PublishBatchItemRow.id == item_id,
+            )
+        )
+        if item is None:
+            return
+        package = session.get(PublishPackageRow, item.publish_package_id)
+        item.cover_artifact_id = cover_artifact.artifact_id
+        item.updated_at = c.utcnow()
+        if package is not None:
+            package.cover_artifact = cover_artifact.model_dump(mode="json")
+            package.updated_at = c.utcnow()
+        session.commit()
+
+
+def _generate_publish_cover_sql(
+    batch_id: str,
+    item_id: str,
+    payload: c.GeneratePublishCoverRequest,
+    request: Request,
+) -> c.PublishCoverResult | JSONResponse:
+    item, package = _sql_publish_cover_inputs(batch_id, item_id, request)
+    if item is None or package is None:
+        return not_found_response("Publish item not found")
+    if not package.video_uri:
+        raise NodeExecutionError(c.ErrorCode.artifact_missing, "Publish package has no source video.")
+    cover = nodes.run_cover_node(
+        request,
+        video_uri=package.video_uri,
+        mode=payload.mode,
+        frame_time_sec=payload.frame_time_sec,
+        item=item,
+        case_id=package.case_id,
+    )
+    _write_sql_cover_result(batch_id, item_id, cover.artifact_ref, request)
+    return c.PublishCoverResult(
+        cover_artifact=cover.artifact_ref,
+        source=cover.source,
+        frame_fallback=cover.frame_fallback,
+        degraded_reason=cover.degraded_reason,
+    )
+
+
 def generate_publish_cover(
     batch_id: str, item_id: str, payload: c.GeneratePublishCoverRequest, request: Request
 ) -> c.PublishCoverResult | JSONResponse:
     """Publishing Cover Node endpoint (§28.3 generate-cover)."""
     if publishing_repository(request) is not None:
-        return JSONResponse(
-            status_code=501,
-            content={"detail": "generate-cover is implemented by the local sandbox backend."},
-        )
+        return _generate_publish_cover_sql(batch_id, item_id, payload, request)
     repo = repository(request)
     batch, index, item = _find_item_in_memory(repo, batch_id, item_id)
     if item is None:
@@ -686,6 +785,9 @@ def generate_publish_cover(
         index,
         item.model_copy(update={"cover_artifact_id": cover.artifact_ref.artifact_id, "updated_at": c.utcnow()}),
     )
+    repo.publish_packages[package.id] = package.model_copy(
+        update={"cover_artifact": cover.artifact_ref, "updated_at": c.utcnow()}
+    )
     return c.PublishCoverResult(
         cover_artifact=cover.artifact_ref,
         source=cover.source,
@@ -694,15 +796,32 @@ def generate_publish_cover(
     )
 
 
+def _preview_publish_cover_frame_sql(
+    batch_id: str,
+    item_id: str,
+    payload: c.PreviewCoverFrameRequest,
+    request: Request,
+) -> c.PreviewCoverFrameResult | JSONResponse:
+    item, package = _sql_publish_cover_inputs(batch_id, item_id, request)
+    if item is None or package is None:
+        return not_found_response("Publish item not found")
+    if not package.video_uri:
+        raise NodeExecutionError(c.ErrorCode.artifact_missing, "Publish package has no source video.")
+    frame_ref = nodes.run_preview_frame(
+        request,
+        video_uri=package.video_uri,
+        frame_time_sec=payload.frame_time_sec,
+        case_id=package.case_id,
+    )
+    return c.PreviewCoverFrameResult(frame_artifact=frame_ref, frame_time_sec=payload.frame_time_sec)
+
+
 def preview_publish_cover_frame(
     batch_id: str, item_id: str, payload: c.PreviewCoverFrameRequest, request: Request
 ) -> c.PreviewCoverFrameResult | JSONResponse:
     """Operator source-frame preview endpoint (§28.3 preview-cover-frame)."""
     if publishing_repository(request) is not None:
-        return JSONResponse(
-            status_code=501,
-            content={"detail": "preview-cover-frame is implemented by the local sandbox backend."},
-        )
+        return _preview_publish_cover_frame_sql(batch_id, item_id, payload, request)
     repo = repository(request)
     batch, index, item = _find_item_in_memory(repo, batch_id, item_id)
     if item is None:

@@ -13,8 +13,9 @@
 - `gateway/provider_gateway.py` — ProviderGateway/ProviderCall/ProviderResult；内置 SandboxProvider，`__post_init__` 经 `auto_register_real_plugins`（默认 True）自动注册真实插件
 - `gateway/provider_context.py` — ProviderInvocationContext：取 secret（含审计）、`mark_polling`、存媒体产物
 - `gateway/provider_limiter.py` — `provider_slot`：按 concurrency_key 的进程内 BoundedSemaphore（非 token bucket，非跨进程）
-- `providers/__init__.py` — `register_real_provider_plugins`（共注册 10 个：minimax.tts / volcengine.tts / dashscope.{asr,vlm,llm,omni,videoretalk} / runninghub.heygem / volcengine.seedance / openai.image）
+- `providers/__init__.py` — `register_real_provider_plugins`（共注册 11 个：minimax.tts / volcengine.tts / dashscope.{asr,vlm,llm,omni,videoretalk} / runninghub.heygem / volcengine.seedance / volcengine.seedream / openai.image）
 - `providers/seedance.py` — ArkSeedanceProvider（火山方舟 Ark，`video.generate` 文/图生视频）
+- `providers/openai_image.py` — OpenAI-compatible 图片生成（`openai.image` 与火山方舟 `volcengine.seedream` 共用 REST adapter；Seedream 可复用 Ark AK/SK 通过 OpenAPI `GetApiKey` 换临时 Bearer key）
 - `providers/volcengine_tts.py` — VolcengineTTSProvider（火山豆包 TTS，`tts.speech`，data/management 双 auth plane）
 - `providers/volc_openapi.py` — 火山管理面 OpenAPI（speech_saas_prod，AK/SK V4 签名；音色列表/签发 x-api-key，余额账单口径见 ops）
 - `providers/_volc_sigv4.py` — 火山 V4 签名（HMAC-SHA256）集中实现，seedance + volc_openapi 共用

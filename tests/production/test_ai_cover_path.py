@@ -41,6 +41,7 @@ from packages.core.storage.object_store import LocalObjectStore, parse_object_ur
 from packages.core.storage.repository import Repository
 from packages.core.storage.secret_store import LocalSecretStore
 from packages.media.assets import store_file
+from packages.media.cover import DEFAULT_COVER_SIZE, SEEDREAM_COVER_REQUEST_SIZE
 from packages.production.pipeline._node_context import NodeContext
 from packages.production.pipeline._run_state import RunState
 from packages.ai.prompts.registry import PromptRegistry
@@ -153,6 +154,20 @@ def _seed_image_profile(repository, secret_ref: str) -> None:
     )
 
 
+def _seed_seedream_image_profile(repository, secret_ref: str) -> None:
+    repository.provider_profiles["volcengine.seedream.real"] = ProviderProfile(
+        id="volcengine.seedream.real",
+        provider_id="volcengine.seedream",
+        model_id="doubao-seedream-5-0-260128",
+        capability="image.generate",
+        display_name="Seedream Image real",
+        environment="prod",
+        secret_ref=secret_ref,
+        options_schema_ref=ProviderOptionsSchemaRef(schema_id="provider.image.options"),
+        default_options={"base_url": "https://ark.cn-beijing.volces.com/api/v3", "size": "2K"},
+    )
+
+
 class _MockImageProvider:
     """Stores a real cover image artifact via the context. No network."""
 
@@ -200,6 +215,10 @@ def test_ai_cover_generates_artifact_when_profile_and_secret_active(
     cover = next(a for a in output.artifacts if a.kind == ArtifactKind.cover_image)
     assert cover.uri and cover.uri.startswith("local://")
     assert cover.media_info is not None and cover.media_info.media_type == "image"
+    assert cover.payload is not None
+    assert cover.payload["source"] == "ai"
+    assert cover.payload["provider_id"] == "openai.image"
+    assert cover.payload["provider_label"] == "image2"
     assert object_store.exists(parse_object_uri(cover.uri)) is True
     # Generated cover -> no frame-fallback degradation, provider invocation recorded.
     assert output.status == NodeStatus.succeeded
@@ -222,7 +241,8 @@ class _TemplateAwareImageProvider:
 
     provider_id = "openai.image"
 
-    def __init__(self) -> None:
+    def __init__(self, provider_id: str = "openai.image") -> None:
+        self.provider_id = provider_id
         self.inputs: list[dict] = []
 
     def invoke_with_context(self, call: ProviderCall, context) -> ProviderResult:
@@ -236,6 +256,86 @@ class _TemplateAwareImageProvider:
         )
         return ProviderResult(
             output={"cover_artifact_id": artifact.id, "cover_uri": artifact.uri},
+            image_count=1,
+        )
+
+
+def test_ai_cover_falls_back_from_image2_to_seedream(
+    tmp_path, media_fixture_factory, monkeypatch
+):
+    adapter, gateway, secret_store, object_store = _adapter(tmp_path)
+    monkeypatch.setattr(
+        "packages.production.pipeline.digital_human.get_object_store", lambda: object_store
+    )
+    openai_secret = secret_store.put("openai-image-key")
+    seedream_secret = secret_store.put("ark-key")
+    _seed_image_profile(adapter.repository, openai_secret)
+    _seed_seedream_image_profile(adapter.repository, seedream_secret)
+
+    class _FailingOpenAIImageProvider:
+        provider_id = "openai.image"
+
+        def invoke_with_context(self, call, context):
+            raise ProviderRuntimeError(ErrorCode.provider_remote_failed, "image2 upstream failed")
+
+    seedream_provider = _TemplateAwareImageProvider(provider_id="volcengine.seedream")
+    gateway.register(_FailingOpenAIImageProvider())
+    gateway.register(seedream_provider)
+
+    state = _seed_final_state(
+        adapter.repository, object_store, media_fixture_factory, cover_mode="ai"
+    )
+    ctx = NodeContext(adapter=adapter, run=_run(), node_run=_node_run(), state=state)
+
+    from packages.production.pipeline import nodes
+
+    output = nodes.export_finished_video.run(ctx)
+
+    cover = next(a for a in output.artifacts if a.kind == ArtifactKind.cover_image)
+    assert cover.media_info is not None and cover.media_info.media_type == "image"
+    assert cover.payload is not None
+    assert cover.payload["source"] == "ai"
+    assert cover.payload["provider_id"] == "volcengine.seedream"
+    assert cover.payload["provider_label"] == "seedream"
+    assert cover.payload["fallback_from_provider_profile_ids"] == ["openai.image.real"]
+    assert output.status == NodeStatus.succeeded
+    assert not output.degradations
+    assert len(output.provider_invocation_ids) == 2
+    invocations = [
+        adapter.repository.provider_invocations[invocation_id]
+        for invocation_id in output.provider_invocation_ids
+    ]
+    assert [item.provider_id for item in invocations] == [
+        "openai.image",
+        "volcengine.seedream",
+    ]
+    assert seedream_provider.inputs
+    assert seedream_provider.inputs[0]["size"] == SEEDREAM_COVER_REQUEST_SIZE
+
+
+class _ReferenceDroppingImageProvider:
+    provider_id = "openai.image"
+
+    def __init__(self) -> None:
+        self.inputs: list[dict] = []
+
+    def invoke_with_context(self, call: ProviderCall, context) -> ProviderResult:
+        self.inputs.append(dict(call.input))
+        artifact = context.store_media_bytes(
+            content=_PNG_1x1,
+            filename="provider-dropped-reference.png",
+            purpose="covers",
+            kind=ArtifactKind.cover_image,
+            call=call,
+        )
+        return ProviderResult(
+            output={
+                "cover_artifact_id": artifact.id,
+                "cover_uri": artifact.uri,
+                "reference_image_requested": True,
+                "reference_image_used": False,
+                "reference_transport": None,
+            },
             image_count=1,
         )
 
@@ -297,8 +397,8 @@ def test_ai_cover_consumes_uploaded_cover_template_reference(
     assert call_input.get("template_image_b64") == call_input.get("reference_image_b64")
     assert call_input.get("source_frame_time_sec") == 0.5
     # ...and the prompt switched to the combined template + source-frame instruction.
-    assert "style and layout template" in call_input["prompt"]
-    assert "two-panel board" in call_input["prompt"]
+    assert "有封面模板参考" in call_input["prompt"]
+    assert "参考图是双栏图" in call_input["prompt"]
 
 
 def test_ai_cover_without_reference_asset_sends_source_frame_reference(
@@ -328,8 +428,44 @@ def test_ai_cover_without_reference_asset_sends_source_frame_reference(
     assert provider.inputs[0].get("reference_image_b64")
     assert provider.inputs[0].get("reference_filename") == "source-frame.png"
     assert provider.inputs[0].get("source_frame_time_sec") == 0.5
-    assert "from scratch" in provider.inputs[0]["prompt"]
-    assert "selected video frame/image2" in provider.inputs[0]["prompt"]
+    prompt = provider.inputs[0]["prompt"]
+    assert DEFAULT_COVER_SIZE in prompt
+    assert "9:16" in prompt
+    assert "3:4" not in prompt
+    assert "无封面模板参考" in prompt
+    assert "本条视频选中的人像/场景帧" in prompt
+
+
+def test_seedream_ai_cover_request_overrides_size_to_9_16(
+    tmp_path, media_fixture_factory, monkeypatch
+):
+    adapter, gateway, secret_store, object_store = _adapter(tmp_path)
+    monkeypatch.setattr(
+        "packages.production.pipeline.digital_human.get_object_store", lambda: object_store
+    )
+    secret_ref = secret_store.put("ark-key")
+    _seed_seedream_image_profile(adapter.repository, secret_ref)
+    provider = _TemplateAwareImageProvider(provider_id="volcengine.seedream")
+    gateway.register(provider)
+
+    state = _seed_final_state(
+        adapter.repository, object_store, media_fixture_factory, cover_mode="ai"
+    )
+    ctx = NodeContext(adapter=adapter, run=_run(), node_run=_node_run(), state=state)
+
+    from packages.production.pipeline import nodes
+
+    output = nodes.export_finished_video.run(ctx)
+
+    cover = next(a for a in output.artifacts if a.kind == ArtifactKind.cover_image)
+    assert output.status == NodeStatus.succeeded
+    assert provider.inputs
+    assert cover.payload is not None
+    assert cover.payload["source"] == "ai"
+    assert cover.payload["provider_id"] == "volcengine.seedream"
+    assert cover.payload["provider_label"] == "seedream"
+    assert provider.inputs[0]["size"] == SEEDREAM_COVER_REQUEST_SIZE
+    assert SEEDREAM_COVER_REQUEST_SIZE in provider.inputs[0]["prompt"]
 
 
 def test_ai_cover_prefers_clean_lipsync_source_and_skips_vlm(
@@ -396,6 +532,90 @@ def test_ai_cover_prefers_clean_lipsync_source_and_skips_vlm(
     )
 
 
+def test_ai_cover_continues_to_final_frame_when_clean_sources_are_unreadable(
+    tmp_path, media_fixture_factory, monkeypatch
+):
+    adapter, gateway, secret_store, object_store = _adapter(tmp_path)
+    monkeypatch.setattr(
+        "packages.production.pipeline.digital_human.get_object_store", lambda: object_store
+    )
+    secret_ref = secret_store.put("openai-image-key")
+    _seed_image_profile(adapter.repository, secret_ref)
+    provider = _TemplateAwareImageProvider()
+    gateway.register(provider)
+
+    state = _seed_final_state(
+        adapter.repository, object_store, media_fixture_factory, cover_mode="ai"
+    )
+    bad_lipsync = adapter.repository.create_artifact(
+        kind=ArtifactKind.video_lipsync,
+        payload_schema="uri-only",
+        payload=None,
+        case_id="case_demo",
+        run_id="run_cover",
+        uri="local://cutagent-local/missing/lipsync.mp4",
+        media_info=MediaInfo(media_type="video", codec="h264", format="mp4", duration_sec=2.0),
+    )
+    bad_portrait = adapter.repository.create_artifact(
+        kind=ArtifactKind.video_portrait_track,
+        payload_schema="uri-only",
+        payload=None,
+        case_id="case_demo",
+        run_id="run_cover",
+        uri="local://cutagent-local/missing/portrait.mp4",
+        media_info=MediaInfo(media_type="video", codec="h264", format="mp4", duration_sec=3.0),
+    )
+    state.artifacts[ArtifactKind.video_lipsync] = bad_lipsync
+    state.artifacts[ArtifactKind.video_portrait_track] = bad_portrait
+    ctx = NodeContext(adapter=adapter, run=_run(), node_run=_node_run(), state=state)
+
+    from packages.production.pipeline import nodes
+
+    output = nodes.export_finished_video.run(ctx)
+
+    assert output.status == NodeStatus.succeeded
+    assert provider.inputs
+    call_input = provider.inputs[0]
+    assert call_input.get("reference_image_b64")
+    assert call_input.get("reference_filename") == "source-frame.png"
+    # The unreadable 2s/3s clean artifacts are skipped; final video midpoint is used.
+    assert call_input.get("source_frame_time_sec") == 0.5
+
+
+def test_ai_cover_does_not_accept_provider_output_when_reference_was_dropped(
+    tmp_path, media_fixture_factory, monkeypatch
+):
+    adapter, gateway, secret_store, object_store = _adapter(tmp_path)
+    monkeypatch.setattr(
+        "packages.production.pipeline.digital_human.get_object_store", lambda: object_store
+    )
+    secret_ref = secret_store.put("openai-image-key")
+    _seed_image_profile(adapter.repository, secret_ref)
+    provider = _ReferenceDroppingImageProvider()
+    gateway.register(provider)
+
+    state = _seed_final_state(
+        adapter.repository, object_store, media_fixture_factory, cover_mode="ai"
+    )
+    ctx = NodeContext(adapter=adapter, run=_run(), node_run=_node_run(), state=state)
+
+    from packages.production.pipeline import nodes
+
+    output = nodes.export_finished_video.run(ctx)
+
+    assert provider.inputs and provider.inputs[0].get("reference_image_b64")
+    assert output.status == NodeStatus.degraded
+    assert [d.code for d in output.degradations] == [WarningCode.cover_frame_fallback]
+    assert output.degradations[0].policy_id == COVER_FALLBACK_POLICY.id
+    assert output.provider_invocation_ids
+    cover = next(a for a in output.artifacts if a.kind == ArtifactKind.cover_image)
+    assert cover.payload is not None
+    assert cover.payload["source"] == "frame"
+    assert cover.payload["reason"] == "ai_failed"
+    assert cover.payload["attempted_provider_profile_ids"] == ["openai.image.real"]
+    assert object_store.exists(parse_object_uri(cover.uri or "")) is True
+
+
 def test_ai_cover_unconfigured_uses_frame_without_degradation(
     tmp_path, media_fixture_factory, monkeypatch
 ):
@@ -431,6 +651,9 @@ def test_ai_cover_unconfigured_uses_frame_without_degradation(
     # Frame-based cover: a real image extracted from the final video, no fabrication.
     assert cover.uri and cover.uri.startswith("local://")
     assert cover.media_info is not None and cover.media_info.media_type == "image"
+    assert cover.payload is not None
+    assert cover.payload["source"] == "frame"
+    assert cover.payload["reason"] == "ai_unavailable"
     assert object_store.exists(parse_object_uri(cover.uri)) is True
     # No paid call happened and frame is the baseline -> succeeded, no degradation.
     assert called["hit"] is False
@@ -471,6 +694,10 @@ def test_ai_cover_profile_present_but_generation_fails_degrades_to_frame(
 
     cover = next(a for a in output.artifacts if a.kind == ArtifactKind.cover_image)
     assert cover.media_info is not None and cover.media_info.media_type == "image"
+    assert cover.payload is not None
+    assert cover.payload["source"] == "frame"
+    assert cover.payload["reason"] == "ai_failed"
+    assert cover.payload["attempted_provider_profile_ids"] == ["openai.image.real"]
     assert output.status == NodeStatus.degraded
     assert [d.code for d in output.degradations] == [WarningCode.cover_frame_fallback]
     assert output.degradations[0].policy_id == COVER_FALLBACK_POLICY.id
@@ -567,6 +794,18 @@ def test_ai_cover_prompt_uses_llm_cover_title(tmp_path, media_fixture_factory, m
     assert output.status == NodeStatus.succeeded
     # The AI cover prompt carries the LLM-generated cover_title, not the raw request title.
     assert provider.prompts and "轮毂修复省两千" in provider.prompts[0]
+    request_artifact = next(
+        artifact for artifact in output.artifacts if artifact.kind == ArtifactKind.provider_raw_request
+    )
+    payload = request_artifact.payload
+    assert payload["cover_title"] == "轮毂修复省两千"
+    assert payload["cover_subtitle"] == "几百块搞定"
+    assert payload["publish_title"] == "轮毂刮花别急着换新"
+    assert payload["request_json"]["prompt"] == provider.prompts[0]
+    assert payload["reference"]["provided"] is True
+    assert payload["reference"]["image_b64"]["omitted"] is True
+    assert "reference_image_b64" in payload["request_json"]
+    assert payload["request_json"]["reference_image_b64"]["omitted"] is True
 
 
 def test_frame_cover_default_mode_has_no_degradation(tmp_path, media_fixture_factory, monkeypatch):
@@ -585,6 +824,9 @@ def test_frame_cover_default_mode_has_no_degradation(tmp_path, media_fixture_fac
 
     cover = next(a for a in output.artifacts if a.kind == ArtifactKind.cover_image)
     assert cover.media_info is not None and cover.media_info.media_type == "image"
+    assert cover.payload is not None
+    assert cover.payload["source"] == "frame"
+    assert cover.payload["reason"] == "requested_frame"
     # Default frame mode is the current behaviour: succeeded, no degradation.
     assert output.status == NodeStatus.succeeded
     assert not output.degradations

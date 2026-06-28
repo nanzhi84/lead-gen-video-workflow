@@ -4,6 +4,8 @@ user's resource id returns 404. Cases stay shared (NOT isolated)."""
 
 from __future__ import annotations
 
+import io
+import zipfile
 from datetime import timedelta
 
 from fastapi.testclient import TestClient
@@ -58,16 +60,28 @@ def _seed_finished_video_for(app, *, owner: str, case_id: str) -> tuple[c.Job, c
     repo.jobs[job.id] = job.model_copy(update={"active_run_id": run.id})
     repo.runs[run.id] = run
     repo.node_runs[run.id] = []
-    artifact = c.Artifact(
-        id=new_id("art"),
-        case_id=case_id,
-        run_id=run.id,
+    video_object = app.state.object_store.prepare_upload("final.mp4", "tests")
+    stored_video = app.state.object_store.put_bytes(video_object, b"fake mp4")
+    artifact = repo.create_artifact(
         kind=c.ArtifactKind.video_final,
-        uri="sandbox://final.mp4",
         payload_schema="video.final.v1",
         payload={},
+        case_id=case_id,
+        run_id=run.id,
+        uri=stored_video.ref.uri,
+        sha256=stored_video.sha256,
     )
-    repo.artifacts[artifact.id] = artifact
+    cover_object = app.state.object_store.prepare_upload("cover.jpg", "tests")
+    stored_cover = app.state.object_store.put_bytes(cover_object, b"fake jpeg")
+    cover_artifact = repo.create_artifact(
+        kind=c.ArtifactKind.cover_image,
+        payload_schema="uri-only",
+        payload=None,
+        case_id=case_id,
+        run_id=run.id,
+        uri=stored_cover.ref.uri,
+        sha256=stored_cover.sha256,
+    )
     video = c.FinishedVideo(
         id=new_id("fv"),
         case_id=case_id,
@@ -75,6 +89,7 @@ def _seed_finished_video_for(app, *, owner: str, case_id: str) -> tuple[c.Job, c
         owner_user_id=owner,
         title="iso video",
         video_artifact=repo.artifact_ref(artifact.id),
+        cover_artifact=repo.artifact_ref(cover_artifact.id),
     )
     repo.finished_videos[video.id] = video
     # Funnel event so the overview dashboard counts this run (processing bucket).
@@ -170,7 +185,16 @@ def test_detail_preview_download_cross_user_404() -> None:
         assert client.get(f"/api/runs/{run_a.id}").status_code == 200
         assert client.get(f"/api/finished-videos/{video_a.id}").status_code == 200
         assert client.get(f"/api/finished-videos/{video_a.id}/preview-url").status_code == 200
-        assert client.get(f"/api/finished-videos/{video_a.id}/download").status_code == 200
+        download_meta = client.get(f"/api/finished-videos/{video_a.id}/download")
+        assert download_meta.status_code == 200
+        assert download_meta.json()["content_type"] == "application/zip"
+        package = client.get(download_meta.json()["url"])
+        assert package.status_code == 200, package.text
+        with zipfile.ZipFile(io.BytesIO(package.content)) as archive:
+            names = set(archive.namelist())
+            assert "title.txt" in names
+            assert any(name.startswith("cover.") for name in names)
+            assert any(name.startswith("video.") for name in names)
 
         # Cross-user => 404 (do not leak existence).
         _cookie(client, token_b)

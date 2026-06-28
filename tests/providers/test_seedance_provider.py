@@ -138,6 +138,7 @@ def test_seedance_access_key_secret_gets_temporary_api_key_then_submits(
             assert "x-content-sha256" in request.headers
             assert "x-date" in request.headers
             payload = json.loads(request.content)
+            assert payload["DurationSeconds"] == 604800
             assert payload["ResourceType"] == "endpoint"
             assert payload["ResourceIds"] == ["ep-seedance"]
             return httpx.Response(
@@ -191,6 +192,7 @@ def test_seedance_access_key_model_id_uses_presetendpoint(tmp_path, media_fixtur
         auth = request.headers.get("authorization", "")
         if request.url.host == "ark.cn-beijing.volcengineapi.com":
             payload = json.loads(request.content)
+            assert payload["DurationSeconds"] == 604800
             assert payload["ResourceType"] == "presetendpoint"
             assert payload["ResourceIds"] == ["doubao-seedance-2-0-260128"]
             assert payload["ProjectName"] == "default"

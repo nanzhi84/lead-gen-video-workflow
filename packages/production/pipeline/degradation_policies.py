@@ -15,10 +15,12 @@ class LipsyncFailoverPolicy(DegradationPolicy):
         current_provider_id: str | None,
         error_message: str | None,
     ) -> str | None:
-        # Platform-side LipSync provider failover is disabled. Keep the stable
-        # policy object for historical degradation records, but do not choose a
-        # second provider after the requested provider fails.
-        _ = (current_provider_id, error_message)
+        # HeyGem is the primary lipsync path; VideoReTalk is the standing fallback
+        # for any HeyGem provider failure. Do not fail back in the opposite
+        # direction, which would create provider loops and can mask policy failures.
+        _ = error_message
+        if current_provider_id == "runninghub.heygem":
+            return "dashscope.videoretalk"
         return None
 
 

@@ -2,7 +2,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RadioTower } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import { api, type FinishedVideo, type PublishBatch, type PublishBatchItem, type PublishPackage } from "../../api/client";
+import {
+  api,
+  type ArtifactRef,
+  type FinishedVideo,
+  type PublishBatch,
+  type PublishBatchItem,
+  type PublishPackage,
+} from "../../api/client";
 import { EmptyState, LoadingState } from "../../components/ui/State";
 import { DraftEditorStep } from "../../components/publish/DraftEditorStep";
 import { PublishReviewStep } from "../../components/publish/PublishReviewStep";
@@ -85,6 +92,20 @@ export default function PublishCenterPage() {
     packagesQuery.data?.items.forEach((item) => lookup.set(item.id, item));
     return lookup;
   }, [packagesQuery.data?.items]);
+  const finishedVideosById = useMemo(() => {
+    const lookup = new Map<string, FinishedVideo>();
+    videosQuery.data?.items.forEach((item) => lookup.set(item.id, item));
+    return lookup;
+  }, [videosQuery.data?.items]);
+  const originalCoversByPackageId = useMemo(() => {
+    const lookup = new Map<string, ArtifactRef>();
+    packagesById.forEach((item) => {
+      if (!item.source_finished_video_id) return;
+      const originalCover = finishedVideosById.get(item.source_finished_video_id)?.cover_artifact;
+      if (originalCover) lookup.set(item.id, originalCover);
+    });
+    return lookup;
+  }, [finishedVideosById, packagesById]);
 
   useEffect(() => {
     if (!batch) return;
@@ -179,7 +200,10 @@ export default function PublishCenterPage() {
     mutationFn: ({ packageId, artifactId }: { packageId: string; artifactId: string | null }) =>
       api.publishing.patchPackage(packageId, { cover_artifact_id: artifactId }),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["publish-center", "packages"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["publish-center", "packages"] }),
+        queryClient.invalidateQueries({ queryKey: ["publish-center", "batch", activeBatchId] }),
+      ]);
     },
     onError: (error) => toast.error("封面更新失败", error),
   });
@@ -296,6 +320,7 @@ export default function PublishCenterPage() {
             <DraftEditorStep
               batch={batch}
               packagesById={packagesById}
+              originalCoversByPackageId={originalCoversByPackageId}
               drafts={drafts}
               defaults={defaults}
               activeItemId={activeItemId}

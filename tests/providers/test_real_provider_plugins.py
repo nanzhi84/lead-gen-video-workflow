@@ -13,6 +13,7 @@ from packages.core.storage.object_store import LocalObjectStore, parse_local_uri
 from packages.core.storage.repository import Repository
 from packages.core.storage.secret_store import LocalSecretStore
 from packages.media.assets import store_file
+from packages.media.cover_image import COVER_TARGET_HEIGHT, COVER_TARGET_WIDTH
 
 
 def _gateway(tmp_path, transport: httpx.MockTransport) -> tuple[Repository, ProviderGateway]:
@@ -63,6 +64,7 @@ def test_real_plugins_register_alongside_sandbox(tmp_path):
         "runninghub.heygem",
         "dashscope.llm",
         "openai.image",
+        "volcengine.seedream",
     } <= set(gateway.plugins)
 
     invocation, result = gateway.invoke(
@@ -243,6 +245,7 @@ def test_minimax_tts_subtitle_fetch_failure_does_not_break_audio(tmp_path, media
 
 def test_videoretalk_submits_async_task_and_stores_polled_video(tmp_path, media_fixture_factory):
     result_video = media_fixture_factory.video(duration_sec=1.0, filename="videoretalk-result.mp4")
+    result_url = "https://files.example/path/videoretalk-result.mp4?Expires=1&Signature=abc"
     requests: list[str] = []
     poll_count = 0
 
@@ -267,11 +270,11 @@ def test_videoretalk_submits_async_task_and_stores_polled_video(tmp_path, media_
                     "output": {
                         "task_id": "vrt-1",
                         "task_status": "SUCCEEDED",
-                        "video_url": "https://files.example/videoretalk-result.mp4",
+                        "video_url": result_url,
                     }
                 },
             )
-        if str(request.url) == "https://files.example/videoretalk-result.mp4":
+        if str(request.url) == result_url:
             return httpx.Response(200, content=result_video.read_bytes())
         return httpx.Response(404, text=str(request.url))
 
@@ -308,6 +311,9 @@ def test_videoretalk_submits_async_task_and_stores_polled_video(tmp_path, media_
     assert result is not None
     assert result.output["external_job_id"] == "vrt-1"
     artifact = repository.artifacts[result.output["video_artifact_id"]]
+    assert artifact.uri and artifact.uri.endswith("/videoretalk-result.mp4")
+    assert "Expires=" not in artifact.uri
+    assert "Signature=" not in artifact.uri
     assert artifact.media_info
     assert artifact.media_info.media_type == "video"
     assert "POST /api/v1/services/aigc/image2video/video-synthesis/" in requests
@@ -804,6 +810,7 @@ def test_runninghub_heygem_records_external_job_and_stores_polled_video(
     tmp_path, media_fixture_factory
 ):
     result_video = media_fixture_factory.video(duration_sec=1.0, filename="heygem-result.mp4")
+    result_url = "https://files.example/path/heygem-result.mp4?Expires=1&Signature=abc"
     source_video = media_fixture_factory.video(duration_sec=1.0, filename="portrait.mp4")
     source_audio = media_fixture_factory.audio(duration_sec=1.0, filename="speech.wav")
     requests: list[str] = []
@@ -821,9 +828,9 @@ def test_runninghub_heygem_records_external_job_and_stores_polled_video(
         if request.url.path == "/task/openapi/outputs":
             return httpx.Response(
                 200,
-                json={"data": {"fileUrl": "https://files.example/heygem-result.mp4", "consumeCoins": 3}},
+                json={"data": {"fileUrl": result_url, "consumeCoins": 3}},
             )
-        if str(request.url) == "https://files.example/heygem-result.mp4":
+        if str(request.url) == result_url:
             return httpx.Response(200, content=result_video.read_bytes())
         return httpx.Response(404, text=str(request.url))
 
@@ -866,6 +873,9 @@ def test_runninghub_heygem_records_external_job_and_stores_polled_video(
     assert result.provider_credits == 3
     assert result.output["video_uri"].startswith("local://")
     artifact = repository.artifacts[result.output["video_artifact_id"]]
+    assert artifact.uri and artifact.uri.endswith("/heygem-result.mp4")
+    assert "Expires=" not in artifact.uri
+    assert "Signature=" not in artifact.uri
     assert artifact.media_info
     assert artifact.media_info.media_type == "video"
     assert "POST /task/openapi/status" in requests
@@ -1567,6 +1577,15 @@ _PNG_1x1 = bytes.fromhex(
 )
 
 
+def _assert_cover_artifact_is_9_16(repository: Repository, artifact_id: str) -> None:
+    artifact = repository.artifacts[artifact_id]
+    assert artifact.kind.value == "cover.image"
+    assert artifact.media_info
+    assert artifact.media_info.media_type == "image"
+    assert artifact.media_info.width == COVER_TARGET_WIDTH
+    assert artifact.media_info.height == COVER_TARGET_HEIGHT
+
+
 def test_openai_image_generates_cover_from_b64_json(tmp_path):
     import base64
     import json
@@ -1612,11 +1631,218 @@ def test_openai_image_generates_cover_from_b64_json(tmp_path):
     assert invocation.status == ProviderStatus.succeeded
     assert result is not None
     assert result.image_count == 1
-    artifact = repository.artifacts[result.output["cover_artifact_id"]]
-    assert artifact.kind.value == "cover.image"
-    assert artifact.media_info and artifact.media_info.media_type == "image"
-    object_path = gateway.object_store._path(parse_local_uri(result.output["cover_uri"]))  # type: ignore[union-attr]
-    assert object_path.read_bytes() == _PNG_1x1
+    _assert_cover_artifact_is_9_16(repository, result.output["cover_artifact_id"])
+
+
+def test_volcengine_seedream_uses_openai_compatible_image_payload(tmp_path):
+    import json
+
+    requests: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(f"{request.method} {request.url.path}")
+        if request.url.path == "/api/v3/images/generations":
+            assert request.method == "POST"
+            assert request.headers["authorization"] == "Bearer ark-key"
+            body = json.loads(request.content)
+            assert body == {
+                "model": "doubao-seedream-5-0-260128",
+                "prompt": "封面测试 cover prompt",
+                "size": "2K",
+                "n": 1,
+                "response_format": "url",
+                "watermark": False,
+            }
+            assert "image" not in body
+            return httpx.Response(200, json={"data": [{"url": "https://cdn.invalid/seedream.png"}]})
+        assert str(request.url) == "https://cdn.invalid/seedream.png"
+        return httpx.Response(200, content=_PNG_1x1)
+
+    repository, gateway = _gateway(tmp_path, httpx.MockTransport(handler))
+    secret_ref = gateway.secret_store.put("ark-key")  # type: ignore[union-attr]
+    profile = _profile(
+        repository,
+        provider_id="volcengine.seedream",
+        capability="image.generate",
+        model_id="doubao-seedream-5-0-260128",
+        secret_ref=secret_ref,
+        default_options={
+            "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+            "size": "2K",
+            "response_format": "url",
+            "watermark": False,
+            "n": 1,
+        },
+    )
+
+    invocation, result = gateway.invoke(
+        ProviderCall(
+            case_id="case_demo",
+            provider_profile_id=profile.id,
+            capability_id="image.generate",
+            input={"prompt": "封面测试 cover prompt"},
+            idempotency_key="cover-seedream-1",
+        )
+    )
+
+    assert invocation.status == ProviderStatus.succeeded
+    assert result is not None
+    assert requests == ["POST /api/v3/images/generations", "GET /seedream.png"]
+    _assert_cover_artifact_is_9_16(repository, result.output["cover_artifact_id"])
+
+
+def test_volcengine_seedream_sends_reference_image_on_generation_endpoint(tmp_path):
+    import base64
+    import json
+
+    requests: list[str] = []
+    reference_b64 = base64.b64encode(_PNG_1x1).decode("ascii")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(f"{request.method} {request.url.path}")
+        if request.url.path == "/api/v3/images/generations":
+            assert request.method == "POST"
+            assert request.headers["authorization"] == "Bearer ark-key"
+            body = json.loads(request.content)
+            assert body["model"] == "doubao-seedream-5-0-260128"
+            assert body["prompt"] == "封面测试 cover prompt"
+            assert body["size"] == "2K"
+            assert body["response_format"] == "url"
+            assert body["image"].startswith("data:image/png;base64,")
+            assert body["image"].split(",", 1)[1] == reference_b64
+            return httpx.Response(200, json={"data": [{"url": "https://cdn.invalid/seedream-ref.png"}]})
+        if str(request.url) == "https://cdn.invalid/seedream-ref.png":
+            return httpx.Response(200, content=_PNG_1x1)
+        raise AssertionError(f"unexpected request to {request.url}")
+
+    repository, gateway = _gateway(tmp_path, httpx.MockTransport(handler))
+    secret_ref = gateway.secret_store.put("ark-key")  # type: ignore[union-attr]
+    profile = _profile(
+        repository,
+        provider_id="volcengine.seedream",
+        capability="image.generate",
+        model_id="doubao-seedream-5-0-260128",
+        secret_ref=secret_ref,
+        default_options={
+            "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+            "size": "2K",
+            "response_format": "url",
+            "watermark": False,
+            "n": 1,
+        },
+    )
+
+    invocation, result = gateway.invoke(
+        ProviderCall(
+            case_id="case_demo",
+            provider_profile_id=profile.id,
+            capability_id="image.generate",
+            input={
+                "prompt": "封面测试 cover prompt",
+                "reference_image_b64": reference_b64,
+                "reference_filename": "source-frame.png",
+            },
+            idempotency_key="cover-seedream-ref-1",
+        )
+    )
+
+    assert invocation.status == ProviderStatus.succeeded
+    assert result is not None
+    assert result.output["reference_image_requested"] is True
+    assert result.output["reference_image_used"] is True
+    assert result.output["reference_transport"] == "images.generations.image"
+    assert invocation.request_artifact_id in repository.artifacts
+    request_artifact = repository.artifacts[invocation.request_artifact_id]
+    assert request_artifact.kind.value == "provider.raw_request"
+    request_path = gateway.object_store._path(parse_local_uri(request_artifact.uri))  # type: ignore[union-attr]
+    assert request_path.read_bytes() == _PNG_1x1
+    assert requests == ["POST /api/v3/images/generations", "GET /seedream-ref.png"]
+    _assert_cover_artifact_is_9_16(repository, result.output["cover_artifact_id"])
+
+
+def test_volcengine_seedream_exchanges_ak_sk_for_temporary_api_key(tmp_path):
+    import json
+
+    requests: list[str] = []
+    openapi_bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(f"{request.method} {request.url.host}{request.url.path}")
+        auth = request.headers.get("authorization", "")
+        if request.url.host == "ark.cn-beijing.volcengineapi.com":
+            assert request.url.path == "/"
+            assert str(request.url.query, "utf-8") == "Action=GetApiKey&Version=2024-01-01"
+            assert auth.startswith("HMAC-SHA256 Credential=AKLTxxx/")
+            assert "/cn-beijing/ark/request" in auth
+            assert "sk-secret" not in auth
+            payload = json.loads(request.content)
+            openapi_bodies.append(payload)
+            assert payload["DurationSeconds"] == 604800
+            assert payload["ResourceType"] == "presetendpoint"
+            assert payload["ResourceIds"] == ["doubao-seedream-5-0-260128"]
+            assert payload["ProjectName"] == "default"
+            return httpx.Response(
+                200,
+                json={
+                    "ResponseMetadata": {"Action": "GetApiKey"},
+                    "Result": {"ApiKey": "tmp-seedream-key", "ExpiredTime": 0},
+                },
+            )
+        if request.url.path == "/api/v3/images/generations":
+            assert auth == "Bearer tmp-seedream-key"
+            body = json.loads(request.content)
+            assert body == {
+                "model": "doubao-seedream-5-0-260128",
+                "prompt": "封面测试 cover prompt",
+                "size": "2K",
+                "n": 1,
+                "response_format": "url",
+                "watermark": False,
+            }
+            return httpx.Response(
+                200,
+                json={"data": [{"url": "https://cdn.invalid/seedream-ak.png"}]},
+            )
+        if str(request.url) == "https://cdn.invalid/seedream-ak.png":
+            assert auth == "Bearer tmp-seedream-key"
+            return httpx.Response(200, content=_PNG_1x1)
+        return httpx.Response(404, text=str(request.url))
+
+    repository, gateway = _gateway(tmp_path, httpx.MockTransport(handler))
+    secret_ref = gateway.secret_store.put("AKLTxxx:sk-secret")  # type: ignore[union-attr]
+    profile = _profile(
+        repository,
+        provider_id="volcengine.seedream",
+        capability="image.generate",
+        model_id="doubao-seedream-5-0-260128",
+        secret_ref=secret_ref,
+        default_options={
+            "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+            "project_name": "default",
+            "size": "2K",
+            "response_format": "url",
+            "watermark": False,
+            "n": 1,
+        },
+    )
+
+    for index in range(2):
+        invocation, result = gateway.invoke(
+            ProviderCall(
+                case_id="case_demo",
+                provider_profile_id=profile.id,
+                capability_id="image.generate",
+                input={"prompt": "封面测试 cover prompt"},
+                idempotency_key=f"cover-seedream-ak-{index}",
+            )
+        )
+        assert invocation.status == ProviderStatus.succeeded
+        assert result is not None
+        _assert_cover_artifact_is_9_16(repository, result.output["cover_artifact_id"])
+
+    assert len(openapi_bodies) == 1
+    assert requests.count("POST ark.cn-beijing.volcengineapi.com/") == 1
+    assert requests.count("POST ark.cn-beijing.volces.com/api/v3/images/generations") == 2
 
 
 def test_openai_image_edits_from_reference_image(tmp_path):
@@ -1666,8 +1892,15 @@ def test_openai_image_edits_from_reference_image(tmp_path):
     assert seen["path"] == "/v1/images/edits"
     assert "multipart/form-data" in seen["content_type"]
     assert b"source-frame.png" in seen["body"]
-    artifact = repository.artifacts[result.output["cover_artifact_id"]]
-    assert artifact.media_info and artifact.media_info.media_type == "image"
+    assert result.output["reference_image_requested"] is True
+    assert result.output["reference_image_used"] is True
+    assert result.output["reference_transport"] == "images.edits"
+    assert invocation.request_artifact_id in repository.artifacts
+    request_artifact = repository.artifacts[invocation.request_artifact_id]
+    assert request_artifact.kind.value == "provider.raw_request"
+    request_path = gateway.object_store._path(parse_local_uri(request_artifact.uri))  # type: ignore[union-attr]
+    assert request_path.read_bytes() == _PNG_1x1
+    _assert_cover_artifact_is_9_16(repository, result.output["cover_artifact_id"])
 
 
 def test_openai_image_edit_rejection_falls_back_to_generation(tmp_path):
@@ -1714,6 +1947,9 @@ def test_openai_image_edit_rejection_falls_back_to_generation(tmp_path):
     # Tried edits (both fields) then degraded to generation; cover still produced.
     assert paths.count("/v1/images/edits") == 2
     assert paths[-1] == "/v1/images/generations"
+    assert result.output["reference_image_requested"] is True
+    assert result.output["reference_image_used"] is False
+    assert result.output["reference_transport"] is None
 
 
 def test_openai_image_falls_back_to_url_when_no_b64(tmp_path):
@@ -1744,8 +1980,7 @@ def test_openai_image_falls_back_to_url_when_no_b64(tmp_path):
 
     assert invocation.status == ProviderStatus.succeeded
     assert result is not None
-    object_path = gateway.object_store._path(parse_local_uri(result.output["cover_uri"]))  # type: ignore[union-attr]
-    assert object_path.read_bytes() == _PNG_1x1
+    _assert_cover_artifact_is_9_16(repository, result.output["cover_artifact_id"])
 
 
 def test_openai_image_http_errors_map_to_spec_codes(tmp_path):

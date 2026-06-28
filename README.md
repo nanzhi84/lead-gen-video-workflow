@@ -193,7 +193,7 @@ Temporal runtime 下 durable 与 ephemeral 对象存储都应使用共享 MinIO/
 
 ```bash
 # 默认单测（不需基础设施）
-timeout -k 5 600 python -m pytest -q
+python -m pytest -q
 
 # DB 集成测试（opt-in，需 Postgres；复用“方式 B”的 SQLAlchemy env）
 export CUTAGENT_RUN_DB_TESTS=1
@@ -207,7 +207,7 @@ python -m pytest -q tests/temporal
 scripts/ci_gate.sh
 ```
 
-`scripts/ci_gate.sh` 会跑单测、校验 `openapi.json`、`npm ci` + 生成类型并检查 `schema.d.ts` 漂移、构建前端、初始化 DB、跑集成与 Temporal 测试。
+`scripts/ci_gate.sh` 会跑单测、校验 `openapi.json`、`npm ci` + 生成类型并检查 `schema.d.ts` 漂移、构建前端、初始化 DB、跑集成与 Temporal 测试；pytest 段优先使用 GNU `timeout` / `gtimeout`，缺失时用 Python fallback 提供同样的 600s 超时保护。
 
 ---
 

@@ -77,6 +77,7 @@ No accepted candidates yet.
 - `README.md`: DB/Temporal test env examples repeated the full manual setup block; test section now references the manual SQLAlchemy/Temporal/MinIO env and only adds the opt-in test switches.
 - `README.md`: contract regeneration used a bare `python scripts/export_openapi.py` command that fails on this host; updated the live command to `uv run --extra dev python scripts/export_openapi.py`.
 - `README.md`: prose referred to `ci_gate.sh` without the `scripts/` prefix even though the root file does not exist.
+- `README.md` / `tests/CLAUDE.md`: default local pytest command assumed GNU `timeout`, which is absent on this macOS host. The full gate script now owns timeout protection, and default docs use plain `python -m pytest -q`.
 - `apps/web/CLAUDE.md`: referenced stale `src/contracts/*.typecheck.ts` frontend probe files after those probes were removed.
 - `AGENTS.md`, `CLAUDE.md`, `apps/api/CLAUDE.md`, `apps/web/CLAUDE.md`: live contract-regeneration guidance now points at the working `uv run --extra dev python scripts/export_openapi.py` path.
 - `docs/ROADMAP.md`: current milestone discipline assigned Codex worktrees to `.claude/worktrees`; current Codex desktop worktrees use `.codex/worktrees/<id>/<repo>`.
@@ -89,6 +90,7 @@ No accepted candidates yet.
 - `tests/contract/test_settings_config.py`: `_INFRA_ENV_VARS` was stale versus actual `Settings` env reads, allowing external shell env to leak into default assertions. Expanded it and added `.env.example` coverage check.
 - `apps/web/package.json`: `export:openapi` used bare `python`, which failed on this host and also surfaced as a Knip unlisted-binary issue. Replaced it with `uv run --extra dev python` and added a narrow `ignoreBinaries` entry for the repo-level `uv` tool.
 - `scripts/export_openapi.py`: OpenAPI export inherited local proxy env and could fail during app import when `httpx` attempted SOCKS support. The export script now clears proxy env before importing the app.
+- `scripts/ci_gate.sh`: local gate hard-depended on GNU `timeout`, so it failed on macOS before running tests. It now uses `timeout`, `gtimeout`, or a Python stdlib timeout fallback.
 
 ## Unused Scripts
 

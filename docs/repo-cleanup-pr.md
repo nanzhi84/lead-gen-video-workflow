@@ -6,7 +6,7 @@ Maintenance: deep repository hygiene cleanup
 
 ## Executive Summary
 
-This PR performs a behavior-preserving deep hygiene pass across the repo. It fixes stale docs/config references, resolves baseline lint failures, deletes obsolete frontend wrappers and contract probe files, removes production-unused frontend exports, consolidates duplicate runtime helpers, completes Settings/env sample coverage, cleans static-dead test parameters, hardens the frontend OpenAPI export entrypoint, and records the audit/validation trail.
+This PR performs a behavior-preserving deep hygiene pass across the repo. It fixes stale docs/config references, resolves baseline lint failures, deletes obsolete frontend wrappers and contract probe files, removes production-unused frontend exports, consolidates duplicate runtime helpers, completes Settings/env sample coverage, cleans static-dead test parameters, hardens the frontend OpenAPI export entrypoint, makes the local CI gate macOS-compatible, and records the audit/validation trail.
 
 The aggressive second pass intentionally added a few small canonical helpers, but removed substantially more repeated implementation: tracked changes after that pass were roughly `+166/-1215`, with four new helper files totaling 333 lines.
 
@@ -100,6 +100,7 @@ The aggressive second pass intentionally added a few small canonical helpers, bu
 - `packages/production/sqlalchemy_repository.py`
 - `pyproject.toml`
 - `scripts/clean_dangling_materials.py`
+- `scripts/ci_gate.sh`
 - `scripts/dev_up.sh`
 - `scripts/export_openapi.py`
 - `scripts/sync_materials.py`
@@ -146,6 +147,7 @@ None.
 - Removed README test-env duplication by referring to the manual setup block.
 - Updated live contract-regeneration docs to use `uv run --extra dev python scripts/export_openapi.py`.
 - Fixed README prose to reference `scripts/ci_gate.sh` instead of a nonexistent root `ci_gate.sh`.
+- Updated live test docs so the full gate script owns timeout protection instead of asking macOS users to invoke GNU `timeout` directly.
 - Removed stale `apps/web/CLAUDE.md` references to deleted typecheck probes.
 
 ## Validation Commands Run
@@ -164,6 +166,7 @@ None.
 - Settings/env comparison script confirming no `Settings` env vars are missing from `.env.example`.
 - `.env.example` reverse reference scan confirming no sample `CUTAGENT_*` variables exist only in the sample file.
 - Deptry scan reviewed for dependency issues; no dependency removal accepted because findings were aliases, runtime/tool deps, transitive deps, or optional fallbacks.
+- `scripts/ci_gate.sh` on macOS with `PYTHON_BIN=.venv/bin/python`, a clean temporary database, and local Postgres/MinIO/Temporal infra.
 - Targeted Python suites for imports, mappers, BGM/loudness, timeline/export nodes, digital-human runtime, workflow reuse, and frontend probes.
 - DB integration tests on clean temporary database `cutagent_ci_cleanup_8e2d`.
 - Temporal tests against the same clean DB plus shared MinIO durable/ephemeral buckets.
@@ -180,6 +183,7 @@ None.
 - OpenAPI and generated TypeScript schema drift checks.
 - Settings/env coverage contract tests.
 - Full high-confidence vulture dead-symbol scan.
+- Full local `scripts/ci_gate.sh` on macOS using the Python timeout fallback.
 - DB integration tests on a clean temporary database.
 - Temporal integration tests with shared MinIO durable + ephemeral buckets.
 
@@ -187,7 +191,7 @@ None.
 
 - Baseline `ruff check .` failed before cleanup edits on E402/E702 findings; this PR fixes those failures.
 - `npm run export:openapi` failed before the final blind-spot pass because the script used bare `python`, and then because local SOCKS proxy env polluted app import; this PR fixes both issues.
-- Direct `scripts/ci_gate.sh` is blocked on this macOS host because GNU `timeout`/`gtimeout` is unavailable; equivalent subcommands were run manually.
+- Direct `scripts/ci_gate.sh` previously failed on this macOS host because GNU `timeout`/`gtimeout` was unavailable; this PR fixes it with a Python timeout fallback and the full gate now passes locally.
 - Integration against the existing local dev DB failed because local auth seed state is dirty; the same suite passed on a fresh temporary DB.
 
 ## Risks and Mitigations
@@ -195,6 +199,7 @@ None.
 - Migrations, generated clients, Temporal registration, provider registries, seed scripts, fixtures, manual DB/OSS scripts, and deployment hooks were treated as high-risk and left untouched unless direct evidence supported a safe change.
 - The removed frontend typecheck probes had no package/CI/import references and were covered by `tsc`, frontend build, `knip`, and full pytest.
 - The `export:openapi` package script is retained and fixed; Knip's `uv` binary is ignored narrowly because it is a repository-level Python tool, not an npm dependency.
+- The `ci_gate.sh` timeout fallback only affects hosts without GNU `timeout`/`gtimeout`; Linux CI continues to use GNU `timeout`.
 - Mapper/helper consolidations were validated with targeted mapper/import/media/workflow tests plus full pytest.
 - A first full pytest caught an unsafe `defaultForm` export deletion; the test now uses the public `loadStoredForm()` entry and the full suite passes.
 

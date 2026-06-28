@@ -366,6 +366,29 @@ Evidence:
 - Clearing proxy env inside `scripts/export_openapi.py` made `npm run export:openapi` pass in the same shell without manual `env -u ...` wrapping.
 - Full and production Knip scans are clean after adding the narrow `uv` binary ignore.
 
+### Batch 11: macOS-compatible local CI gate timeout fallback
+
+Files changed:
+
+- `scripts/ci_gate.sh`
+- `README.md`
+- `tests/CLAUDE.md`
+- `docs/repo-cleanup-log.md`
+- `docs/repo-cleanup-inventory.md`
+- `docs/repo-cleanup-pr.md`
+
+Changes:
+
+- Added `scripts/ci_gate.sh` timeout selection: prefer GNU `timeout`, then `gtimeout`, then a Python stdlib fallback that preserves the 600s pytest timeout and 5s termination grace.
+- Replaced live test docs that instructed macOS users to run bare GNU `timeout` directly with `python -m pytest -q`, while documenting that the full gate script still applies timeout protection.
+- Re-ran the full local gate on a clean temporary database so the long-standing local macOS `timeout` failure is no longer classified as a remaining environment blocker.
+
+Evidence:
+
+- This macOS host has `/usr/bin/python3` but no `timeout`, no `gtimeout`, and no bare `python`.
+- Before this batch, `scripts/ci_gate.sh` failed before running tests at `timeout -k 5 600 ...`.
+- After this batch, `scripts/ci_gate.sh` ran through default pytest, OpenAPI/schema drift checks, frontend build, DB integration, and Temporal integration using a temporary database.
+
 ## Validation Log
 
 Baseline validation is recorded above. Targeted validation will be appended after each cleanup batch.
@@ -474,6 +497,14 @@ After Batch 10:
 | `uvx --from vulture vulture apps packages scripts tests --min-confidence 80 ...` | pass | Lower-confidence dead-symbol scan returned no output. |
 | tracked build-artifact scan | pass | No tracked build/cache artifacts found. |
 
+After Batch 11:
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `bash -n scripts/ci_gate.sh` | pass | Shell syntax remains valid after timeout fallback addition. |
+| `env -u ... PYTHON_BIN="$(pwd)/.venv/bin/python" CUTAGENT_DATABASE_URL=... CUTAGENT_TEMPORAL_TASK_QUEUE=... scripts/ci_gate.sh` | pass | Full local gate passed on macOS using temporary DB `cutagent_ci_gate_c5a6_0628`; covered default pytest, OpenAPI/schema drift, frontend `npm ci` + build, DB integration, and Temporal integration. |
+| Temporary DB cleanup | pass | Dropped `cutagent_ci_gate_c5a6_0628` after validation. |
+
 Final validation:
 
 | Command | Result | Notes |
@@ -490,7 +521,9 @@ Final validation:
 | `cd apps/web && npx --yes knip --reporter compact` | pass | Full frontend Knip scan clean after Batch 10. |
 | `cd apps/web && npx --yes knip --production --reporter compact && npx tsc -p tsconfig.json --noEmit --noUnusedLocals --noUnusedParameters && npm run build` | pass | Re-run after Batch 8; no production-unused frontend exports remain. |
 | `env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy uv run --extra dev python -m pytest -q` | pass | Re-run after Batch 10; full default suite passed. |
-| `scripts/ci_gate.sh` with `PYTHON_BIN=.venv/bin/python` | environment failure | macOS environment lacks GNU `timeout`/`gtimeout`; script failed before tests at line 26. Equivalent subcommands below were run manually. |
+| `scripts/ci_gate.sh` with `PYTHON_BIN=.venv/bin/python` | pass | Re-run after Batch 11 on a clean temporary DB; macOS fallback removed the previous missing-`timeout` blocker. |
+| `uv run --extra dev ruff check .` | pass | Re-run after Batch 11. |
+| `git diff --check` | pass | Re-run after Batch 11. |
 | `CUTAGENT_RUN_DB_TESTS=1 CUTAGENT_STORAGE_BACKEND=sqlalchemy CUTAGENT_DATABASE_URL=postgresql+psycopg://cutagent:cutagent@localhost:55432/cutagent .venv/bin/python scripts/bootstrap_database.py` | pass | Existing local dev DB migrated to 0022 but inserted 0 seed rows; not used for final integration verdict because it was not a clean CI DB. |
 | Same integration command against existing local dev DB | environment failure | Failed on admin login because the existing local DB had non-CI auth state; classified as dirty local data, not a code regression. |
 | `CREATE DATABASE cutagent_ci_cleanup_8e2d` then bootstrap against that DB | pass | Fresh temporary DB migrated from empty to 0022 and inserted 118 seed rows plus 3 demo media source artifacts. |
@@ -515,11 +548,11 @@ Final validation:
 - Introduced discovery during Batch 10: the previously retained `npm run export:openapi` entrypoint was actually broken on this host due missing bare `python`, then due inherited SOCKS proxy env. Fixed by using `uv run --extra dev python` and clearing proxy env inside the export script.
 - Command error during Batch 10 stale-reference search: a shell command included unescaped backticks, so zsh attempted command substitution and scanned noisy output. Re-run with single-quoted patterns was used for the actual `ci_gate.sh` check.
 - Reviewed deptry findings during Batch 10: no dependency was removed because reported issues were package/module aliasing (`argon2`, `cv2`), expected runtime/tool dependencies (`python-multipart`, `pytest`, `ruff`), transitive `botocore`, or explicitly optional `fontTools`.
+- Resolved by Batch 11: direct `scripts/ci_gate.sh` on this macOS host no longer fails for missing GNU `timeout`; it falls back to a Python timeout wrapper and the full local gate passed.
 - Environment failure during final OpenAPI validation: first export inherited local SOCKS proxy env and failed in `httpx`; rerun with proxy vars unset passed.
-- Environment failure during full `scripts/ci_gate.sh`: local macOS lacks `timeout`; manual equivalent subcommands were run and recorded above.
 - Environment failure during DB integration on the existing dev DB: local auth seed state was dirty (`admin@local.cutagent` login 401); clean temporary DB integration passed.
 - Passing baseline: default pytest, frontend build, OpenAPI JSON drift check, generated TypeScript schema drift check.
-- Full direct `scripts/ci_gate.sh` remains blocked by missing `timeout`; its DB and Temporal subcommands passed when run manually on a clean temporary database.
+- Full direct `scripts/ci_gate.sh` now passes locally when pointed at a clean temporary database and existing local infra.
 
 ## Discovery Rounds
 
@@ -531,6 +564,8 @@ Final validation:
 - Round 5: completed after Batch 9. Full high-confidence vulture scan found no dead Python symbols/variables, Settings/env coverage scan found no `.env.example` gaps, Python import graph found no new source-module islands, tracked build-artifact scan had no matches, and low-threshold runtime `jscpd` still found zero clones.
 - Round 6: completed after Batch 10. Full/prod frontend Knip scans were clean, vulture at confidence 80 returned no output, `.env.example` reverse scan found no orphan sample variables, tracked build-artifact scan had no matches, and low-threshold runtime `jscpd` reported zero clones across `373` files.
 - Round 7: repeated the post-Batch-10 set. It again found clean full/prod Knip, no vulture output, no orphan sample env vars, no tracked build/cache artifacts, and zero runtime clones.
+- Round 8: completed after Batch 11. Full/prod frontend Knip scans remained clean, vulture at confidence 80 returned no output, tracked build-artifact scan had no matches, and low-threshold runtime `jscpd` reported zero clones across `373` files.
+- Round 9: repeated the post-Batch-11 set and added `.env.example` reverse scanning. It again found clean full/prod Knip, no vulture output, no orphan sample env vars, and zero runtime clones.
 
 ## Adversarial Self Review
 
@@ -542,7 +577,7 @@ Final validation:
 
 ## Final Rescan
 
-- Final rescan completed after full validation, after Batch 8, after Batch 9, and through two consecutive post-Batch-10 discovery rounds with no new high-confidence cleanup candidates.
+- Final rescan completed after full validation, after Batch 8, after Batch 9, through two consecutive post-Batch-10 discovery rounds, and through two consecutive post-Batch-11 discovery rounds.
 
 ## Remaining Risks
 

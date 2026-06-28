@@ -6,11 +6,13 @@ Maintenance: deep repository hygiene cleanup
 
 ## Summary
 
-Behavior-preserving repository hygiene pass across Python/FastAPI/Temporal and React/Vite code. The cleanup removes dead frontend files and helper properties, consolidates duplicated runtime helpers, fixes stale live docs/config, hardens local validation scripts, and keeps high-risk dynamic/backend contract surfaces intact.
+Behavior-preserving repository hygiene pass across Python/FastAPI/Temporal and React/Vite code. The cleanup removes dead frontend files and helper properties, consolidates duplicated runtime helpers, rewrites the docs into current module-based references, deletes obsolete historical docs, hardens local validation scripts, and keeps high-risk dynamic/backend contract surfaces intact.
 
-Cleanup docs were intentionally compressed after the user asked to reduce redundant detailed documentation.
+Cleanup docs were intentionally compressed after the user asked to reduce redundant detailed documentation. The final docs set keeps current index/module/ops/roadmap/spec-decision files plus the raw Spec and cleanup evidence.
 
 ## Files Deleted
+
+Code files:
 
 - `apps/web/src/components/Modal.tsx`
 - `apps/web/src/components/State.tsx`
@@ -23,6 +25,16 @@ Cleanup docs were intentionally compressed after the user asked to reduce redund
 - `apps/web/src/contracts/m6aR5.typecheck.ts`
 - `apps/web/src/contracts/m6aR6.typecheck.ts`
 - `apps/web/src/contracts/m6eB.typecheck.ts`
+
+Historical docs/assets:
+
+- 66 obsolete docs/assets removed:
+  - dated 2026-06-22 implementation plans
+  - old audit reports/JSON dumps
+  - milestone markdown files and orphaned milestone screenshots
+  - fragmented ops notes
+  - superpowers plans/specs
+  - old standalone docs image
 
 ## Key Code Changes
 
@@ -38,6 +50,9 @@ Cleanup docs were intentionally compressed after the user asked to reduce redund
 - Corrected stale migration, route, command, worktree, and env/config references.
 - Updated live OpenAPI regeneration guidance.
 - Removed stale `apps/web` references to deleted type probes and nonexistent `/publish-center*` route registration.
+- Added `docs/README.md`, `docs/modules.md`, and `docs/operations.md`.
+- Rewrote `docs/ROADMAP.md` and `docs/spec-questions.md` around current facts.
+- Removed old `docs/milestones`, `docs/superpowers`, `docs/audit`, fragmented `docs/ops`, and dated top-level plan docs.
 - Condensed `docs/repo-cleanup-log.md`, `docs/repo-cleanup-inventory.md`, and this PR body to review-critical summaries.
 
 ## Dependencies Removed
@@ -62,6 +77,7 @@ Passed locally:
 - Clean temporary DB integration tests.
 - Temporal integration tests with shared durable + ephemeral MinIO buckets.
 - Runtime duplicate scan with generated files, docs, tests, and migrations excluded.
+- Stale-reference scans for removed documentation paths.
 
 Remote GitHub Actions must be green before merge.
 
@@ -71,6 +87,7 @@ Remote GitHub Actions must be green before merge.
 - Local proxy env previously broke OpenAPI export/import paths; export now clears proxy env.
 - Existing local dev DB had dirty auth seed state; clean temp DB and remote CI passed.
 - Generated OpenAPI/schema files can look duplicated to clone scanners and are intentionally excluded.
+- The raw product Spec remains large by design because AGENTS/README use it as the capability baseline.
 
 ## Risks And Mitigations
 
@@ -78,10 +95,12 @@ Remote GitHub Actions must be green before merge.
 - Frontend wrapper removals were checked with targeted reference scans, TypeScript, Knip, build, and pytest probes.
 - Consolidations were validated by targeted tests plus full pytest.
 - `api.annotations.batch` was kept after TypeScript caught a live cross-line call.
+- Historical docs were deleted only after replacement docs were written and stale path scans returned clean.
 
 ## Reviewer Checklist
 
 - Confirm deleted frontend files/helper properties have no callers.
 - Confirm generated API files have no drift.
 - Confirm high-risk dynamic/backend contract surfaces were left intact.
+- Confirm new docs are the intended current docs entrypoints.
 - Confirm CI is green on the latest commit.

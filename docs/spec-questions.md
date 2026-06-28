@@ -1,23 +1,32 @@
-# Spec Questions
+# Spec Decisions
 
-## ArtifactKind supplement: uploaded.file / import.mapping
+Last refreshed: 2026-06-28.
 
-M2a keeps the existing persisted ArtifactKind values `uploaded.file` and `import.mapping` for clean-slate continuity, but they are no longer unregistered compatibility strays.
+This file keeps decisions that still affect current contracts or operations.
+Resolved items remain here only when they guard against future drift.
 
-Proposal for spec 32.1/32.2:
+## ArtifactKind Supplement: `uploaded.file` / `import.mapping`
+
+`uploaded.file` and `import.mapping` remain valid persisted artifact kinds for
+clean-slate continuity.
 
 - `uploaded.file` maps to `UploadedFileArtifact`.
 - `import.mapping` maps to `ImportMappingArtifact`.
 
-Both values should remain in the final ArtifactKind enum unless a later migration explicitly replaces persisted upload/import references.
+Do not remove these enum values without a migration that replaces existing
+upload/import references.
 
-## M5 CI hosting decision
+## Hosted CI
 
-M5 adds `.github/workflows/ci.yml` as the proposed GitHub Actions acceptance gate for unit, DB/Temporal integration, and frontend jobs. The repository currently has no confirmed remote/hosting policy in this clone.
+GitHub Actions is the hosted CI gate for this repository. `scripts/ci_gate.sh`
+is the local equivalent and should continue to mirror the important hosted
+checks: default pytest, OpenAPI drift check, frontend type generation/build, DB
+integration tests, and Temporal tests.
 
-Question for architecture/ops: keep GitHub Actions as the canonical hosted CI, or mirror the same jobs into the eventual hosting provider's pipeline while retaining `scripts/ci_gate.sh` as the local equivalent gate?
+## Idempotency Replay Status
 
-## Idempotency 重放状态码（2026-06-11，架构师裁决）
+Spec §32.11 defines idempotency-key hits as HTTP 200 responses returning the
+original job/run, plus `Idempotency-Replayed: true`.
 
-spec 32.11 明文「Idempotency-Key 命中：200，返回原 job/run」。M5 施工曾改为回放原始状态码（201/202），
-与 spec 冲突，已裁决恢复 200 + `Idempotency-Replayed: true` 头。任何对该语义的修改需先改 spec。
+Do not change replay responses back to the original creation status (`201` or
+`202`) unless the spec is changed first.

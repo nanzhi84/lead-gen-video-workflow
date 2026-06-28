@@ -4,7 +4,7 @@ Condensed inventory of accepted cleanup and intentionally retained high-risk ite
 
 ## Accepted Deletions
 
-### Dead Files
+### Dead Code Files
 
 - `apps/web/src/components/Modal.tsx`
 - `apps/web/src/components/State.tsx`
@@ -17,6 +17,19 @@ Condensed inventory of accepted cleanup and intentionally retained high-risk ite
 - `apps/web/src/contracts/m6aR5.typecheck.ts`
 - `apps/web/src/contracts/m6aR6.typecheck.ts`
 - `apps/web/src/contracts/m6eB.typecheck.ts`
+
+### Historical Docs And Assets
+
+Removed after replacement by current module-based docs:
+
+- 4 dated 2026-06-22 implementation plans.
+- 3 old audit reports/JSON dumps.
+- 31 milestone markdown files.
+- 5 orphaned milestone screenshots.
+- 4 fragmented ops notes.
+- 7 superpowers plan files.
+- 9 superpowers spec files.
+- 1 old standalone docs image.
 
 ### Dead Functions And Exports
 
@@ -51,6 +64,9 @@ Condensed inventory of accepted cleanup and intentionally retained high-risk ite
 - `.env.example` coverage was brought in line with live `Settings` env reads.
 - `apps/web/CLAUDE.md` no longer references deleted typecheck probes or nonexistent `/publish-center*` routing.
 - Cleanup docs were compressed after the user requested key summaries instead of detailed transcripts.
+- Added `docs/README.md`, `docs/modules.md`, and `docs/operations.md`.
+- Rewrote `docs/ROADMAP.md` and `docs/spec-questions.md` around current facts.
+- Removed stale references to deleted historical docs; the remaining docs set is intentionally small.
 - `scripts/export_openapi.py` clears local proxy env before app import.
 - `scripts/ci_gate.sh` now works on macOS without GNU `timeout`.
 
@@ -73,6 +89,7 @@ No tracked build/cache artifact was accepted for deletion. Local ignored artifac
 - Deployment and CI hooks.
 - Backend API routes whose current frontend wrapper is unused but whose contract may still be public or tested.
 - Compatibility values needed for historical persisted data.
+- Raw product Spec, because it remains the referenced capability baseline.
 
 ## False Positives Kept
 

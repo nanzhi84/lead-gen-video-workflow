@@ -79,7 +79,7 @@ packages/
 tests/          按域组织的 pytest（约 140 文件）：api/core/creative/media/.../integration/temporal/golden/contract
 scripts/        bootstrap_database · migrate · export_openapi · gc_objectstore · dev_up.sh · ci_gate.sh 等
 deploy/         Temporal 动态配置（无 k8s/terraform 清单）
-docs/           Spec、ROADMAP、milestones/、ops/、audit/
+docs/           文档入口、模块图、运维 runbook、Roadmap、Spec、清理证据
 ```
 
 每个 `apps/*`、`packages/*` 和 `tests/` 目录下都有一份精简的 `CLAUDE.md`，说明该模块用途与约定。
@@ -215,10 +215,12 @@ scripts/ci_gate.sh
 
 | 脚本 | 用途 |
 | --- | --- |
-| `scripts/gc_objectstore.py --max-age-hours 24 --apply` | 回收旧的生成类对象（不带 `--apply` 为 dry-run）；见 [`docs/ops/objectstore-gc.md`](docs/ops/objectstore-gc.md) |
+| `scripts/gc_objectstore.py --max-age-hours 24 --apply` | 回收旧的生成类对象（不带 `--apply` 为 dry-run）；见 [`docs/operations.md`](docs/operations.md) |
 | `scripts/migrate.py` | 仅执行 Alembic `upgrade head` |
+| `scripts/clean_dangling_materials.py --apply` | 清理源对象缺失的素材库记录；dry-run 默认开启，带批量误删保护 |
+| `scripts/sync_materials.py --prod-dsn ... --apply` | 将生产素材元数据同步到本地库，不同步标注 |
 
-阿里云 OSS 后端（云 ASR strict 时间戳对齐）配置见 [`docs/ops/objectstore-oss.md`](docs/ops/objectstore-oss.md)。
+阿里云 OSS、DashScope ASR、共享 ephemeral ObjectStore、provider balance 刷新等运维说明见 [`docs/operations.md`](docs/operations.md)。当前模块边界见 [`docs/modules.md`](docs/modules.md)。
 
 ---
 

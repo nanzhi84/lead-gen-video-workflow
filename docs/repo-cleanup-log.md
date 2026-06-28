@@ -7,7 +7,7 @@ Condensed after the final documentation cleanup request. This file keeps the rev
 - Branch: `maintenance/repo-hygiene-deep-cleanup`
 - PR: `https://github.com/nanzhi84/cutagent-genesis/pull/61`
 - Base: branch started aligned with `origin/main` (`0 0`).
-- Goal: behavior-preserving repository hygiene cleanup: delete dead frontend files/helpers, consolidate duplicate runtime helpers, fix stale docs/config, and leave high-risk dynamic surfaces untouched.
+- Goal: behavior-preserving repository hygiene cleanup: delete dead frontend files/helpers, consolidate duplicate runtime helpers, rewrite stale docs into current module docs, and leave high-risk dynamic surfaces untouched.
 
 ## Repository Coverage
 
@@ -19,14 +19,14 @@ Condensed after the final documentation cleanup request. This file keeps the rev
 | `apps/web/` | changed and validated | Deleted compatibility wrappers/type probes; pruned unused helper exports/object properties; updated live guide. |
 | `apps/worker/` | clean | Temporal worker entrypoint left untouched. |
 | `deploy/` | clean | Temporal config traced; no cleanup accepted. |
-| `docs/` | changed and compressed | Stale live docs fixed; cleanup docs condensed to key evidence. Historical milestone/audit docs left as records. |
+| `docs/` | rewritten and pruned | Added current docs index, module map, operations runbook, current roadmap, and spec-decision summary; removed historical milestones, superpowers plans/specs, old audits, dated implementation drafts, and orphaned milestone images. |
 | `packages/` | changed and validated | Duplicate storage/media/planning/production helpers consolidated; migrations/registries/seeds left untouched. |
 | `scripts/` | changed and validated | `dev_up.sh`, `export_openapi.py`, and `ci_gate.sh` hardened; manual ops scripts kept. |
 | `tests/` | changed and validated | Static-dead test parameters removed; focused probe tests updated. |
 
 ## Cleanup Summary
 
-### Deleted Files
+### Deleted Code Files
 
 - `apps/web/src/components/Modal.tsx`
 - `apps/web/src/components/State.tsx`
@@ -39,6 +39,18 @@ Condensed after the final documentation cleanup request. This file keeps the rev
 - `apps/web/src/contracts/m6aR5.typecheck.ts`
 - `apps/web/src/contracts/m6aR6.typecheck.ts`
 - `apps/web/src/contracts/m6eB.typecheck.ts`
+
+### Deleted Historical Docs And Assets
+
+66 old documentation/artifact files were removed after module-based summaries replaced them:
+
+- 4 dated top-level implementation plans from 2026-06-22.
+- 3 old audit reports/JSON dumps.
+- 31 milestone markdown files plus 5 orphaned milestone screenshots.
+- 4 fragmented ops notes replaced by `docs/operations.md`.
+- 7 superpowers plan files.
+- 9 superpowers spec files.
+- 1 old `docs/assets/m6b-final-frame.png` image.
 
 ### Dead Frontend Helpers Removed
 
@@ -76,6 +88,12 @@ Condensed after the final documentation cleanup request. This file keeps the rev
 - Cleared proxy env inside `scripts/export_openapi.py` before app import.
 - Made `scripts/ci_gate.sh` macOS-compatible via `timeout` / `gtimeout` / Python fallback.
 - Removed stale live doc claims about deleted frontend type probes and `/publish-center*` route registration.
+- Replaced redundant historical docs with:
+  - `docs/README.md`
+  - `docs/modules.md`
+  - `docs/operations.md`
+  - current `docs/ROADMAP.md`
+  - current `docs/spec-questions.md`
 - Compressed cleanup documentation to summary form after the user requested less redundant documentation.
 
 ## Evidence Methods
@@ -89,6 +107,7 @@ Condensed after the final documentation cleanup request. This file keeps the rev
 - DB and Temporal integration tests on clean temporary databases.
 - Runtime duplicate scan with generated files, migrations, docs, and tests excluded.
 - Remote GitHub Actions checks.
+- Docs reference scans for removed `docs/ops`, `docs/milestones`, `docs/superpowers`, `docs/audit`, and orphaned PNG paths.
 
 ## Validation
 
@@ -106,6 +125,7 @@ Passed locally during the final sweep:
 - `git diff --exit-code -- apps/web/src/api/openapi.json apps/web/src/api/schema.d.ts`
 - `scripts/ci_gate.sh` on macOS with a clean temporary database and local infra.
 - DB integration and Temporal integration tests on clean temporary DBs.
+- `rg` stale-reference scan for removed docs paths.
 
 Remote CI has been checked after pushes; the latest pushed commit must be verified green before merge handoff.
 
@@ -128,6 +148,7 @@ Multiple discovery rounds were completed. The last two rounds after the object-h
 - Tracked build/cache artifact scan.
 - `.env.example` reverse scan.
 - Runtime `jscpd` with generated files excluded.
+- Docs directory rescan after deleting historical docs and orphaned images.
 
 No new high-confidence runtime cleanup candidate remained.
 
@@ -135,3 +156,4 @@ No new high-confidence runtime cleanup candidate remained.
 
 - Migrations, generated clients, Temporal workflow/activity registration, provider registries, seed scripts, fixtures, manual DB/OSS scripts, deployment hooks, and public backend API routes were intentionally treated as high-risk.
 - Backend endpoints can remain valuable even when current frontend wrappers are unused; this cleanup only removes frontend wrapper properties unless backend deadness is proven separately.
+- The raw clean-slate Spec remains intentionally large because AGENTS/README define it as the capability baseline; it was not collapsed into summaries.

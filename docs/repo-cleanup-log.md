@@ -72,7 +72,7 @@ Major entrypoints and surfaces:
 | `packages/production/` | complete | complete | touched narrowly | Preexisting lint import fixed; pipeline/Temporal nodes otherwise retained. |
 | `packages/publishing/` | complete | complete | no cleanup accepted | Copy-field tuple retained as schema/validation alignment. |
 | `scripts/` | complete | complete | touched narrowly | Lint fixes plus Codex worktree-safe `dev_up.sh` path resolution. |
-| `tests/` | complete | complete | touched narrowly | Case profile test now guards shared material-kind constant behavior. |
+| `tests/` | complete | complete | touched narrowly | Case profile test now guards shared material-kind constant behavior; later blind-spot pass cleaned static-dead test parameters and hardened Settings env coverage. |
 
 ## Candidate Inventory
 
@@ -308,6 +308,35 @@ Evidence:
 - Repository-wide `rg` checks found no remaining callers of the deleted private performance mapper methods or frontend wrapper/typecheck imports.
 - The first full pytest after removing the `defaultForm` export failed two frontend probe tests; tests were corrected to use the public `loadStoredForm()` entry, then the targeted probe tests and full pytest passed.
 
+### Batch 9: Blind-spot static scan and Settings env coverage
+
+Files changed:
+
+- `.env.example`
+- `tests/api/test_annotation_patch.py`
+- `tests/conftest.py`
+- `tests/contract/test_settings_config.py`
+- `tests/creative/test_reference_extract.py`
+- `tests/production/test_digital_human_ephemeral_gc.py`
+- `tests/production/test_sqlalchemy_selection_reservations.py`
+- `tests/production/test_yield_funnel_lifecycle.py`
+- `tests/providers/test_sqlalchemy_voice_provider_wireup.py`
+- `tests/temporal/test_temporal_runtime.py`
+
+Changes:
+
+- Completed `.env.example` coverage for every env var read by `packages/core/config/settings.py`, including DB pool, auth limiter/cookie policy, provider host policy, publishing CDP endpoint, upload, balance, learning, and motion guard settings.
+- Added a contract test that parses `.env.example` and fails when a `Settings` env var is missing from the sample config.
+- Expanded `clean_env` to clear the full `Settings` env surface and made it autouse so default-value assertions cannot inherit shell env.
+- Cleaned vulture-detected test-only unused variables while preserving fake interface signatures where callers may pass keyword args.
+
+Evidence:
+
+- Settings/env comparison found `.env.example` gaps, and a broader `settings.py` scan surfaced undocumented live groups.
+- `tests/contract/test_settings_config.py` claimed to clear every Settings env var but omitted multiple groups before this pass.
+- Full high-confidence vulture scan now exits cleanly with no dead Python symbol output.
+- `npx knip --reporter compact` still reports `package.json: python`; this is intentionally retained because `apps/web/CLAUDE.md` documents `npm run export:openapi` as the frontend contract-regeneration entrypoint.
+
 ## Validation Log
 
 Baseline validation is recorded above. Targeted validation will be appended after each cleanup batch.
@@ -388,6 +417,21 @@ After Batch 8:
 | `env -u ... uv run --extra dev python -m pytest -q tests/frontend/test_user_defaults_batch_notify.py::test_form_defaults_round_trip_preserves_preference_blocks tests/frontend/test_user_defaults_batch_notify.py::test_seedance_reference_assets_are_optional` | pass | Corrected frontend probe tests passed. |
 | `git diff --check` | pass | No whitespace/error marker issues. |
 
+After Batch 9:
+
+| Command | Result | Notes |
+| --- | --- | --- |
+| `uv run --extra dev python -m pytest -q tests/contract/test_settings_config.py tests/contract/test_db_pool_config.py` | pass | `28` Settings/DB pool contract tests passed, including `.env.example` coverage. |
+| `uv run --extra dev ruff check tests/contract/test_settings_config.py packages/core/config/settings.py` | pass | Settings contract changes are lint-clean. |
+| `bash -c 'set -euo pipefail; set -a; source .env.example; set +a; test "$CUTAGENT_STORAGE_BACKEND" = sqlalchemy; test "$CUTAGENT_PUBLISH_ADAPTER" = xiaovmao.cdp'` | pass | `.env.example` remains shell-loadable and keeps key defaults. |
+| `git diff --check` | pass | No whitespace/error marker issues. |
+| `env -u ... uv run --extra dev python -m pytest -q tests/api/test_annotation_patch.py tests/creative/test_reference_extract.py tests/production/test_digital_human_ephemeral_gc.py tests/production/test_sqlalchemy_selection_reservations.py tests/production/test_yield_funnel_lifecycle.py tests/providers/test_sqlalchemy_voice_provider_wireup.py tests/temporal/test_temporal_runtime.py` | pass | `43` touched-test suites passed/skipped after static-dead variable cleanup. |
+| `uv run --extra dev ruff check tests/api/test_annotation_patch.py tests/conftest.py tests/contract/test_settings_config.py tests/creative/test_reference_extract.py tests/production/test_digital_human_ephemeral_gc.py tests/production/test_sqlalchemy_selection_reservations.py tests/production/test_yield_funnel_lifecycle.py tests/providers/test_sqlalchemy_voice_provider_wireup.py tests/temporal/test_temporal_runtime.py` | pass | Touched Python test files are lint-clean. |
+| `uvx --from vulture vulture apps packages scripts tests --min-confidence 90 --exclude 'apps/web/node_modules,apps/web/dist,.venv'` | pass | High-confidence dead-symbol scan returned no output. |
+| Settings/env comparison script | pass | `SETTINGS_ENV_NOT_IN_EXAMPLE` and `SETTINGS_FILE_ENV_NOT_IN_EXAMPLE` were both empty after the fix. |
+| Python import graph scan | pass | No new zero-inbound source modules; only external/manual scripts remain as expected. |
+| `npx --yes jscpd apps packages scripts --min-lines 20 --min-tokens 120 ...` | pass | Runtime source scan analyzed `372` files and still reported zero clones. |
+
 Final validation:
 
 | Command | Result | Notes |
@@ -420,6 +464,9 @@ Final validation:
 - Command error during Batch 7 frontend validation: first tsc run found two missed wrapper imports; fixed and rerun passed.
 - Introduced failure during Batch 8 full pytest: removing the `defaultForm` export broke two frontend probe tests. Tests were updated to use public `loadStoredForm()` instead of a production-unused export; targeted and full pytest reruns passed.
 - Command error during Batch 8 OpenAPI validation: generation succeeded but the trailing diff command used root-relative paths after `cd apps/web`; corrected root-level diff passed.
+- Command error during Batch 9 lint validation: an attempted `ruff check .env.example ...` treated `.env.example` as Python; corrected by linting Python files and shell-sourcing `.env.example`.
+- Environment failure during Batch 9 touched-test validation: inherited local SOCKS proxy env caused an `httpx`/`socksio` import error; rerun with proxy vars unset passed.
+- Command error during final Batch 9 rescan: bare `python` is not present in this shell and an initial `jscpd --pattern` invocation matched zero files. Re-ran via `uv run --extra dev python` and with explicit `jscpd apps packages scripts` path arguments; both corrected commands passed.
 - Environment failure during final OpenAPI validation: first export inherited local SOCKS proxy env and failed in `httpx`; rerun with proxy vars unset passed.
 - Environment failure during full `scripts/ci_gate.sh`: local macOS lacks `timeout`; manual equivalent subcommands were run and recorded above.
 - Environment failure during DB integration on the existing dev DB: local auth seed state was dirty (`admin@local.cutagent` login 401); clean temporary DB integration passed.
@@ -433,17 +480,19 @@ Final validation:
 - Round 2: completed after Batch 7. Python import graph had no zero-inbound candidates except Alembic migration files; duplicate literal scan showed only three intentionally retained/high-risk tuples; tracked build-artifact scan had no matches; stale keyword/config grep had no target matches; frontend unused-symbol gate passed.
 - Round 3: completed after Batch 8. Old frontend wrapper/typecheck/private-mapper references had no matches, `knip --production` was clean, tracked build-artifact scan had no matches, and low-threshold runtime `jscpd` found zero clones after excluding docs/tests/generated/migrations/README.
 - Round 4: repeated the same post-Batch-8 discovery set. It again found no old references, no frontend production-unused exports, no tracked build artifacts, and zero low-threshold runtime source clones.
+- Round 5: completed after Batch 9. Full high-confidence vulture scan found no dead Python symbols/variables, Settings/env coverage scan found no `.env.example` gaps, Python import graph found no new source-module islands, tracked build-artifact scan had no matches, and low-threshold runtime `jscpd` still found zero clones.
 
 ## Adversarial Self Review
 
 - Rechecked all deleted frontend wrapper imports; only canonical same-directory `components/ui/ConfirmDialog.tsx -> ./Modal` remains.
 - Rechecked generated API files after export/generate; no drift.
 - Rechecked that no tracked build/cache artifacts are present.
+- Kept `apps/web/package.json`'s `export:openapi` script despite `knip` reporting the `python` binary as unlisted, because it is the documented frontend contract-regeneration entrypoint.
 - Kept migrations, generated clients, Temporal registration, provider registries, seed scripts, fixtures, manual DB/OSS scripts, and external deployment hooks untouched unless there was direct evidence.
 
 ## Final Rescan
 
-- Final rescan completed after full validation and again after Batch 8. Two consecutive post-Batch-8 discovery rounds found no new high-confidence runtime cleanup candidates.
+- Final rescan completed after full validation, after Batch 8, and again after Batch 9. Two consecutive post-Batch-8 discovery rounds plus the Batch 9 blind-spot scan found no new high-confidence runtime cleanup candidates.
 
 ## Remaining Risks
 

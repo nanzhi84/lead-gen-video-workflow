@@ -6,7 +6,7 @@ Maintenance: deep repository hygiene cleanup
 
 ## Executive Summary
 
-This PR performs a behavior-preserving deep hygiene pass across the repo. It fixes stale docs/config references, resolves baseline lint failures, deletes obsolete frontend wrappers and contract probe files, removes production-unused frontend exports, consolidates duplicate runtime helpers, and records the audit/validation trail.
+This PR performs a behavior-preserving deep hygiene pass across the repo. It fixes stale docs/config references, resolves baseline lint failures, deletes obsolete frontend wrappers and contract probe files, removes production-unused frontend exports, consolidates duplicate runtime helpers, completes Settings/env sample coverage, cleans static-dead test parameters, and records the audit/validation trail.
 
 The aggressive second pass intentionally added a few small canonical helpers, but removed substantially more repeated implementation: tracked changes after that pass were roughly `+166/-1215`, with four new helper files totaling 333 lines.
 
@@ -100,9 +100,18 @@ The aggressive second pass intentionally added a few small canonical helpers, bu
 - `scripts/dev_up.sh`
 - `scripts/sync_materials.py`
 - `tests/api/test_cases_profile.py`
+- `tests/api/test_annotation_patch.py`
+- `tests/conftest.py`
+- `tests/contract/test_settings_config.py`
 - `tests/creative/test_case_evolution_logic.py`
+- `tests/creative/test_reference_extract.py`
 - `tests/frontend/test_user_defaults_batch_notify.py`
 - `tests/integration/test_parity_mapper.py`
+- `tests/production/test_digital_human_ephemeral_gc.py`
+- `tests/production/test_sqlalchemy_selection_reservations.py`
+- `tests/production/test_yield_funnel_lifecycle.py`
+- `tests/providers/test_sqlalchemy_voice_provider_wireup.py`
+- `tests/temporal/test_temporal_runtime.py`
 
 ## Dependencies Removed
 
@@ -128,6 +137,7 @@ None.
 - Corrected root child-guide naming from `AGENTS.md` to `CLAUDE.md`.
 - Fixed README's nonexistent router reference, stale `dev_up.sh` web port, and storage backend enum drift.
 - Clarified `.env.example` direct runtime env switches.
+- Completed `.env.example` coverage for every env var read by `Settings` and added a contract guard to keep it covered.
 - Updated roadmap worktree guidance for Codex vs Claude worktree locations.
 - Removed README test-env duplication by referring to the manual setup block.
 - Removed stale `apps/web/CLAUDE.md` references to deleted typecheck probes.
@@ -141,6 +151,9 @@ None.
 - `(cd apps/web && npm run generate:api)`
 - `git diff --exit-code -- apps/web/src/api/openapi.json apps/web/src/api/schema.d.ts`
 - `(cd apps/web && npx --yes knip --production --reporter compact && npx tsc -p tsconfig.json --noEmit --noUnusedLocals --noUnusedParameters && npm run build)`
+- `uvx --from vulture vulture apps packages scripts tests --min-confidence 90 --exclude 'apps/web/node_modules,apps/web/dist,.venv'`
+- `bash -c 'set -euo pipefail; set -a; source .env.example; set +a; test "$CUTAGENT_STORAGE_BACKEND" = sqlalchemy; test "$CUTAGENT_PUBLISH_ADAPTER" = xiaovmao.cdp'`
+- Settings/env comparison script confirming no `Settings` env vars are missing from `.env.example`.
 - Targeted Python suites for imports, mappers, BGM/loudness, timeline/export nodes, digital-human runtime, workflow reuse, and frontend probes.
 - DB integration tests on clean temporary database `cutagent_ci_cleanup_8e2d`.
 - Temporal tests against the same clean DB plus shared MinIO durable/ephemeral buckets.
@@ -154,6 +167,8 @@ None.
 - Frontend TypeScript unused-symbol gate.
 - Frontend production build.
 - OpenAPI and generated TypeScript schema drift checks.
+- Settings/env coverage contract tests.
+- Full high-confidence vulture dead-symbol scan.
 - DB integration tests on a clean temporary database.
 - Temporal integration tests with shared MinIO durable + ephemeral buckets.
 
@@ -167,6 +182,7 @@ None.
 
 - Migrations, generated clients, Temporal registration, provider registries, seed scripts, fixtures, manual DB/OSS scripts, and deployment hooks were treated as high-risk and left untouched unless direct evidence supported a safe change.
 - The removed frontend typecheck probes had no package/CI/import references and were covered by `tsc`, frontend build, `knip`, and full pytest.
+- The `export:openapi` package script is retained despite `knip` reporting `python` as an unlisted binary, because it is the documented frontend contract-regeneration entrypoint.
 - Mapper/helper consolidations were validated with targeted mapper/import/media/workflow tests plus full pytest.
 - A first full pytest caught an unsafe `defaultForm` export deletion; the test now uses the public `loadStoredForm()` entry and the full suite passes.
 

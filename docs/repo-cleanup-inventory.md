@@ -62,7 +62,8 @@ No accepted candidates yet.
 
 ## Stale Tests
 
-No accepted candidates yet.
+- Cleaned vulture-detected test-only unused variables in fake context managers/callbacks while preserving public fake signatures where callers may pass keyword args.
+- Converted the Settings `clean_env` fixture to autouse and removed unused fixture parameters from Settings contract tests.
 
 ## Stale Docs
 
@@ -77,10 +78,12 @@ No accepted candidates yet.
 - `apps/web/CLAUDE.md`: referenced stale `src/contracts/*.typecheck.ts` frontend probe files after those probes were removed.
 - `docs/ROADMAP.md`: current milestone discipline assigned Codex worktrees to `.claude/worktrees`; current Codex desktop worktrees use `.codex/worktrees/<id>/<repo>`.
 - `.env.example`: preamble said every variable maps to `Settings`; render/ephemeral debug switches are valid but read directly by their runtime consumers.
+- `.env.example`: missed live `Settings` env groups including DB pool, auth limiter/cookie policy, provider host policy, publishing CDP endpoint, upload, balance, learning, and motion guard. Completed sample coverage and added a contract guard.
 
 ## Obsolete Configs
 
 - `scripts/dev_up.sh`: main-checkout inference only recognized `.claude/worktrees`; current Codex desktop worktrees live under `.codex/worktrees/<id>/<repo>`. Replaced with Git common-dir resolution plus the legacy fallback.
+- `tests/contract/test_settings_config.py`: `_INFRA_ENV_VARS` was stale versus actual `Settings` env reads, allowing external shell env to leak into default assertions. Expanded it and added `.env.example` coverage check.
 
 ## Unused Scripts
 

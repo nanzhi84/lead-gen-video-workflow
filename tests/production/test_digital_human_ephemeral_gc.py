@@ -218,7 +218,7 @@ def test_failed_run_retains_ephemeral_for_resume_and_keeps_committed_reservation
     object_store = RecordingDeleteStore()
     monkeypatch.setattr(digital_human, "get_object_store", lambda: object_store)
 
-    def fail_node(node_id, run_arg, node_run, state_arg):
+    def fail_node(_node_id, _run_arg, _node_run, _state_arg):
         raise NodeExecutionError(ErrorCode.provider_remote_failed, "provider failed")
 
     workflow._run_node = fail_node  # type: ignore[method-assign]
@@ -282,7 +282,7 @@ def test_failed_run_keeps_ephemeral_artifacts_when_debug_retention_enabled(
     monkeypatch.setattr(digital_human, "get_object_store", lambda: object_store)
     monkeypatch.setenv("CUTAGENT_KEEP_FAILED_EPHEMERAL", "1")
 
-    def fail_node(node_id, run_arg, node_run, state_arg):
+    def fail_node(_node_id, _run_arg, _node_run, _state_arg):
         raise NodeExecutionError(ErrorCode.provider_remote_failed, "provider failed")
 
     workflow._run_node = fail_node  # type: ignore[method-assign]

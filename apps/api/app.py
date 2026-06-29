@@ -42,7 +42,11 @@ from packages.core.observability import (
     SqlAlchemyOutboxDispatcher,
     configure_logging,
 )
-from packages.core.storage import Repository, get_object_store
+from packages.core.storage import (
+    Repository,
+    configure_object_store,
+    object_store_from_settings,
+)
 from packages.core.storage.bootstrap import (
     bootstrap_sqlalchemy_storage_if_enabled,
     get_sqlalchemy_session_factory_if_enabled,
@@ -135,7 +139,15 @@ def configure_app_state(app: FastAPI, *, session_factory=None) -> None:
         session_factory=session_factory,
         hub=app.state.event_hub,
     )
-    app.state.object_store = get_object_store()
+    # Build the object store explicitly from THIS app's Settings snapshot and
+    # install it into the process slot (issue #64), so the gateway / SQL repos —
+    # which fall back to get_object_store() when not handed a store — resolve the
+    # same instance instead of an import-time-frozen one.
+    app.state.object_store = object_store_from_settings(
+        app.state.settings.object_store,
+        workflow_runtime=app.state.settings.workflow.runtime,
+    )
+    configure_object_store(app.state.object_store)
     local_secret_store = LocalSecretStore()
     app.state.secret_store = SqlAlchemySecretStore(session_factory, fallback=local_secret_store)
     app.state.sqlalchemy_case_repository = SqlAlchemyCaseRepository(session_factory)

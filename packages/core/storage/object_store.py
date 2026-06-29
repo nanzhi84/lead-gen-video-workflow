@@ -404,14 +404,45 @@ def _is_not_found_error(exc: Exception) -> bool:
 
 
 from packages.core.storage.tiered_object_store import TieredObjectStore
-from packages.core.storage.object_store_env import object_store_from_env
+from packages.core.storage.object_store_env import (
+    object_store_from_env,
+    object_store_from_settings,
+)
 
 
-_OBJECT_STORE = object_store_from_env()
+# Built lazily on first get_object_store() rather than at import time (issue #64):
+# importing this module must NOT read the environment, open a network connection
+# (S3 head_bucket in __init__), or trigger the Temporal ephemeral fail-fast — all
+# of which are import-order/timing hazards in tests, scripts, and OpenAPI export.
+# The store is constructed once at first use (API lifespan / worker startup /
+# first node activity) and cached. Tests still monkeypatch this slot directly or
+# patch ``digital_human.get_object_store``; both seams are preserved.
+_OBJECT_STORE: ObjectStore | None = None
 
 
 def get_object_store() -> ObjectStore:
+    global _OBJECT_STORE
+    if _OBJECT_STORE is None:
+        _OBJECT_STORE = object_store_from_env()
     return _OBJECT_STORE
+
+
+def configure_object_store(store: ObjectStore) -> None:
+    """Explicitly install the process object store.
+
+    Lets the API lifespan / worker startup build the store from an already-built
+    ``Settings`` (via ``object_store_from_settings``) and inject it, instead of
+    relying on the lazy env-read default. Overrides any cached store.
+    """
+    global _OBJECT_STORE
+    _OBJECT_STORE = store
+
+
+def reset_object_store() -> None:
+    """Drop the cached store so the next ``get_object_store()`` rebuilds from the
+    current environment. For tests and explicit reconfiguration."""
+    global _OBJECT_STORE
+    _OBJECT_STORE = None
 
 
 __all__ = [
@@ -421,6 +452,9 @@ __all__ = [
     "S3ObjectStore",
     "TieredObjectStore",
     "object_store_from_env",
+    "object_store_from_settings",
     "get_object_store",
+    "configure_object_store",
+    "reset_object_store",
     "parse_object_uri",
 ]

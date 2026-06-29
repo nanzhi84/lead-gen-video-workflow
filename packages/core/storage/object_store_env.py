@@ -13,9 +13,33 @@ from packages.core.config import (
 
 
 def object_store_from_env(*, client_factory: Callable[..., Any] | None = None):
+    """Build an object store from the current environment.
+
+    Thin convenience over :func:`object_store_from_settings` that reads the
+    object-store + workflow settings groups from ``os.environ`` at call time.
+    """
+    return object_store_from_settings(
+        build_object_store_settings(),
+        workflow_runtime=build_workflow_settings().runtime,
+        client_factory=client_factory,
+    )
+
+
+def object_store_from_settings(
+    config: ObjectStoreSettings,
+    *,
+    workflow_runtime: str,
+    client_factory: Callable[..., Any] | None = None,
+):
+    """Build an object store from an already-built settings snapshot.
+
+    The explicit-settings counterpart to :func:`object_store_from_env`, so the
+    API lifespan / worker can construct the store from the ``Settings`` they
+    already hold (and inject it via ``configure_object_store``) instead of
+    re-reading the environment. See issue #64.
+    """
     from packages.core.storage.tiered_object_store import TieredObjectStore
 
-    config = build_object_store_settings()
     # The durable store must also be able to READ material-bucket refs (when the
     # tiered store is off, or as a fallback), so fold materials_bucket into its read
     # set; in tiered mode material refs still route to the materials sub-store.
@@ -29,7 +53,7 @@ def object_store_from_env(*, client_factory: Callable[..., Any] | None = None):
         return durable
     ephemeral = _ephemeral_store(
         config.ephemeral,
-        workflow_runtime=build_workflow_settings().runtime,
+        workflow_runtime=workflow_runtime,
         client_factory=client_factory,
     )
     materials = None

@@ -371,6 +371,14 @@ class ApiSettings(BaseModel):
     # CUTAGENT_DISABLE_BACKGROUND_DISPATCHER: "1" disables the in-process outbox
     # dispatcher background task (tests set this for determinism).
     disable_background_dispatcher: bool = False
+    # Idempotency middleware guards (issue #65). The middleware buffers the whole
+    # request body (to hash for replay) and the whole 2xx response body (to cache
+    # for replay) ONLY for authenticated writes carrying an Idempotency-Key. These
+    # cap that buffering so a large/binary body or response cannot blow up memory
+    # via the middleware. 1 MiB each — Idempotency-Key is a control-plane (small
+    # JSON) feature. CUTAGENT_IDEMPOTENCY_MAX_BODY_BYTES / _MAX_RESPONSE_BYTES.
+    idempotency_max_body_bytes: int = 1024 * 1024
+    idempotency_max_response_bytes: int = 1024 * 1024
 
 
 class BalanceSettings(BaseModel):
@@ -731,6 +739,12 @@ def build_settings() -> Settings:
                 "CUTAGENT_DISABLE_BACKGROUND_DISPATCHER"
             )
             == "1",
+            idempotency_max_body_bytes=_env_int(
+                "CUTAGENT_IDEMPOTENCY_MAX_BODY_BYTES", 1024 * 1024
+            ),
+            idempotency_max_response_bytes=_env_int(
+                "CUTAGENT_IDEMPOTENCY_MAX_RESPONSE_BYTES", 1024 * 1024
+            ),
         ),
         balance=BalanceSettings(
             poller_enabled=os.getenv("CUTAGENT_BALANCE_POLLER_ENABLED") == "1",

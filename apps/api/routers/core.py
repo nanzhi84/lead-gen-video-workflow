@@ -24,6 +24,14 @@ def readiness(request: Request) -> JSONResponse:
     return service.readiness(request)
 
 
+# Segment health for the Web→VPS→Mac→OSS topology (issue #77). Operational probe;
+# include_in_schema=False keeps it out of the OpenAPI contract (no schema.d.ts).
+@router.get("/api/health/network", include_in_schema=False)
+def network_diagnostics(request: Request) -> JSONResponse:
+
+    return service.network_diagnostics(request)
+
+
 @router.get("/metrics", response_class=PlainTextResponse)
 def metrics(request: Request) -> str:
 

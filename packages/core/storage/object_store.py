@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import io
+import os
 import shutil
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
@@ -261,15 +263,28 @@ class S3ObjectStore(ObjectStore):
 
     def download_file(self, ref: ObjectRef, local_path: Path) -> Path:
         # Streaming download by path into the on-disk cache; no full BytesIO buffer.
+        # Download to a sibling ``.part`` then atomically rename into place
+        # (issue #76): a process killed (or OOM'd) mid-download must never leave a
+        # truncated file at the final path, which ``_path()`` (exists()-only) would
+        # otherwise hand back as a valid cache hit forever.
         self._validate_read_ref(ref)
         target = Path(local_path)
         target.parent.mkdir(parents=True, exist_ok=True)
-        self._client.download_file(
-            ref.bucket,
-            ref.key,
-            str(target),
-            Config=self._transfer_config,
-        )
+        part = target.parent / f"{target.name}.part"
+        try:
+            self._client.download_file(
+                ref.bucket,
+                ref.key,
+                str(part),
+                Config=self._transfer_config,
+            )
+            os.replace(part, target)  # atomic on the same filesystem
+        finally:
+            if part.exists():
+                try:
+                    part.unlink()
+                except OSError:
+                    pass
         return target
 
     def exists(self, ref: ObjectRef) -> bool:
@@ -403,6 +418,90 @@ def _is_not_found_error(exc: Exception) -> bool:
     return False
 
 
+@dataclass(frozen=True)
+class CacheSweepResult:
+    """Outcome of an object-store cache sweep (issue #76)."""
+
+    examined_files: int
+    total_bytes: int
+    deleted_files: int
+    freed_bytes: int
+    remaining_bytes: int
+
+
+def object_cache_status(cache_root: Path) -> CacheSweepResult:
+    """Report current cache usage without deleting anything (deleted=0)."""
+    return sweep_object_cache(cache_root, max_bytes=0, ttl_hours=0)
+
+
+def sweep_object_cache(
+    cache_root: Path, *, max_bytes: int = 0, ttl_hours: float = 0
+) -> CacheSweepResult:
+    """Bound the S3 object-store local cache by TTL then total size (issue #76).
+
+    Mac mini disk fills up because the boto3 download cache grows without limit.
+    This evicts (1) files older than ``ttl_hours`` then (2), if still over
+    ``max_bytes``, the oldest files (LRU by mtime) until under budget. A value of
+    0 disables that pass. Pure filesystem maintenance — call it from
+    ``scripts/cache_status.py`` / a sweep job, never on the hot path. ``.part``
+    files (in-flight downloads) are always eligible for TTL eviction but are not
+    counted toward a fresh budget if newer than the TTL.
+    """
+    root = Path(cache_root)
+    files: list[tuple[Path, int, float]] = []
+    if root.exists():
+        for path in root.rglob("*"):
+            if path.is_file():
+                try:
+                    stat = path.stat()
+                except OSError:
+                    continue
+                files.append((path, stat.st_size, stat.st_mtime))
+
+    examined_files = len(files)
+    total_bytes = sum(size for _, size, _ in files)
+    deleted_files = 0
+    freed_bytes = 0
+
+    def _remove(path: Path, size: int) -> None:
+        nonlocal deleted_files, freed_bytes
+        try:
+            path.unlink()
+            deleted_files += 1
+            freed_bytes += size
+        except OSError:
+            pass
+
+    survivors = files
+    if ttl_hours and ttl_hours > 0:
+        cutoff = time.time() - ttl_hours * 3600
+        kept: list[tuple[Path, int, float]] = []
+        for path, size, mtime in files:
+            if mtime < cutoff:
+                _remove(path, size)
+            else:
+                kept.append((path, size, mtime))
+        survivors = kept
+
+    remaining_bytes = sum(size for _, size, _ in survivors)
+    if max_bytes and max_bytes > 0 and remaining_bytes > max_bytes:
+        for path, size, _ in sorted(survivors, key=lambda item: item[2]):  # oldest first
+            if remaining_bytes <= max_bytes:
+                break
+            before = deleted_files
+            _remove(path, size)
+            if deleted_files > before:
+                remaining_bytes -= size
+
+    return CacheSweepResult(
+        examined_files=examined_files,
+        total_bytes=total_bytes,
+        deleted_files=deleted_files,
+        freed_bytes=freed_bytes,
+        remaining_bytes=remaining_bytes,
+    )
+
+
 from packages.core.storage.tiered_object_store import TieredObjectStore
 from packages.core.storage.object_store_env import (
     object_store_from_env,
@@ -451,6 +550,9 @@ __all__ = [
     "LocalObjectStore",
     "S3ObjectStore",
     "TieredObjectStore",
+    "CacheSweepResult",
+    "object_cache_status",
+    "sweep_object_cache",
     "object_store_from_env",
     "object_store_from_settings",
     "get_object_store",

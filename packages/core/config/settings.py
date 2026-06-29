@@ -228,6 +228,11 @@ class ObjectStoreSettings(BaseModel):
     # CUTAGENT_OBJECTSTORE_READ_BUCKETS (comma-separated). Empty = write bucket only.
     read_buckets: tuple[str, ...] = ()
     local_path: str = ".data/objectstore"  # CUTAGENT_LOCAL_OBJECTSTORE_PATH
+    # Local S3 download-cache governance (issue #76). 0 = unbounded (current
+    # behaviour). The sweep (scripts/cache_status.py) evicts by TTL then size.
+    # CUTAGENT_OBJECTSTORE_CACHE_MAX_BYTES / _CACHE_TTL_HOURS.
+    cache_max_bytes: int = 0
+    cache_ttl_hours: float = 0
     s3: S3TransportSettings = Field(default_factory=S3TransportSettings)
     ephemeral: EphemeralObjectStoreSettings = Field(
         default_factory=EphemeralObjectStoreSettings
@@ -563,6 +568,8 @@ def build_object_store_settings() -> ObjectStoreSettings:
             if b.strip()
         ),
         local_path=_env_str("CUTAGENT_LOCAL_OBJECTSTORE_PATH", ".data/objectstore"),
+        cache_max_bytes=_env_int("CUTAGENT_OBJECTSTORE_CACHE_MAX_BYTES", 0),
+        cache_ttl_hours=_env_float("CUTAGENT_OBJECTSTORE_CACHE_TTL_HOURS", 0),
         s3=S3TransportSettings(
             endpoint_url=_env_str(
                 "CUTAGENT_OBJECTSTORE_ENDPOINT", "http://127.0.0.1:9000"

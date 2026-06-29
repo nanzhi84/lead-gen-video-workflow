@@ -1,5 +1,3 @@
-import hashlib
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -23,37 +21,22 @@ def create_completed_voice_upload(client: TestClient) -> str:
     )
     assert admin_login.status_code == 200, admin_login.text
 
-    import tempfile
-    from pathlib import Path
+    from tests.api._upload_helpers import direct_upload
+    from tests.api.test_upload_object_store import _wav_bytes
 
-    from tests.fixtures.media import generate_test_audio
-
-    with tempfile.TemporaryDirectory() as fixture_dir:
-        content = generate_test_audio(Path(fixture_dir), duration_sec=1).read_bytes()
-    digest = hashlib.sha256(content).hexdigest()
-    prepared = client.post(
-        "/api/uploads/prepare",
-        json={
-            "kind": "voice_reference",
-            "filename": "voice.wav",
-            "content_type": "audio/wav",
-            "size_bytes": len(content),
-            "sha256": digest,
-        },
+    content = _wav_bytes(duration_sec=1)
+    prepared, completed = direct_upload(
+        client,
+        kind="voice_reference",
+        filename="voice.wav",
+        content_type="audio/wav",
+        body=content,
     )
     assert prepared.status_code == 201, prepared.text
-    upload = prepared.json()
-    uploaded = client.put(
-        f"/api/uploads/{upload['id']}/file",
-        files={"file": ("voice.wav", content, "audio/wav")},
+    assert completed is not None and completed.status_code == 200, (
+        completed.text if completed is not None else prepared.text
     )
-    assert uploaded.status_code == 200, uploaded.text
-    completed = client.post(
-        "/api/uploads/complete",
-        json={"upload_session_id": upload["id"], "size_bytes": len(content), "sha256": digest},
-    )
-    assert completed.status_code == 200, completed.text
-    return upload["id"]
+    return completed.json()["upload_session"]["id"]
 
 
 def test_sqlalchemy_voice_profile_flow_persists_profiles_and_preview_artifact():

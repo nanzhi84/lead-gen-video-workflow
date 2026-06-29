@@ -156,6 +156,39 @@ export async function fetchJson<T>(path: string, options: FetchOptions = {}): Pr
 
 const enc = encodeURIComponent;
 
+/** SHA-256 hex of a file. Browser-direct uploads send it so the API can verify
+ * the object server-side (it never sees the bytes during upload). */
+export async function sha256Hex(file: File): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+/** PUT a file directly to a presigned OSS URL: raw body, the signed Content-Type,
+ * NO cookies / NO FormData. Reports progress via the XHR upload events. */
+export function putToOss(
+  url: string,
+  file: File,
+  contentType: string,
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    xhr.setRequestHeader("Content-Type", contentType);
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress?.(event.loaded, event.total);
+    };
+    xhr.onload = () =>
+      xhr.status >= 200 && xhr.status < 300
+        ? resolve()
+        : reject(new Error(`对象存储上传失败（HTTP ${xhr.status}）`));
+    xhr.onerror = () => reject(new Error("对象存储上传网络错误"));
+    xhr.send(file);
+  });
+}
+
 export const api = {
   auth: {
     register: (payload: JsonRequest<operations["register_api_auth_register_post"]>) =>
@@ -406,14 +439,6 @@ export const api = {
         body: payload,
         idempotencyKey: createIdempotencyKey("upload_prepare"),
       }),
-    uploadFile: (uploadSessionId: string, file: File) => {
-      const body = new FormData();
-      body.set("file", file);
-      return fetchJson<JsonResponse<operations["upload_file_api_uploads__upload_session_id__file_put"]>>(
-        `/api/uploads/${enc(uploadSessionId)}/file`,
-        { method: "PUT", body },
-      );
-    },
     complete: (payload: JsonRequest<operations["complete_upload_api_uploads_complete_post"]>) =>
       fetchJson<JsonResponse<operations["complete_upload_api_uploads_complete_post"]>>("/api/uploads/complete", {
         method: "POST",

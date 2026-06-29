@@ -1,11 +1,10 @@
 """Batch annotation (批量标注) endpoint end-to-end on the in-memory path (Spec §2.1)."""
 
-import hashlib
-
 from fastapi.testclient import TestClient
 
 from apps.api.main import app, repository
 from packages.core.storage.database import CaseRow, MediaAssetRow
+from tests.api._upload_helpers import direct_upload
 from tests.fixtures.media import generate_test_video
 
 client = TestClient(app)
@@ -29,25 +28,16 @@ def _upload_asset(tmp_path, *, filename: str, case_id: str) -> str:
     _seed_case(case_id)
     video = generate_test_video(tmp_path, duration_sec=1, width=160, height=120, fps=15, filename=filename)
     content = video.read_bytes()
-    digest = hashlib.sha256(content).hexdigest()
-    prepared = client.post(
-        "/api/uploads/prepare",
-        json={
-            "kind": "broll",
-            "case_id": case_id,
-            "filename": filename,
-            "content_type": "video/mp4",
-            "size_bytes": len(content),
-            "sha256": digest,
-        },
+    prepared, completed = direct_upload(
+        client,
+        kind="broll",
+        filename=filename,
+        content_type="video/mp4",
+        body=content,
+        case_id=case_id,
+        metadata={"title": filename},
     )
     assert prepared.status_code == 201, prepared.text
-    upload = prepared.json()
-    client.put(f"/api/uploads/{upload['id']}/file", files={"file": (filename, content, "video/mp4")})
-    completed = client.post(
-        "/api/uploads/complete",
-        json={"upload_session_id": upload["id"], "size_bytes": len(content), "sha256": digest, "metadata": {"title": filename}},
-    )
     assert completed.status_code == 200, completed.text
     return completed.json()["media_asset"]["id"]
 

@@ -52,6 +52,12 @@ class StoredObject:
     sha256: str
 
 
+@dataclass(frozen=True)
+class ObjectHead:
+    size: int
+    content_type: str | None
+
+
 class ObjectStore:
     def prepare_upload(
         self,
@@ -89,6 +95,29 @@ class ObjectStore:
         raise NotImplementedError
 
     def delete(self, uri: str) -> None:
+        raise NotImplementedError
+
+    def supports_presign(self) -> bool:
+        """Whether this backend can hand the browser a presigned upload URL.
+
+        False backends (filesystem) are not valid browser-direct upload targets;
+        callers must fail loudly rather than fall back to proxying bytes."""
+        return False
+
+    def signed_put_url(
+        self, uri: str, *, content_type: str, expires_in: timedelta
+    ) -> SignedUrlResponse:
+        raise NotImplementedError
+
+    def head(self, uri: str) -> ObjectHead:
+        raise NotImplementedError
+
+    def copy(self, src_uri: str, dst_uri: str) -> None:
+        raise NotImplementedError
+
+    def ensure_cors(
+        self, origins: list[str], *, expose: list[str] | None = None, max_age: int = 600
+    ) -> None:
         raise NotImplementedError
 
 
@@ -133,6 +162,34 @@ class LocalObjectStore(ObjectStore):
             expires_at=utcnow() + expires_in,
             request_id="req_local",
         )
+
+    def supports_presign(self) -> bool:
+        # The local backend is a test/dev double for the browser-direct flow: the
+        # "presigned PUT URL" is just the object URI and the caller writes bytes
+        # through the store (no HTTP PUT, no API byte-proxy). Production uses S3/OSS.
+        return True
+
+    def signed_put_url(
+        self, uri: str, *, content_type: str, expires_in: timedelta
+    ) -> SignedUrlResponse:
+        return SignedUrlResponse(
+            url=uri, expires_at=utcnow() + expires_in, request_id="req_local_put"
+        )
+
+    def head(self, uri: str) -> ObjectHead:
+        path = self._path(parse_local_uri(uri))
+        if not path.exists():
+            raise FileNotFoundError(uri)
+        return ObjectHead(size=path.stat().st_size, content_type=None)
+
+    def copy(self, src_uri: str, dst_uri: str) -> None:
+        content = self._path(parse_local_uri(src_uri)).read_bytes()
+        self.put_bytes(parse_local_uri(dst_uri), content)
+
+    def ensure_cors(
+        self, origins: list[str], *, expose: list[str] | None = None, max_age: int = 600
+    ) -> None:
+        return None
 
     def delete(self, uri: str) -> None:
         ref = parse_local_uri(uri)
@@ -306,6 +363,60 @@ class S3ObjectStore(ObjectStore):
             ExpiresIn=int(expires_in.total_seconds()),
         )
         return SignedUrlResponse(url=url, expires_at=utcnow() + expires_in, request_id="req_s3")
+
+    def supports_presign(self) -> bool:
+        return True
+
+    def signed_put_url(
+        self, uri: str, *, content_type: str, expires_in: timedelta
+    ) -> SignedUrlResponse:
+        ref = parse_object_uri(uri)
+        self._validate_write_ref(ref)
+        url = self._client.generate_presigned_url(
+            "put_object",
+            Params={"Bucket": ref.bucket, "Key": ref.key, "ContentType": content_type},
+            ExpiresIn=int(expires_in.total_seconds()),
+        )
+        return SignedUrlResponse(url=url, expires_at=utcnow() + expires_in, request_id="req_put")
+
+    def head(self, uri: str) -> ObjectHead:
+        ref = parse_object_uri(uri)
+        self._validate_read_ref(ref)
+        resp = self._client.head_object(Bucket=ref.bucket, Key=ref.key)
+        return ObjectHead(size=resp["ContentLength"], content_type=resp.get("ContentType"))
+
+    def copy(self, src_uri: str, dst_uri: str) -> None:
+        src = parse_object_uri(src_uri)
+        dst = parse_object_uri(dst_uri)
+        self._validate_write_ref(dst)
+        # Deliberately NOT _validate_read_ref(src): src is only a CopySource
+        # parameter, never read through this store, so it need not be in this
+        # store's read set (cross-bucket staging->final copies from durable into
+        # materials). Read access is granted by the same-account credentials.
+        self._client.copy_object(
+            Bucket=dst.bucket,
+            Key=dst.key,
+            CopySource={"Bucket": src.bucket, "Key": src.key},
+            MetadataDirective="COPY",
+        )
+
+    def ensure_cors(
+        self, origins: list[str], *, expose: list[str] | None = None, max_age: int = 600
+    ) -> None:
+        self._client.put_bucket_cors(
+            Bucket=self.bucket,
+            CORSConfiguration={
+                "CORSRules": [
+                    {
+                        "AllowedOrigins": list(origins),
+                        "AllowedMethods": ["PUT", "GET", "HEAD"],
+                        "AllowedHeaders": ["*"],
+                        "ExposeHeaders": expose or ["ETag", "x-oss-request-id"],
+                        "MaxAgeSeconds": max_age,
+                    }
+                ]
+            },
+        )
 
     def delete(self, uri: str) -> None:
         ref = parse_object_uri(uri)

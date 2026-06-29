@@ -1,9 +1,8 @@
-import hashlib
-
 from fastapi.testclient import TestClient
 
 from apps.api.main import app
 from packages.core.storage.database import CaseRow
+from tests.api._upload_helpers import direct_upload
 from tests.fixtures.media import generate_test_video
 
 client = TestClient(app)
@@ -36,29 +35,19 @@ def upload_video(
     _seed_case(case_id)
     video = generate_test_video(tmp_path, duration_sec=duration_sec, width=160, height=120, fps=15, filename=filename)
     content = video.read_bytes()
-    digest = hashlib.sha256(content).hexdigest()
-    prepared = client.post(
-        "/api/uploads/prepare",
-        json={
-            "kind": "broll",
-            "case_id": case_id,
-            "filename": filename,
-            "content_type": "video/mp4",
-            "size_bytes": len(content),
-            "sha256": digest,
-        },
-    )
-    assert prepared.status_code == 201, prepared.text
-    upload = prepared.json()
-    uploaded = client.put(f"/api/uploads/{upload['id']}/file", files={"file": (filename, content, "video/mp4")})
-    assert uploaded.status_code == 200, uploaded.text
     metadata = {"title": title or filename}
     if replace_mode:
         metadata["template_mode"] = "replace"
-    completed = client.post(
-        "/api/uploads/complete",
-        json={"upload_session_id": upload["id"], "size_bytes": len(content), "sha256": digest, "metadata": metadata},
+    prepared, completed = direct_upload(
+        client,
+        kind="broll",
+        filename=filename,
+        content_type="video/mp4",
+        body=content,
+        case_id=case_id,
+        metadata=metadata,
     )
+    assert prepared.status_code == 201, prepared.text
     assert completed.status_code == 200, completed.text
     return completed.json()
 
@@ -200,36 +189,22 @@ def test_auto_match_replace_reports_matched_unmatched_and_ambiguous(tmp_path):
 
 def upload_cover_template(tmp_path, *, filename: str, case_id: str, title: str) -> dict:
     _seed_case(case_id)
-    image = tmp_path / filename
-    # A tiny valid PNG is enough; the upload path only needs real bytes + sha.
-    image.write_bytes(
-        bytes.fromhex(
-            "89504e470d0a1a0a0000000d49484452000000010000000108060000001f"
-            "15c4890000000b49444154789c6360000200000500017a5eab3f00000000"
-            "49454e44ae426082"
-        )
+    # A tiny valid PNG is enough; the upload path only needs real bytes (ffprobe parses it).
+    content = bytes.fromhex(
+        "89504e470d0a1a0a0000000d49484452000000010000000108060000001f"
+        "15c4890000000b49444154789c6360000200000500017a5eab3f00000000"
+        "49454e44ae426082"
     )
-    content = image.read_bytes()
-    digest = hashlib.sha256(content).hexdigest()
-    prepared = client.post(
-        "/api/uploads/prepare",
-        json={
-            "kind": "cover_template",
-            "case_id": case_id,
-            "filename": filename,
-            "content_type": "image/png",
-            "size_bytes": len(content),
-            "sha256": digest,
-        },
+    prepared, completed = direct_upload(
+        client,
+        kind="cover_template",
+        filename=filename,
+        content_type="image/png",
+        body=content,
+        case_id=case_id,
+        metadata={"title": title},
     )
     assert prepared.status_code == 201, prepared.text
-    upload = prepared.json()
-    uploaded = client.put(f"/api/uploads/{upload['id']}/file", files={"file": (filename, content, "image/png")})
-    assert uploaded.status_code == 200, uploaded.text
-    completed = client.post(
-        "/api/uploads/complete",
-        json={"upload_session_id": upload["id"], "size_bytes": len(content), "sha256": digest, "metadata": {"title": title}},
-    )
     assert completed.status_code == 200, completed.text
     body = completed.json()
     if body.get("media_asset"):
@@ -237,7 +212,7 @@ def upload_cover_template(tmp_path, *, filename: str, case_id: str, title: str) 
     created = client.post(
         "/api/media/assets",
         json={
-            "upload_session_id": upload["id"],
+            "upload_session_id": body["upload_session"]["id"],
             "case_id": case_id,
             "title": title,
             "kind": "cover_template",

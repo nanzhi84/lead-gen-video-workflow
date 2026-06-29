@@ -81,8 +81,8 @@ _INFRA_ENV_VARS = (
     "CUTAGENT_MOTION_GUARD_JITTER_JERK_RATIO",
     "CUTAGENT_MOTION_GUARD_REFINE_MIN_DURATION",
     "CUTAGENT_MOTION_GUARD_REFINE_ROUND_SEC",
-    "CUTAGENT_UPLOAD_MAX_SIZE_BYTES",
-    "CUTAGENT_UPLOAD_CHUNK_BYTES",
+    "CUTAGENT_UPLOAD_PRESIGN_TTL_SECONDS",
+    "CUTAGENT_UPLOAD_CORS_ALLOWED_ORIGINS",
     "CUTAGENT_UPLOAD_NORMALIZE_VIDEO",
     "CUTAGENT_BALANCE_POLLER_ENABLED",
     "CUTAGENT_BALANCE_POLL_INTERVAL_SECONDS",
@@ -206,8 +206,7 @@ def test_settings_built_in_defaults() -> None:
     assert settings.motion_guard.refine_min_duration == 0.8
     assert settings.motion_guard.refine_round_sec == 0.1
 
-    assert settings.upload.max_size_bytes == 2 * 1024 * 1024 * 1024
-    assert settings.upload.chunk_bytes == 1024 * 1024
+    assert settings.upload.presign_ttl_seconds == 900
     assert settings.upload.normalize_video is False
     assert settings.balance.poller_enabled is False
     assert settings.balance.poll_interval_seconds == 900

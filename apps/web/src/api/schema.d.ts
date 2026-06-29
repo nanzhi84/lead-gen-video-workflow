@@ -246,23 +246,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/uploads/{upload_session_id}/file": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Upload File */
-        put: operations["upload_file_api_uploads__upload_session_id__file_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/uploads/complete": {
         parameters: {
             query?: never;
@@ -3089,11 +3072,6 @@ export interface components {
              * @default sensor
              */
             source: string;
-        };
-        /** Body_upload_file_api_uploads__upload_session_id__file_put */
-        Body_upload_file_api_uploads__upload_session_id__file_put: {
-            /** File */
-            file?: string | null;
         };
         /** BrollOptions */
         BrollOptions: {
@@ -6208,15 +6186,30 @@ export interface components {
             /** Sha256 */
             sha256?: string | null;
             /**
-             * Multipart
-             * @default false
-             */
-            multipart: boolean;
-            /**
              * Stabilize
              * @default false
              */
             stabilize: boolean;
+        };
+        /**
+         * PrepareUploadResponse
+         * @description prepare's response: the presigned PUT target the browser uploads to.
+         *
+         *     A dedicated shape (not ``UploadSession``) because the SQLAlchemy row mapper
+         *     overwrites ``UploadSession.upload_url`` with the object URI, which would
+         *     discard the signed URL.
+         */
+        PrepareUploadResponse: {
+            upload_session: components["schemas"]["UploadSession"];
+            /** Put Url */
+            put_url: string;
+            /** Put Content Type */
+            put_content_type: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
         };
         /**
          * PreviewCoverFrameRequest
@@ -9203,42 +9196,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UploadSession"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    upload_file_api_uploads__upload_session_id__file_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                upload_session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "multipart/form-data": components["schemas"]["Body_upload_file_api_uploads__upload_session_id__file_put"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UploadSession"];
+                    "application/json": components["schemas"]["PrepareUploadResponse"];
                 };
             };
             /** @description Validation Error */

@@ -6,12 +6,11 @@ runs ffmpeg frame extraction end-to-end.
 
 from __future__ import annotations
 
-import hashlib
-
 from fastapi.testclient import TestClient
 
 from apps.api.main import app
-from tests.fixtures.media import generate_test_video
+from tests.api._upload_helpers import direct_upload
+from tests.fixtures.media import generate_test_video, require_ffmpeg_filters
 
 client = TestClient(app)
 
@@ -25,32 +24,19 @@ def _login_admin() -> None:
 
 
 def _upload_publish_video(tmp_path) -> str:
+    require_ffmpeg_filters("testsrc2")
     video_path = generate_test_video(tmp_path, duration_sec=2, width=320, height=568, fps=24)
     content = video_path.read_bytes()
-    digest = hashlib.sha256(content).hexdigest()
-    prepared = client.post(
-        "/api/uploads/prepare",
-        json={
-            "kind": "publish_video",
-            "case_id": "case_demo",
-            "filename": "publish.mp4",
-            "content_type": "video/mp4",
-            "size_bytes": len(content),
-            "sha256": digest,
-        },
+    prepared, completed = direct_upload(
+        client,
+        kind="publish_video",
+        filename="publish.mp4",
+        content_type="video/mp4",
+        body=content,
+        case_id="case_demo",
     )
     assert prepared.status_code == 201, prepared.text
-    upload = prepared.json()
-    uploaded = client.put(
-        f"/api/uploads/{upload['id']}/file",
-        files={"file": ("publish.mp4", content, "video/mp4")},
-    )
-    assert uploaded.status_code == 200, uploaded.text
-    completed = client.post(
-        "/api/uploads/complete",
-        json={"upload_session_id": upload["id"], "size_bytes": len(content), "sha256": digest},
-    )
-    assert completed.status_code == 200, completed.text
+    assert completed is not None and completed.status_code == 200, completed.text
     return completed.json()["artifact"]["artifact_id"]
 
 

@@ -13,7 +13,6 @@ EXPECTED_PATHS = {
     "/api/auth/registration-codes",
     "/api/auth/registration-codes/{code_id}",
     "/api/uploads/prepare",
-    "/api/uploads/{upload_session_id}/file",
     "/api/uploads/complete",
     "/api/uploads/{upload_session_id}/cancel",
     "/api/uploads/{upload_session_id}",

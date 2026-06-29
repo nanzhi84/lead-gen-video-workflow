@@ -48,9 +48,8 @@ class PrepareUploadRequest(ContractModel):
     case_id: str | None = None
     filename: str
     content_type: str
-    size_bytes: int = Field(gt=0)
+    size_bytes: int = Field(gt=0, le=100 * 1024 * 1024)
     sha256: str | None = None
-    multipart: bool = False
     stabilize: bool = False
 
 
@@ -62,6 +61,9 @@ class UploadSession(EntityMeta):
     size_bytes: int
     sha256: str | None = None
     status: UploadStatus = UploadStatus.prepared
+    # Deprecated/legacy: a mirror of object_uri (the SQLAlchemy row mapper sets it
+    # so). The presigned PUT URL now lives on PrepareUploadResponse.put_url; do not
+    # use this field as an access/upload URL.
     upload_url: str | None = None
     local_temp_path: str | None = None
     object_uri: str | None = None
@@ -84,6 +86,50 @@ class CompleteUploadResponse(ContractModel):
     media_asset: MediaAssetRecord | None = None
     publish_package: PublishPackage | None = None
     request_id: str
+
+
+class PrepareUploadResponse(ContractModel):
+    """prepare's response: the presigned PUT target the browser uploads to.
+
+    A dedicated shape (not ``UploadSession``) because the SQLAlchemy row mapper
+    overwrites ``UploadSession.upload_url`` with the object URI, which would
+    discard the signed URL."""
+
+    upload_session: UploadSession
+    put_url: str
+    put_content_type: str
+    expires_at: datetime
+
+
+_VIDEO_CONTENT_TYPES = frozenset({"video/mp4", "video/quicktime", "video/webm"})
+_IMAGE_CONTENT_TYPES = frozenset({"image/png", "image/jpeg", "image/webp"})
+_AUDIO_CONTENT_TYPES = frozenset(
+    {"audio/mpeg", "audio/wav", "audio/x-wav", "audio/mp4", "audio/aac"}
+)
+_FONT_CONTENT_TYPES = frozenset(
+    {
+        "font/ttf",
+        "font/otf",
+        "font/woff",
+        "font/woff2",
+        "application/x-font-ttf",
+        "application/vnd.ms-opentype",
+    }
+)
+
+# Allowed upload Content-Type per kind. prepare validates the declared
+# content_type against this and pins it into the presigned PUT signature.
+ALLOWED_UPLOAD_CONTENT_TYPES: dict[UploadKind, frozenset[str]] = {
+    UploadKind.publish_video: _VIDEO_CONTENT_TYPES,
+    UploadKind.portrait: _VIDEO_CONTENT_TYPES,
+    UploadKind.broll: _VIDEO_CONTENT_TYPES,
+    UploadKind.video: _VIDEO_CONTENT_TYPES,
+    UploadKind.image: _IMAGE_CONTENT_TYPES,
+    UploadKind.cover_template: _IMAGE_CONTENT_TYPES,
+    UploadKind.voice_reference: _AUDIO_CONTENT_TYPES,
+    UploadKind.bgm: _AUDIO_CONTENT_TYPES,
+    UploadKind.font: _FONT_CONTENT_TYPES,
+}
 
 
 class MediaAssetRecord(EntityMeta):

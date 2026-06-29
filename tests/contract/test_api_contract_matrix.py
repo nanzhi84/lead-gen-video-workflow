@@ -22,9 +22,7 @@ VIEWER_FORBIDDEN_EXEMPTIONS = {
     ("POST", "/api/auth/me/change-password"): "self-service endpoint",
     ("PUT", "/api/auth/me/generation-defaults"): "self-service endpoint",
 }
-INVALID_BODY_EXEMPTIONS = {
-    ("PUT", "/api/uploads/{upload_session_id}/file"): "optional multipart upload body reaches domain state",
-}
+INVALID_BODY_EXEMPTIONS: dict[tuple[str, str], str] = {}
 BODY_OVERRIDES = {
     ("POST", "/api/jobs/digital-human-video"): {
         "case_id": "case_demo",

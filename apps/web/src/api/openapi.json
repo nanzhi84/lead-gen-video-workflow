@@ -570,55 +570,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UploadSession"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/uploads/{upload_session_id}/file": {
-      "put": {
-        "summary": "Upload File",
-        "operationId": "upload_file_api_uploads__upload_session_id__file_put",
-        "parameters": [
-          {
-            "name": "upload_session_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Upload Session Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "$ref": "#/components/schemas/Body_upload_file_api_uploads__upload_session_id__file_put"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UploadSession"
+                  "$ref": "#/components/schemas/PrepareUploadResponse"
                 }
               }
             }
@@ -9597,24 +9549,6 @@
         "title": "BgmSegmentV4",
         "description": "BGM full-track segment.\n\nTime bounds are deterministic sensor output; Qwen-Omni only enriches semantics."
       },
-      "Body_upload_file_api_uploads__upload_session_id__file_put": {
-        "properties": {
-          "file": {
-            "anyOf": [
-              {
-                "type": "string",
-                "contentMediaType": "application/octet-stream"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "File"
-          }
-        },
-        "type": "object",
-        "title": "Body_upload_file_api_uploads__upload_session_id__file_put"
-      },
       "BrollOptions": {
         "properties": {
           "enabled": {
@@ -18205,6 +18139,7 @@
           },
           "size_bytes": {
             "type": "integer",
+            "maximum": 104857600.0,
             "exclusiveMinimum": 0.0,
             "title": "Size Bytes"
           },
@@ -18218,11 +18153,6 @@
               }
             ],
             "title": "Sha256"
-          },
-          "multipart": {
-            "type": "boolean",
-            "title": "Multipart",
-            "default": false
           },
           "stabilize": {
             "type": "boolean",
@@ -18239,6 +18169,36 @@
           "size_bytes"
         ],
         "title": "PrepareUploadRequest"
+      },
+      "PrepareUploadResponse": {
+        "properties": {
+          "upload_session": {
+            "$ref": "#/components/schemas/UploadSession"
+          },
+          "put_url": {
+            "type": "string",
+            "title": "Put Url"
+          },
+          "put_content_type": {
+            "type": "string",
+            "title": "Put Content Type"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "upload_session",
+          "put_url",
+          "put_content_type",
+          "expires_at"
+        ],
+        "title": "PrepareUploadResponse",
+        "description": "prepare's response: the presigned PUT target the browser uploads to.\n\nA dedicated shape (not ``UploadSession``) because the SQLAlchemy row mapper\noverwrites ``UploadSession.upload_url`` with the object URI, which would\ndiscard the signed URL."
       },
       "PreviewCoverFrameRequest": {
         "properties": {

@@ -10,7 +10,7 @@ from uuid import uuid4
 from fastapi import HTTPException, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from apps.api import common
 from packages.core import contracts as c
@@ -105,6 +105,23 @@ def requires_authenticated_api(path: str, method: str) -> bool:
     return path.startswith("/api/") and not any(path.startswith(prefix) for prefix in PUBLIC_API_PREFIXES)
 
 
+async def _read_response_body_capped(response, cap: int) -> tuple[bytes, bool]:
+    """Buffer the response body but STOP as soon as it exceeds ``cap`` bytes.
+
+    Returns ``(buffered, overflowed)``. On overflow it stops reading immediately —
+    it does NOT drain the rest of ``response.body_iterator`` into memory — so the
+    caller can stream ``buffered`` followed by the remaining chunks instead of
+    buffering a potentially huge body just to cache it for idempotent replay. This
+    is what keeps a large response from blowing the streaming memory boundary (#65).
+    """
+    buffered = b""
+    async for chunk in response.body_iterator:
+        buffered += chunk
+        if len(buffered) > cap:
+            return buffered, True
+    return buffered, False
+
+
 async def authenticate_api_request(request: Request, call_next):
     started_at = time.perf_counter()
     status_code = 500
@@ -128,6 +145,31 @@ async def authenticate_api_request(request: Request, call_next):
                 return response
         idempotency_key = request.headers.get("Idempotency-Key")
         if user is not None and idempotency_key and request.method in IDEMPOTENT_WRITE_METHODS:
+            # Idempotency replay buffers the WHOLE request body (to hash it) and the
+            # whole 2xx response body (to cache it). Reject large or streamed/binary
+            # bodies so this control-plane-only feature can't blow up memory via the
+            # middleware (#65). Real uploads must not carry an Idempotency-Key.
+            api_settings = request.app.state.settings.api
+            content_type = (request.headers.get("Content-Type") or "").lower()
+            declared_length = request.headers.get("Content-Length")
+            too_large = (
+                declared_length is not None
+                and declared_length.isdigit()
+                and int(declared_length) > api_settings.idempotency_max_body_bytes
+            )
+            streamed_binary = content_type.startswith(
+                ("multipart/form-data", "application/octet-stream")
+            )
+            if too_large or streamed_binary:
+                response = node_error_response(
+                    NodeExecutionError(
+                        c.ErrorCode.upload_too_large,
+                        "Idempotency-Key is only supported on small control-plane JSON "
+                        "requests; this request body is too large or streamed.",
+                    )
+                )
+                status_code = response.status_code
+                return response
             body = await request.body()
             request_hash = hashlib.sha256(body).hexdigest()
             record_key = f"{user.id}:{idempotency_key}"
@@ -166,9 +208,40 @@ async def authenticate_api_request(request: Request, call_next):
             replayable_request = Request(request.scope, receive)
             response = await call_next(replayable_request)
             if 200 <= response.status_code < 300:
-                response_body = b""
-                async for chunk in response.body_iterator:
-                    response_body += chunk
+                response_body, response_overflow = await _read_response_body_capped(
+                    response, api_settings.idempotency_max_response_bytes
+                )
+                if response_overflow:
+                    # Too large to cache for replay. Stream it back WITHOUT ever
+                    # buffering the whole body: emit the already-read prefix, then
+                    # pass the remaining chunks straight through. The cap is a hard
+                    # memory boundary — we never accumulate the full body (#65).
+                    response.headers["X-Request-Id"] = request_id()
+                    status_code = response.status_code
+                    # Explicit degradation (never silent, per project rule): the
+                    # response is too large to cache, so this Idempotency-Key will
+                    # NOT replay — a client retry re-executes the write (#65).
+                    access_logger.warning(
+                        "idempotency response too large to cache; key will not replay",
+                        extra={
+                            "request_id": request_id(),
+                            "idempotency_key": idempotency_key,
+                            "path": record_path,
+                            "cap_bytes": api_settings.idempotency_max_response_bytes,
+                        },
+                    )
+
+                    async def _passthrough_body():
+                        yield response_body
+                        async for chunk in response.body_iterator:
+                            yield chunk
+
+                    return StreamingResponse(
+                        _passthrough_body(),
+                        status_code=response.status_code,
+                        headers=dict(response.headers),
+                        media_type=response.media_type,
+                    )
                 try:
                     content = json.loads(response_body) if response_body else None
                 except json.JSONDecodeError:

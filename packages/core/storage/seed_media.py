@@ -27,6 +27,7 @@ from packages.core.contracts import ArtifactKind, utcnow
 from packages.core.storage.database import AnnotationRow, ArtifactRow, MediaAssetRow
 from packages.core.storage.object_store import ObjectStore
 from packages.core.storage.repository import (
+    SEED_PORTRAIT_ASSET_IDS,
     demo_bgm_annotation_v4,
     demo_portrait_annotation_v4,
     new_id,
@@ -35,14 +36,21 @@ from packages.media.assets import store_file
 from packages.media.rendering import generate_seed_audio, generate_seed_video
 from packages.media.video.ffmpeg import probe_media
 
+# All distinct demo portrait assets share one 15s seed video (content-addressed store
+# dedupes the bytes); each still gets its own ArtifactRow + source_artifact_id so they
+# resolve as distinct sources. Several are needed because portrait selection enforces
+# asset-level uniqueness (issue #102) — one asset per run, so a multi-segment main
+# track needs multiple distinct portrait sources.
+_PORTRAIT_SPEC: dict = {
+    "filename": "portrait_demo_15s.mp4",
+    "content_type": "video/mp4",
+    "generator": lambda path: generate_seed_video(
+        path, duration_sec=15, width=320, height=568, fps=30
+    ),
+}
+
 _SEED_MEDIA_SPECS: dict[str, dict] = {
-    "asset_portrait_demo": {
-        "filename": "portrait_demo_15s.mp4",
-        "content_type": "video/mp4",
-        "generator": lambda path: generate_seed_video(
-            path, duration_sec=15, width=320, height=568, fps=30
-        ),
-    },
+    **{asset_id: _PORTRAIT_SPEC for asset_id in SEED_PORTRAIT_ASSET_IDS},
     "asset_broll_demo": {
         "filename": "broll_demo_4s.mp4",
         "content_type": "video/mp4",
@@ -137,25 +145,28 @@ def seed_media_assets(session: Session, object_store: ObjectStore) -> int:
         asset_row.usable = True
         seeded += 1
 
-    # Back the annotated demo portrait with a real V4 annotation so clip-level
+    # Back each annotated demo portrait with a real V4 annotation so clip-level
     # material selection yields an A-roll candidate (the production pipeline requires
     # an annotation — no whole-asset fallback). Idempotent: skipped if one exists.
-    portrait_row = session.get(MediaAssetRow, "asset_portrait_demo")
-    if portrait_row is not None and (
-        session.query(AnnotationRow).filter_by(asset_id="asset_portrait_demo").first() is None
-    ):
-        session.add(
-            AnnotationRow(
-                id=new_id("ann"),
-                asset_id="asset_portrait_demo",
-                etag=new_id("etag"),
-                canonical_schema="AnnotationV4.v1",
-                canonical=demo_portrait_annotation_v4(portrait_row.case_id).model_dump(mode="json"),
-                projection_schema="MediaAnnotationProjection.v1",
-                projection={},
-                editable_paths=["/labels", "/usable", "/title"],
+    for portrait_asset_id in SEED_PORTRAIT_ASSET_IDS:
+        portrait_row = session.get(MediaAssetRow, portrait_asset_id)
+        if portrait_row is not None and (
+            session.query(AnnotationRow).filter_by(asset_id=portrait_asset_id).first() is None
+        ):
+            session.add(
+                AnnotationRow(
+                    id=new_id("ann"),
+                    asset_id=portrait_asset_id,
+                    etag=new_id("etag"),
+                    canonical_schema="AnnotationV4.v1",
+                    canonical=demo_portrait_annotation_v4(
+                        portrait_row.case_id, asset_id=portrait_asset_id
+                    ).model_dump(mode="json"),
+                    projection_schema="MediaAnnotationProjection.v1",
+                    projection={},
+                    editable_paths=["/labels", "/usable", "/title"],
+                )
             )
-        )
     bgm_row = session.get(MediaAssetRow, "asset_bgm_demo")
     if bgm_row is not None:
         bgm_annotation = session.query(AnnotationRow).filter_by(asset_id="asset_bgm_demo").first()

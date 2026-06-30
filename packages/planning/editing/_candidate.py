@@ -110,7 +110,9 @@ def portrait_boundary_option_score(
 
 def make_boundary_beam_score_fn(*, relax: dict[str, Any], ignore_repetition_penalty: bool):
     """Per-candidate scoring + hard constraints (returns base score or None)."""
-    max_uses = int(relax.get("max_uses", 999))
+    # Asset-level uniqueness default: a relax pass that omits ``max_uses`` caps at 1
+    # (one use per portrait asset / template_id), never unlimited reuse (issue #102).
+    max_uses = int(relax.get("max_uses", 1))
     allow_adjacent = bool(relax.get("allow_adjacent", True))
     allow_original = bool(relax.get("allow_original", True))
 

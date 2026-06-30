@@ -16,13 +16,17 @@ from packages.planning.editing import _candidate, _util as util
 
 def portrait_boundary_candidate_scopes(
     portrait_candidates: list[dict[str, Any]],
-    *,
-    include_unlimited_reuse_scope: bool = True,
 ) -> list[dict[str, Any]]:
     """Freshness scopes tried in order: prefer fresh-unique, then widen reluctantly.
 
     Each scope carries its own scope_penalty (favours fresher scopes in the final
-    score) and relax_passes (gradually allow reuse / adjacency / original-source).
+    score) and relax_passes (gradually relax adjacency / original-source). Asset-level
+    uniqueness is HARD: every relax pass caps ``max_uses`` at 1 so a given portrait
+    asset (``template_id``) is used at most once per run. The two scopes are kept (not
+    collapsed) only to preserve the fresh-first layering via ``scope_penalty`` — never
+    to grant extra reuse. When asset-level uniqueness cannot cover the full audio the
+    planner returns no plan and the node hard-fails (material_insufficient_portrait);
+    it never silently falls back to reusing an asset (see issue #102).
     """
     all_candidates = [c for c in list(portrait_candidates or []) if isinstance(c, dict)]
     fresh_candidates = [c for c in all_candidates if not _candidate.is_recent_portrait_candidate(c)]
@@ -40,19 +44,6 @@ def portrait_boundary_candidate_scopes(
                 ],
             }
         )
-        scopes.append(
-            {
-                "scope": "fresh_limited_reuse",
-                "candidates": fresh_candidates,
-                "scope_penalty": 1000.0,
-                "ignore_repetition_penalty": False,
-                "relax_passes": [
-                    {"allow_adjacent": False, "max_uses": 2, "allow_original": False},
-                    {"allow_adjacent": True, "max_uses": 2, "allow_original": False},
-                    {"allow_adjacent": True, "max_uses": 2, "allow_original": True},
-                ],
-            }
-        )
     scopes.append(
         {
             "scope": "all_penalty",
@@ -60,25 +51,12 @@ def portrait_boundary_candidate_scopes(
             "scope_penalty": 0.0,
             "ignore_repetition_penalty": False,
             "relax_passes": [
-                {"allow_adjacent": False, "max_uses": 2, "allow_original": False},
-                {"allow_adjacent": True, "max_uses": 2, "allow_original": False},
-                {"allow_adjacent": True, "max_uses": 2, "allow_original": True},
+                {"allow_adjacent": False, "max_uses": 1, "allow_original": False},
+                {"allow_adjacent": True, "max_uses": 1, "allow_original": False},
+                {"allow_adjacent": True, "max_uses": 1, "allow_original": True},
             ],
         }
     )
-    if include_unlimited_reuse_scope:
-        scopes.append(
-            {
-                "scope": "capacity_fallback_all",
-                "candidates": all_candidates,
-                "scope_penalty": -1000.0,
-                "ignore_repetition_penalty": True,
-                "relax_passes": [
-                    {"allow_adjacent": True, "max_uses": 999, "allow_original": False},
-                    {"allow_adjacent": True, "max_uses": 999, "allow_original": True},
-                ],
-            }
-        )
     return scopes
 
 

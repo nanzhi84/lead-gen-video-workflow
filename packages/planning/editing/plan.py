@@ -43,7 +43,6 @@ class BoundaryConstraints:
 
     target_duration: float
     max_chunk_duration: float | None = None
-    include_unlimited_reuse_scope: bool = True
     beam_width: int = BOUNDARY_BEAM_WIDTH
 
 
@@ -110,7 +109,6 @@ def plan_boundary_timeline(
         target_duration=constraints.target_duration,
         pause_windows=audio_pauses or None,
         max_chunk_duration=constraints.max_chunk_duration,
-        include_unlimited_reuse_scope=constraints.include_unlimited_reuse_scope,
         beam_width=constraints.beam_width,
     )
     used_audio_pauses = bool(audio_pauses)

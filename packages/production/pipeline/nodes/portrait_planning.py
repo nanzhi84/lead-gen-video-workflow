@@ -68,11 +68,25 @@ def run(ctx: NodeContext) -> NodeOutput:
     )
     if not plan.ok:
         # Honest hard-fail: even after the escalation ladder (full-pool single pass +
-        # capacity-controlled split retry) the candidates cannot cover the audio. This
-        # is a true-yield failure, never a silent degrade or a fabricated plan.
+        # capacity-controlled split retry) the candidates cannot cover the audio under
+        # ASSET-LEVEL UNIQUENESS (each portrait asset used at most once per run; issue
+        # #102). This is a true-yield failure, never a silent degrade, an asset reused
+        # to pad coverage, or a fabricated plan. The escalation stages + distinct asset
+        # count are attached so the run report shows the reason is portrait coverage.
+        distinct_assets = sorted({str(c.get("template_id") or "") for c in candidates if c})
         raise NodeExecutionError(
             ErrorCode.material_insufficient_portrait,
-            "Portrait candidates cannot cover the full audio without over-extension.",
+            "Portrait main track cannot cover the full audio under asset-level "
+            "uniqueness (each portrait asset is used at most once per run).",
+            details={
+                "reason": "portrait_coverage_insufficient_under_asset_uniqueness",
+                "target_duration_sec": round(duration, 3),
+                "distinct_portrait_asset_count": len(distinct_assets),
+                "candidate_window_count": len(candidates),
+                "longest_usable_source_window": escalation["longest_usable_source_window"],
+                "recovery_stage": escalation["stage"],
+                "recovery_attempts": escalation["attempts"],
+            },
         )
 
     recent_template_ids = {
@@ -119,20 +133,22 @@ def _plan_with_escalation(
 ):
     """Drive the portrait-insufficiency escalation ladder before giving up.
 
-    The single (default) pass already reaches the unlimited-reuse fallback scope.
-    When even that fails to cover the audio, this runs local true-yield recovery
-    rounds that do NOT need an external material-expansion service:
+    Every pass enforces asset-level uniqueness (each portrait asset is used at most
+    once per run; issue #102) — there is no unlimited-reuse fallback. When a pass fails
+    to cover the audio, this runs local true-yield recovery rounds that do NOT need an
+    external material-expansion service and never relax the uniqueness rule:
 
       1. ``full_pool`` — re-plan against the full candidate pool (in genesis the node
          already receives the full ranked pool, so this is the recorded baseline pass);
       2. ``capacity_controlled_split`` — re-plan with
-         ``max_chunk_duration=longest_usable_source_window`` and
-         ``include_unlimited_reuse_scope=False``, so over-long chunks are split below
-         the longest available source window (letting shorter windows participate)
-         while banning the infinite-reuse crutch.
+         ``max_chunk_duration=longest_usable_source_window``, so over-long chunks are
+         split below the longest available source window and shorter windows from
+         OTHER assets can participate (covering more of the timeline with distinct
+         assets, never by reusing one asset twice).
 
     Returns ``(plan, escalation_diagnostics)``. Still hard-fails upstream (plan.ok
-    False) when no round can cover — never a fabricated or silently-degraded plan.
+    False) when no round can cover under asset-level uniqueness — never a fabricated,
+    reuse-padded, or silently-degraded plan.
     """
     attempts: list[dict] = []
     longest_usable = max((float(c.get("duration") or 0.0) for c in candidates), default=0.0)
@@ -155,10 +171,10 @@ def _plan_with_escalation(
         }
 
     # Capacity-controlled split retry: shorten over-long chunks to the longest usable
-    # source window so shorter windows can cover them. Keep the unlimited scope enabled:
-    # with clip-level candidates, ``template_id`` is the source asset while ``window_id``
-    # is the actual non-overextendable source span; one uploaded video can legitimately
-    # provide several different lip-sync windows.
+    # source window so shorter windows from OTHER assets can cover them. Asset-level
+    # uniqueness still holds — ``template_id`` is the source asset and every relax pass
+    # caps max_uses at 1, so this widens coverage with distinct assets, never by reusing
+    # one asset across windows (issue #102).
     if longest_usable > 0.08:
         split_plan = plan_boundary_timeline(
             narration_units=narration_units,
@@ -166,7 +182,6 @@ def _plan_with_escalation(
             constraints=BoundaryConstraints(
                 target_duration=duration,
                 max_chunk_duration=round(longest_usable, 3),
-                include_unlimited_reuse_scope=True,
             ),
             audio_pauses=audio_pauses,
             fps=TIMELINE_FPS,
@@ -188,7 +203,6 @@ def _plan_with_escalation(
                 constraints=BoundaryConstraints(
                     target_duration=duration,
                     max_chunk_duration=pause_cap,
-                    include_unlimited_reuse_scope=True,
                 ),
                 audio_pauses=audio_pauses,
                 fps=TIMELINE_FPS,

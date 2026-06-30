@@ -277,14 +277,21 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
     def _ensure_seed_media_assets(self) -> None:
         seed_dir = Path(".data/generated-media/seed")
         seed_dir.mkdir(parents=True, exist_ok=True)
+        # The distinct demo portrait assets (issue #102 asset-level uniqueness needs >1
+        # for a multi-segment main track) share one underlying 15s seed video: the
+        # object store is content-addressed, so each asset gets its own artifact row
+        # over the same bytes without generating extra videos.
+        portrait_spec = {
+            "filename": "portrait_demo_15s.mp4",
+            "content_type": "video/mp4",
+            "generator": lambda path: generate_seed_video(
+                path, duration_sec=15, width=320, height=568, fps=30
+            ),
+        }
         specs = {
-            "asset_portrait_demo": {
-                "filename": "portrait_demo_15s.mp4",
-                "content_type": "video/mp4",
-                "generator": lambda path: generate_seed_video(
-                    path, duration_sec=15, width=320, height=568, fps=30
-                ),
-            },
+            "asset_portrait_demo": portrait_spec,
+            "asset_portrait_demo_b": portrait_spec,
+            "asset_portrait_demo_c": portrait_spec,
             "asset_broll_demo": {
                 "filename": "broll_demo_4s.mp4",
                 "content_type": "video/mp4",

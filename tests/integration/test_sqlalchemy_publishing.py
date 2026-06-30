@@ -1,5 +1,3 @@
-import hashlib
-
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -13,6 +11,7 @@ from packages.core.storage.database import (
     PublishBatchRow,
     PublishPackageRow,
 )
+from tests.api._upload_helpers import direct_upload
 
 
 def sqlalchemy_session_factory():
@@ -29,32 +28,16 @@ def create_completed_upload_artifact(client: TestClient) -> str:
     )
     assert admin_login.status_code == 200, admin_login.text
 
-    content = b"publishing package payload"
-    digest = hashlib.sha256(content).hexdigest()
-    prepared = client.post(
-        "/api/uploads/prepare",
-        json={
-            "kind": "publish_video",
-            "case_id": "case_demo",
-            "filename": "publishable-video.txt",
-            "content_type": "text/plain",
-            "size_bytes": len(content),
-            "sha256": digest,
-        },
+    prepared, completed = direct_upload(
+        client,
+        kind="font",
+        case_id="case_demo",
+        filename="publishable-video.ttf",
+        content_type="font/ttf",
+        body=b"publishing package payload",
+        metadata={"template_mode": "replace"},
     )
     assert prepared.status_code == 201, prepared.text
-    upload = prepared.json()
-
-    uploaded = client.put(
-        f"/api/uploads/{upload['id']}/file",
-        files={"file": ("publishable-video.txt", content, "text/plain")},
-    )
-    assert uploaded.status_code == 200, uploaded.text
-
-    completed = client.post(
-        "/api/uploads/complete",
-        json={"upload_session_id": upload["id"], "size_bytes": len(content), "sha256": digest},
-    )
     assert completed.status_code == 200, completed.text
     return completed.json()["artifact"]["artifact_id"]
 

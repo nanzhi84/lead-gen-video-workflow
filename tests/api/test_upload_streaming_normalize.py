@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from apps.api.main import app
 from packages.core.contracts import Artifact
 from packages.core.storage.database import ArtifactRow, CaseRow
-from packages.core.storage.object_store import parse_object_uri
+from packages.core.storage.object_store import parse_local_uri, parse_object_uri
 from packages.core.storage.sqlalchemy_uploads import artifact_row_to_contract
 from packages.media.assets import local_object_path
 from packages.media.video.ffmpeg import FfmpegCommandError, probe_media
@@ -18,6 +18,7 @@ from tests.fixtures.media import (
     require_ffmpeg_filters,
     require_strict_bt709_tags,
 )
+from tests.api._upload_helpers import direct_upload
 
 
 client = TestClient(app)
@@ -62,78 +63,91 @@ def upload_settings_override():
     app.state.settings = original
 
 
-def _prepare(kind: str, content: bytes, *, content_type: str, filename: str, stabilize: bool = False):
+def test_direct_upload_round_trips_large_payload_byte_for_byte():
+    login_admin()
     _seed_case("case_stream")
+    # The browser PUTs straight to OSS; complete verifies + finalizes. A large
+    # payload must round-trip byte-for-byte and keep its sha256 (there is no
+    # server proxy mutating bytes anymore). Use the incidental font kind so
+    # complete skips ffprobe and does not auto-create a MediaAsset.
+    content = b"streamed-upload-" * 5000  # ~75 KiB
     digest = hashlib.sha256(content).hexdigest()
+    prepared, completed = direct_upload(
+        client,
+        kind="font",
+        filename="big.ttf",
+        content_type="font/ttf",
+        body=content,
+        case_id="case_stream",
+        metadata={"template_mode": "replace"},
+    )
+
+    assert completed.status_code == 200, completed.text
+    session = completed.json()["upload_session"]
+    # object_uri is the FINAL key after complete copied staging -> final.
+    stored = client.app.state.object_store.get_bytes(parse_object_uri(session["object_uri"]))
+    assert stored == content
+    assert hashlib.sha256(stored).hexdigest() == digest
+    # complete recomputes sha256 from the downloaded object; it must match.
+    assert session["sha256"] == digest
+
+
+def test_complete_rejects_size_mismatch_via_head_verification():
+    login_admin()
+    _seed_case("case_stream")
+    # The old byte proxy aborted mid-stream with 413 once it crossed a size
+    # ceiling. With browser-direct upload the API never sees the bytes, so size
+    # integrity is enforced at complete: it HEADs the stored object and rejects
+    # when the actual size disagrees with the declared size. Incidental font kind
+    # avoids ffprobe; the size check fires before the sha256 check.
+    body = b"x" * 4096
+    digest = hashlib.sha256(body).hexdigest()
     prepared = client.post(
         "/api/uploads/prepare",
         json={
-            "kind": kind,
+            "kind": "font",
             "case_id": "case_stream",
-            "filename": filename,
-            "content_type": content_type,
-            "size_bytes": len(content),
+            "filename": "size.ttf",
+            "content_type": "font/ttf",
+            "size_bytes": 16,
             "sha256": digest,
-            "stabilize": stabilize,
+            "stabilize": False,
         },
     )
     assert prepared.status_code == 201, prepared.text
-    return prepared.json(), digest
-
-
-def test_streaming_upload_chunked_path_round_trips_large_payload(upload_settings_override):
-    login_admin()
-    # Force a tiny streaming chunk so we exercise the multi-iteration read loop.
-    upload_settings_override(chunk_bytes=64)
-    content = b"streamed-upload-" * 5000  # ~75 KiB, many 64-byte chunks
-    upload, digest = _prepare("portrait", content, content_type="text/plain", filename="big.txt")
-
-    uploaded = client.put(
-        f"/api/uploads/{upload['id']}/file",
-        files={"file": ("big.txt", content, "text/plain")},
+    # Browser PUTs 4096 bytes, but complete declares 16 -> HEAD size check fails.
+    client.app.state.object_store.put_bytes(
+        parse_local_uri(prepared.json()["put_url"]), body
+    )
+    response = client.post(
+        "/api/uploads/complete",
+        json={
+            "upload_session_id": prepared.json()["upload_session"]["id"],
+            "size_bytes": 16,
+            "sha256": digest,
+        },
     )
 
-    assert uploaded.status_code == 200, uploaded.text
-    assert uploaded.json()["status"] == "uploading"
-    # The body landed in the object store byte-for-byte via the streamed path.
-    stored = client.app.state.object_store.get_bytes(parse_object_uri(upload["object_uri"]))
-    assert stored == content
-    assert hashlib.sha256(stored).hexdigest() == digest
-
-
-def test_upload_rejects_oversize_body_with_413(upload_settings_override):
-    login_admin()
-    # Hard ceiling below the declared size: the stream must abort early.
-    upload_settings_override(max_size_bytes=16, chunk_bytes=8)
-    content = b"x" * 4096
-    upload, _ = _prepare("broll", content, content_type="text/plain", filename="oversize.txt")
-
-    response = client.put(
-        f"/api/uploads/{upload['id']}/file",
-        files={"file": ("oversize.txt", content, "text/plain")},
-    )
-
-    assert response.status_code == 413, response.text
-    assert response.json()["error"]["code"] == "upload.too_large"
+    assert response.status_code == 400, response.text
+    assert response.json()["error"]["code"] == "upload.size_mismatch"
 
 
 def test_complete_upload_normalizes_portrait_when_enabled(upload_settings_override, tmp_path):
     require_strict_bt709_tags()
     login_admin()
+    _seed_case("case_stream")
     upload_settings_override(normalize_video=True)
     # Odd-resolution SDR portrait that must be normalized to 1080x1920 bt709.
     video = generate_test_video(tmp_path, duration_sec=1, width=300, height=540, fps=15)
     content = video.read_bytes()
-    upload, digest = _prepare("portrait", content, content_type="video/mp4", filename="raw.mp4")
-    uploaded = client.put(
-        f"/api/uploads/{upload['id']}/file",
-        files={"file": ("raw.mp4", content, "video/mp4")},
-    )
-    assert uploaded.status_code == 200, uploaded.text
-
-    completed = client.post(
-        "/api/uploads/complete",
-        json={"upload_session_id": upload["id"], "size_bytes": len(content), "sha256": digest},
+    digest = hashlib.sha256(content).hexdigest()
+    prepared, completed = direct_upload(
+        client,
+        kind="portrait",
+        filename="raw.mp4",
+        content_type="video/mp4",
+        body=content,
+        case_id="case_stream",
     )
 
     assert completed.status_code == 200, completed.text
@@ -150,19 +164,18 @@ def test_complete_upload_normalizes_portrait_when_enabled(upload_settings_overri
 
 def test_complete_upload_skips_normalization_when_disabled(tmp_path):
     login_admin()
+    _seed_case("case_stream")
     # Default settings: normalize_video is off, so the source passes through.
     video = generate_test_video(tmp_path, duration_sec=1, width=320, height=568, fps=15)
     content = video.read_bytes()
-    upload, digest = _prepare("portrait", content, content_type="video/mp4", filename="passthrough.mp4")
-    uploaded = client.put(
-        f"/api/uploads/{upload['id']}/file",
-        files={"file": ("passthrough.mp4", content, "video/mp4")},
-    )
-    assert uploaded.status_code == 200, uploaded.text
-
-    completed = client.post(
-        "/api/uploads/complete",
-        json={"upload_session_id": upload["id"], "size_bytes": len(content), "sha256": digest},
+    digest = hashlib.sha256(content).hexdigest()
+    prepared, completed = direct_upload(
+        client,
+        kind="portrait",
+        filename="passthrough.mp4",
+        content_type="video/mp4",
+        body=content,
+        case_id="case_stream",
     )
 
     assert completed.status_code == 200, completed.text
@@ -179,6 +192,7 @@ def test_complete_upload_normalizes_hdr_portrait_to_bt709_when_enabled(upload_se
     require_ffmpeg_filters("zscale")
     require_strict_bt709_tags()
     login_admin()
+    _seed_case("case_stream")
     upload_settings_override(normalize_video=True)
     try:
         video = generate_test_hdr_video(tmp_path, duration_sec=1, width=320, height=568, fps=15)
@@ -187,16 +201,13 @@ def test_complete_upload_normalizes_hdr_portrait_to_bt709_when_enabled(upload_se
     if not probe_media(video).is_hdr:  # pragma: no cover - environment-dependent
         pytest.skip("ffmpeg did not tag the fixture as HDR")
     content = video.read_bytes()
-    upload, digest = _prepare("portrait", content, content_type="video/mp4", filename="hdr.mp4")
-    uploaded = client.put(
-        f"/api/uploads/{upload['id']}/file",
-        files={"file": ("hdr.mp4", content, "video/mp4")},
-    )
-    assert uploaded.status_code == 200, uploaded.text
-
-    completed = client.post(
-        "/api/uploads/complete",
-        json={"upload_session_id": upload["id"], "size_bytes": len(content), "sha256": digest},
+    prepared, completed = direct_upload(
+        client,
+        kind="portrait",
+        filename="hdr.mp4",
+        content_type="video/mp4",
+        body=content,
+        case_id="case_stream",
     )
 
     assert completed.status_code == 200, completed.text

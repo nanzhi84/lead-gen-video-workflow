@@ -11,6 +11,7 @@ from packages.core.auth.service import hash_registration_code
 from packages.core.auth.sqlalchemy_service import hash_session_token
 from packages.core.storage.bootstrap import get_sqlalchemy_session_factory_if_enabled
 from packages.core.storage.database import ArtifactRow, RegistrationCodeRow, SessionRow, UploadSessionRow, UserRow
+from packages.core.storage.object_store import parse_local_uri
 
 
 def sqlalchemy_session_factory():
@@ -70,18 +71,22 @@ def test_sqlalchemy_upload_and_artifact_flow_are_persisted():
         )
         assert admin_login.status_code == 200, admin_login.text
 
+        # Incidental upload: this test only cares that the upload session and its
+        # artifact persist, not the media kind. Use the `font` kind with arbitrary
+        # bytes so complete() skips ffprobe (no ffmpeg needed), and
+        # template_mode=replace so no MediaAsset is auto-created.
         prepared = client.post(
             "/api/uploads/prepare",
             json={
-                "kind": "broll",
-                "filename": "db-sample.txt",
-                "content_type": "text/plain",
+                "kind": "font",
+                "filename": "db-sample.ttf",
+                "content_type": "font/ttf",
                 "size_bytes": len(content),
                 "sha256": digest,
             },
         )
         assert prepared.status_code == 201, prepared.text
-        upload = prepared.json()
+        upload = prepared.json()["upload_session"]
         assert upload["object_uri"].startswith("local://")
 
         with session_factory() as session:
@@ -89,16 +94,17 @@ def test_sqlalchemy_upload_and_artifact_flow_are_persisted():
             assert row is not None
             assert row.status == "prepared"
 
-        uploaded = client.put(
-            f"/api/uploads/{upload['id']}/file",
-            files={"file": ("db-sample.txt", content, "text/plain")},
-        )
-        assert uploaded.status_code == 200, uploaded.text
-        assert uploaded.json()["status"] == "uploading"
+        # Simulate the browser's direct PUT to the presigned staging URL.
+        app.state.object_store.put_bytes(parse_local_uri(prepared.json()["put_url"]), content)
 
         completed = client.post(
             "/api/uploads/complete",
-            json={"upload_session_id": upload["id"], "size_bytes": len(content), "sha256": digest},
+            json={
+                "upload_session_id": upload["id"],
+                "size_bytes": len(content),
+                "sha256": digest,
+                "metadata": {"template_mode": "replace"},
+            },
         )
         assert completed.status_code == 200, completed.text
         body = completed.json()
@@ -111,8 +117,12 @@ def test_sqlalchemy_upload_and_artifact_flow_are_persisted():
             assert upload_row is not None
             assert upload_row.status == "completed"
             assert artifact_row is not None
-            assert artifact_row.uri == upload["object_uri"]
-            assert artifact_row.payload["filename"] == "db-sample.txt"
+            # complete() copies the verified object from staging to its final,
+            # kind-routed key and rewrites upload.object_uri, so the artifact
+            # points at the FINAL key (the completed response), not the prepared
+            # staging key captured before complete.
+            assert artifact_row.uri == body["upload_session"]["object_uri"]
+            assert artifact_row.payload["filename"] == "db-sample.ttf"
 
 
 def test_sqlalchemy_auth_admin_users_and_registration_codes_are_persisted():

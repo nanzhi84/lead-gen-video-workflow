@@ -25,6 +25,8 @@ from packages.core.storage.sqlalchemy_uploads import artifact_row_to_contract
 from packages.media.assets import local_object_path
 from packages.media.video.ffmpeg import probe_media
 from tests.fixtures.media import generate_test_video, require_ffmpeg_filters
+from tests.api._upload_helpers import direct_upload
+from packages.core.storage.object_store import parse_local_uri
 
 
 client = TestClient(app)
@@ -105,75 +107,54 @@ def _wav_bytes(duration_sec: float = 0.25, sample_rate: int = 8000) -> bytes:
 def test_upload_flow_uses_object_store_uri_and_validates_integrity():
     login_admin()
     _seed_case("case_stabilize_upload")
-    content = b"cutagent object store"
+    # The original used a portrait + text/plain body purely to exercise object-store
+    # URIs + integrity + media-asset creation without ffmpeg. text/plain is now
+    # rejected by the per-kind content-type allowlist, so use bgm + a real
+    # (ffmpeg-free) WAV: it passes the allowlist, ffprobe parses it, and complete
+    # still auto-creates a MediaAsset, preserving the original intent.
+    content = _wav_bytes()
     digest = hashlib.sha256(content).hexdigest()
-    prepared = client.post(
-        "/api/uploads/prepare",
-        json={
-            "kind": "portrait",
-            "case_id": "case_stabilize_upload",
-            "filename": "sample.txt",
-            "content_type": "text/plain",
-            "size_bytes": len(content),
-            "sha256": digest,
-        },
+    prepared, completed = direct_upload(
+        client,
+        kind="bgm",
+        case_id="case_stabilize_upload",
+        filename="sample.wav",
+        content_type="audio/wav",
+        body=content,
+        sha256=digest,
     )
     assert prepared.status_code == 201, prepared.text
     upload = prepared.json()
-    assert upload["object_uri"].startswith("local://")
-    assert upload["upload_url"].startswith("local://")
+    assert upload["upload_session"]["object_uri"].startswith("local://")
+    assert upload["put_url"].startswith("local://")
 
-    uploaded = client.put(
-        f"/api/uploads/{upload['id']}/file",
-        files={"file": ("sample.txt", content, "text/plain")},
-    )
-    assert uploaded.status_code == 200, uploaded.text
-    assert uploaded.json()["status"] == "uploading"
-
-    completed = client.post(
-        "/api/uploads/complete",
-        json={"upload_session_id": upload["id"], "size_bytes": len(content), "sha256": digest},
-    )
     assert completed.status_code == 200, completed.text
     artifact = completed.json()["artifact"]
     assert artifact["kind"] == "uploaded.file"
-    assert completed.json()["media_asset"]["kind"] == "portrait"
+    assert completed.json()["media_asset"]["kind"] == "bgm"
     assert completed.json()["media_asset"]["source_artifact_id"] == artifact["artifact_id"]
 
 
 def test_create_media_asset_from_completed_upload_points_to_uploaded_artifact():
     login_admin()
     content = _wav_bytes()
-    digest = hashlib.sha256(content).hexdigest()
-    prepared = client.post(
-        "/api/uploads/prepare",
-        json={
-            "kind": "bgm",
-            "case_id": "case_demo",
-            "filename": "asset-create.wav",
-            "content_type": "audio/wav",
-            "size_bytes": len(content),
-            "sha256": digest,
-        },
+    prepared, completed = direct_upload(
+        client,
+        kind="bgm",
+        case_id="case_demo",
+        filename="asset-create.wav",
+        content_type="audio/wav",
+        body=content,
     )
     assert prepared.status_code == 201, prepared.text
-    upload = prepared.json()
-    uploaded = client.put(
-        f"/api/uploads/{upload['id']}/file",
-        files={"file": ("asset-create.wav", content, "audio/wav")},
-    )
-    assert uploaded.status_code == 200, uploaded.text
-    completed = client.post(
-        "/api/uploads/complete",
-        json={"upload_session_id": upload["id"], "size_bytes": len(content), "sha256": digest},
-    )
     assert completed.status_code == 200, completed.text
+    upload_session_id = prepared.json()["upload_session"]["id"]
     artifact_id = completed.json()["artifact"]["artifact_id"]
 
     created = client.post(
         "/api/media/assets",
         json={
-            "upload_session_id": upload["id"],
+            "upload_session_id": upload_session_id,
             "case_id": "case_demo",
             "title": "Created from upload",
             "kind": "bgm",
@@ -189,30 +170,14 @@ def test_create_media_asset_from_completed_upload_points_to_uploaded_artifact():
 def test_local_media_preview_url_is_browser_playable_content_route():
     login_admin()
     content = _wav_bytes()
-    digest = hashlib.sha256(content).hexdigest()
-    prepared = client.post(
-        "/api/uploads/prepare",
-        json={
-            "kind": "bgm",
-            "filename": "preview.wav",
-            "content_type": "audio/wav",
-            "size_bytes": len(content),
-            "sha256": digest,
-        },
+    prepared, completed = direct_upload(
+        client,
+        kind="bgm",
+        filename="preview.wav",
+        content_type="audio/wav",
+        body=content,
     )
     assert prepared.status_code == 201, prepared.text
-    upload = prepared.json()
-
-    uploaded = client.put(
-        f"/api/uploads/{upload['id']}/file",
-        files={"file": ("preview.wav", content, "audio/wav")},
-    )
-    assert uploaded.status_code == 200, uploaded.text
-
-    completed = client.post(
-        "/api/uploads/complete",
-        json={"upload_session_id": upload["id"], "size_bytes": len(content), "sha256": digest},
-    )
     assert completed.status_code == 200, completed.text
     asset_id = completed.json()["media_asset"]["id"]
 
@@ -376,22 +341,31 @@ def test_finished_video_stream_missing_bytes_returns_error():
     assert stream.status_code >= 400
 
 
-def test_upload_file_rejects_size_mismatch_before_completion():
+def test_upload_complete_rejects_size_mismatch_against_head():
+    # The proxy byte-ingress (PUT /file) and its per-PUT size check are gone.
+    # The new guard is in complete(): it HEAD-verifies the object the browser PUT
+    # directly to OSS against the declared size, and must fail loudly when they
+    # disagree (no artifact registered).
     login_admin()
+    body = b"short"  # 5 bytes
     prepared = client.post(
         "/api/uploads/prepare",
         json={
-            "kind": "broll",
-            "filename": "short.txt",
-            "content_type": "text/plain",
+            "kind": "font",
+            "filename": "short.ttf",
+            "content_type": "font/ttf",
             "size_bytes": 100,
         },
-    ).json()
-    response = client.put(
-        f"/api/uploads/{prepared['id']}/file",
-        files={"file": ("short.txt", b"short", "text/plain")},
     )
-    assert response.status_code == 400
+    assert prepared.status_code == 201, prepared.text
+    ticket = prepared.json()
+    # The browser's direct PUT writes only 5 bytes, not the declared 100.
+    app.state.object_store.put_bytes(parse_local_uri(ticket["put_url"]), body)
+    response = client.post(
+        "/api/uploads/complete",
+        json={"upload_session_id": ticket["upload_session"]["id"]},
+    )
+    assert response.status_code == 400, response.text
     assert response.json()["error"]["code"] == "upload.size_mismatch"
 
 
@@ -399,35 +373,16 @@ def test_publish_video_upload_creates_publish_package(tmp_path):
     login_admin()
     video = generate_test_video(tmp_path, duration_sec=1, width=320, height=568)
     content = video.read_bytes()
-    digest = hashlib.sha256(content).hexdigest()
-    prepared = client.post(
-        "/api/uploads/prepare",
-        json={
-            "kind": "publish_video",
-            "case_id": "case_demo",
-            "filename": "publish.mp4",
-            "content_type": "video/mp4",
-            "size_bytes": len(content),
-            "sha256": digest,
-        },
+    prepared, completed = direct_upload(
+        client,
+        kind="publish_video",
+        case_id="case_demo",
+        filename="publish.mp4",
+        content_type="video/mp4",
+        body=content,
+        metadata={"title": "Publish upload"},
     )
     assert prepared.status_code == 201, prepared.text
-    upload = prepared.json()
-    uploaded = client.put(
-        f"/api/uploads/{upload['id']}/file",
-        files={"file": ("publish.mp4", content, "video/mp4")},
-    )
-    assert uploaded.status_code == 200, uploaded.text
-
-    completed = client.post(
-        "/api/uploads/complete",
-        json={
-            "upload_session_id": upload["id"],
-            "sha256": digest,
-            "metadata": {"title": "Publish upload"},
-        },
-    )
-
     assert completed.status_code == 200, completed.text
     assert completed.json()["media_asset"] is None
     assert completed.json()["publish_package"]["upload_artifact_id"] == completed.json()["artifact"]["artifact_id"]
@@ -439,30 +394,16 @@ def test_video_upload_probes_media_and_creates_real_thumbnail_artifacts(tmp_path
     video = generate_test_video(tmp_path, duration_sec=1, width=320, height=568)
     content = video.read_bytes()
     digest = hashlib.sha256(content).hexdigest()
-    prepared = client.post(
-        "/api/uploads/prepare",
-        json={
-            "kind": "portrait",
-            "case_id": "case_demo",
-            "filename": "portrait.mp4",
-            "content_type": "video/mp4",
-            "size_bytes": len(content),
-            "sha256": digest,
-        },
+    prepared, completed = direct_upload(
+        client,
+        kind="portrait",
+        case_id="case_demo",
+        filename="portrait.mp4",
+        content_type="video/mp4",
+        body=content,
+        sha256=digest,
     )
     assert prepared.status_code == 201, prepared.text
-    upload = prepared.json()
-    uploaded = client.put(
-        f"/api/uploads/{upload['id']}/file",
-        files={"file": ("portrait.mp4", content, "video/mp4")},
-    )
-    assert uploaded.status_code == 200, uploaded.text
-
-    completed = client.post(
-        "/api/uploads/complete",
-        json={"upload_session_id": upload["id"], "size_bytes": len(content), "sha256": digest},
-    )
-
     assert completed.status_code == 200, completed.text
     artifact_id = completed.json()["artifact"]["artifact_id"]
     uploaded_artifact = _get_artifact(artifact_id)
@@ -483,31 +424,16 @@ def test_unified_video_kind_upload_creates_video_media_asset(tmp_path):
     _seed_case("case_unified_video")
     video = generate_test_video(tmp_path, duration_sec=1, width=320, height=568)
     content = video.read_bytes()
-    digest = hashlib.sha256(content).hexdigest()
-    prepared = client.post(
-        "/api/uploads/prepare",
-        json={
-            "kind": "video",
-            "case_id": "case_unified_video",
-            "filename": "mixed.mp4",
-            "content_type": "video/mp4",
-            "size_bytes": len(content),
-            "sha256": digest,
-        },
+    prepared, completed = direct_upload(
+        client,
+        kind="video",
+        case_id="case_unified_video",
+        filename="mixed.mp4",
+        content_type="video/mp4",
+        body=content,
     )
     assert prepared.status_code == 201, prepared.text
-    upload = prepared.json()
-    assert upload["kind"] == "video"
-    uploaded = client.put(
-        f"/api/uploads/{upload['id']}/file",
-        files={"file": ("mixed.mp4", content, "video/mp4")},
-    )
-    assert uploaded.status_code == 200, uploaded.text
-
-    completed = client.post(
-        "/api/uploads/complete",
-        json={"upload_session_id": upload["id"], "size_bytes": len(content), "sha256": digest},
-    )
+    assert prepared.json()["upload_session"]["kind"] == "video"
     assert completed.status_code == 200, completed.text
     body = completed.json()
     assert body["media_asset"] is not None
@@ -523,31 +449,17 @@ def test_video_upload_can_stabilize_before_creating_media_asset(tmp_path):
     video = generate_test_video(tmp_path, duration_sec=1.2, width=160, height=120, fps=15)
     content = video.read_bytes()
     digest = hashlib.sha256(content).hexdigest()
-    prepared = client.post(
-        "/api/uploads/prepare",
-        json={
-            "kind": "portrait",
-            "case_id": "case_demo",
-            "filename": "shaky.mp4",
-            "content_type": "video/mp4",
-            "size_bytes": len(content),
-            "sha256": digest,
-            "stabilize": True,
-        },
+    prepared, completed = direct_upload(
+        client,
+        kind="portrait",
+        case_id="case_demo",
+        filename="shaky.mp4",
+        content_type="video/mp4",
+        body=content,
+        sha256=digest,
+        stabilize=True,
     )
     assert prepared.status_code == 201, prepared.text
-    upload = prepared.json()
-    uploaded = client.put(
-        f"/api/uploads/{upload['id']}/file",
-        files={"file": ("shaky.mp4", content, "video/mp4")},
-    )
-    assert uploaded.status_code == 200, uploaded.text
-
-    completed = client.post(
-        "/api/uploads/complete",
-        json={"upload_session_id": upload["id"], "size_bytes": len(content), "sha256": digest},
-    )
-
     assert completed.status_code == 200, completed.text
     body = completed.json()
     assert body["media_asset"]["source_artifact_id"] == body["artifact"]["artifact_id"]
@@ -566,29 +478,15 @@ def test_batch_stabilize_updates_media_assets_and_reports_results(tmp_path):
     _seed_case("case_batch_stabilize")
     video = generate_test_video(tmp_path, duration_sec=1.2, width=160, height=120, fps=15)
     content = video.read_bytes()
-    digest = hashlib.sha256(content).hexdigest()
-    prepared = client.post(
-        "/api/uploads/prepare",
-        json={
-            "kind": "broll",
-            "case_id": "case_batch_stabilize",
-            "filename": "batch-shaky.mp4",
-            "content_type": "video/mp4",
-            "size_bytes": len(content),
-            "sha256": digest,
-        },
+    prepared, completed = direct_upload(
+        client,
+        kind="broll",
+        case_id="case_batch_stabilize",
+        filename="batch-shaky.mp4",
+        content_type="video/mp4",
+        body=content,
     )
     assert prepared.status_code == 201, prepared.text
-    upload = prepared.json()
-    uploaded = client.put(
-        f"/api/uploads/{upload['id']}/file",
-        files={"file": ("batch-shaky.mp4", content, "video/mp4")},
-    )
-    assert uploaded.status_code == 200, uploaded.text
-    completed = client.post(
-        "/api/uploads/complete",
-        json={"upload_session_id": upload["id"], "size_bytes": len(content), "sha256": digest},
-    )
     assert completed.status_code == 200, completed.text
     asset_id = completed.json()["media_asset"]["id"]
     original_artifact_id = completed.json()["artifact"]["artifact_id"]
@@ -616,29 +514,15 @@ def test_annotation_trim_creates_trimmed_artifact_from_invalid_segments(tmp_path
     _seed_case("case_trim_annotation")
     video = generate_test_video(tmp_path, duration_sec=2, width=160, height=120, fps=15)
     content = video.read_bytes()
-    digest = hashlib.sha256(content).hexdigest()
-    prepared = client.post(
-        "/api/uploads/prepare",
-        json={
-            "kind": "broll",
-            "case_id": "case_trim_annotation",
-            "filename": "trim-source.mp4",
-            "content_type": "video/mp4",
-            "size_bytes": len(content),
-            "sha256": digest,
-        },
+    prepared, completed = direct_upload(
+        client,
+        kind="broll",
+        case_id="case_trim_annotation",
+        filename="trim-source.mp4",
+        content_type="video/mp4",
+        body=content,
     )
     assert prepared.status_code == 201, prepared.text
-    upload = prepared.json()
-    uploaded = client.put(
-        f"/api/uploads/{upload['id']}/file",
-        files={"file": ("trim-source.mp4", content, "video/mp4")},
-    )
-    assert uploaded.status_code == 200, uploaded.text
-    completed = client.post(
-        "/api/uploads/complete",
-        json={"upload_session_id": upload["id"], "size_bytes": len(content), "sha256": digest},
-    )
     assert completed.status_code == 200, completed.text
     asset_id = completed.json()["media_asset"]["id"]
     editor = client.get(f"/api/annotations/{asset_id}").json()
@@ -681,29 +565,15 @@ def test_annotation_trim_rejects_empty_valid_region(tmp_path):
     _seed_case("case_trim_empty")
     video = generate_test_video(tmp_path, duration_sec=1, width=160, height=120, fps=15)
     content = video.read_bytes()
-    digest = hashlib.sha256(content).hexdigest()
-    prepared = client.post(
-        "/api/uploads/prepare",
-        json={
-            "kind": "broll",
-            "case_id": "case_trim_empty",
-            "filename": "all-invalid.mp4",
-            "content_type": "video/mp4",
-            "size_bytes": len(content),
-            "sha256": digest,
-        },
+    prepared, completed = direct_upload(
+        client,
+        kind="broll",
+        case_id="case_trim_empty",
+        filename="all-invalid.mp4",
+        content_type="video/mp4",
+        body=content,
     )
     assert prepared.status_code == 201, prepared.text
-    upload = prepared.json()
-    uploaded = client.put(
-        f"/api/uploads/{upload['id']}/file",
-        files={"file": ("all-invalid.mp4", content, "video/mp4")},
-    )
-    assert uploaded.status_code == 200, uploaded.text
-    completed = client.post(
-        "/api/uploads/complete",
-        json={"upload_session_id": upload["id"], "size_bytes": len(content), "sha256": digest},
-    )
     assert completed.status_code == 200, completed.text
     asset_id = completed.json()["media_asset"]["id"]
     editor = client.get(f"/api/annotations/{asset_id}").json()

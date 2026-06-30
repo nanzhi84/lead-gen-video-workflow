@@ -1,8 +1,9 @@
-from fastapi.testclient import TestClient
-import hashlib
 from contextlib import contextmanager
 
+from fastapi.testclient import TestClient
+
 from apps.api.app import create_app
+from tests.api._upload_helpers import direct_upload
 
 
 @contextmanager
@@ -70,31 +71,19 @@ def create_publish_batch(active_client, finished_video_id: str):
 
 
 def upload_cover_artifact(active_client) -> str:
-    content = b"cover image bytes"
-    digest = hashlib.sha256(content).hexdigest()
-    prepared = active_client.post(
-        "/api/uploads/prepare",
-        json={
-            "kind": "cover_template",
-            "case_id": "case_demo",
-            "filename": "cover.png",
-            "content_type": "image/png",
-            "size_bytes": len(content),
-            "sha256": digest,
-        },
+    # The cover artifact is only referenced by id when PATCHed onto the package
+    # (ensure_artifact_ref validates existence, not kind/media), so an incidental
+    # ffprobe-free font upload is sufficient and avoids an auto-created MediaAsset.
+    _prepared, completed = direct_upload(
+        active_client,
+        kind="font",
+        filename="cover.ttf",
+        content_type="font/ttf",
+        body=b"cover image bytes",
+        case_id="case_demo",
+        metadata={"template_mode": "replace"},
     )
-    assert prepared.status_code == 201, prepared.text
-    upload = prepared.json()
-    uploaded = active_client.put(
-        f"/api/uploads/{upload['id']}/file",
-        files={"file": ("cover.png", content, "image/png")},
-    )
-    assert uploaded.status_code == 200, uploaded.text
-    completed = active_client.post(
-        "/api/uploads/complete",
-        json={"upload_session_id": upload["id"], "size_bytes": len(content), "sha256": digest},
-    )
-    assert completed.status_code == 200, completed.text
+    assert completed is not None and completed.status_code == 200, completed.text
     return completed.json()["artifact"]["artifact_id"]
 
 

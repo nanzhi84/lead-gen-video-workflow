@@ -5,6 +5,7 @@ from pathlib import Path
 
 from packages.core.contracts import SignedUrlResponse
 from packages.core.storage.object_store import (
+    ObjectHead,
     ObjectRef,
     ObjectStore,
     StoredObject,
@@ -101,6 +102,31 @@ class TieredObjectStore(ObjectStore):
     def delete(self, uri: str) -> None:
         ref = parse_object_uri(uri)
         self._store_for_ref(ref).delete(uri)
+
+    def supports_presign(self) -> bool:
+        # Staging uploads always land in the durable tier, so its capability decides.
+        return self.durable.supports_presign()
+
+    def signed_put_url(
+        self, uri: str, *, content_type: str, expires_in: timedelta
+    ) -> SignedUrlResponse:
+        return self._store_for_ref(parse_object_uri(uri)).signed_put_url(
+            uri, content_type=content_type, expires_in=expires_in
+        )
+
+    def head(self, uri: str) -> ObjectHead:
+        return self._store_for_ref(parse_object_uri(uri)).head(uri)
+
+    def copy(self, src_uri: str, dst_uri: str) -> None:
+        # Route to the DESTINATION sub-store: it owns write access to its bucket.
+        # The source bucket is only a CopySource param (see S3ObjectStore.copy).
+        self._store_for_ref(parse_object_uri(dst_uri)).copy(src_uri, dst_uri)
+
+    def ensure_cors(
+        self, origins: list[str], *, expose: list[str] | None = None, max_age: int = 600
+    ) -> None:
+        # Browser PUTs only ever target the durable staging bucket.
+        self.durable.ensure_cors(origins, expose=expose, max_age=max_age)
 
     def _path(self, ref: ObjectRef) -> Path:
         path_method = getattr(self._store_for_ref(ref), "_path", None)

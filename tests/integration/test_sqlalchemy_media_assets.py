@@ -1,5 +1,3 @@
-import hashlib
-
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -8,6 +6,7 @@ from sqlalchemy import select
 from apps.api.main import app
 from packages.core.storage.bootstrap import get_sqlalchemy_session_factory_if_enabled
 from packages.core.storage.database import AnnotationRow, MediaAssetRow
+from tests.api._upload_helpers import direct_upload
 
 
 def sqlalchemy_session_factory():
@@ -25,34 +24,22 @@ def create_completed_media_asset(client: TestClient) -> dict:
     assert admin_login.status_code == 200, admin_login.text
 
     content = b"media asset payload"
-    digest = hashlib.sha256(content).hexdigest()
-    prepared = client.post(
-        "/api/uploads/prepare",
-        json={
-            "kind": "portrait",
-            "case_id": "case_demo",
-            "filename": "clip.txt",
-            "content_type": "text/plain",
-            "size_bytes": len(content),
-            "sha256": digest,
-        },
+    prepared, completed = direct_upload(
+        client,
+        kind="font",
+        filename="clip.ttf",
+        content_type="font/ttf",
+        body=content,
+        case_id="case_demo",
+        metadata={"template_mode": "replace"},
     )
     assert prepared.status_code == 201, prepared.text
-    upload = prepared.json()
-    uploaded = client.put(
-        f"/api/uploads/{upload['id']}/file",
-        files={"file": ("clip.txt", content, "text/plain")},
-    )
-    assert uploaded.status_code == 200, uploaded.text
-    completed = client.post(
-        "/api/uploads/complete",
-        json={"upload_session_id": upload["id"], "size_bytes": len(content), "sha256": digest},
-    )
     assert completed.status_code == 200, completed.text
+    upload_session = completed.json()["upload_session"]
     created = client.post(
         "/api/media/assets",
         json={
-            "upload_session_id": upload["id"],
+            "upload_session_id": upload_session["id"],
             "case_id": "case_demo",
             "title": "SQLAlchemy media asset",
             "kind": "broll",
@@ -63,7 +50,7 @@ def create_completed_media_asset(client: TestClient) -> dict:
     return {
         "asset": created.json(),
         "artifact_id": completed.json()["artifact"]["artifact_id"],
-        "object_uri": upload["object_uri"],
+        "object_uri": upload_session["object_uri"],
     }
 
 

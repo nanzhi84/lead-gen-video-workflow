@@ -348,19 +348,18 @@ class MotionGuardSettings(BaseModel):
 class UploadSettings(BaseModel):
     """Upload ingestion knobs (``settings.upload.*``).
 
-    The HTTP upload path streams the body to disk in chunks and enforces a hard
-    size cap so a single oversized request can never buffer hundreds of MB in
-    RAM. The cap is a defence-in-depth ceiling: a per-session declared
-    ``size_bytes`` (when present) tightens it further, but this guards against a
-    session that omits / under-declares its size."""
+    Uploads go browser-direct to OSS via a presigned PUT; the API never receives
+    the bytes. The hard 100 MiB per-file cap lives in the contract
+    (``PrepareUploadRequest.size_bytes`` ``le=``) and is re-checked by complete()'s
+    exact-size HEAD match — not via this module."""
 
     model_config = ConfigDict(frozen=True)
 
-    # CUTAGENT_UPLOAD_MAX_SIZE_BYTES: hard ceiling for a single uploaded file.
-    # Default 2 GiB. Exceeding it aborts the stream early with upload.too_large.
-    max_size_bytes: int = 2 * 1024 * 1024 * 1024
-    # CUTAGENT_UPLOAD_CHUNK_BYTES: streaming chunk size (read granularity).
-    chunk_bytes: int = 1024 * 1024
+    # CUTAGENT_UPLOAD_PRESIGN_TTL_SECONDS: lifetime of a presigned PUT URL.
+    presign_ttl_seconds: int = 900
+    # CUTAGENT_UPLOAD_CORS_ALLOWED_ORIGINS: comma-separated web origins allowed to
+    # PUT directly to the durable upload bucket (provisioned onto OSS bucket CORS).
+    cors_allowed_origins: tuple[str, ...] = ()
     # CUTAGENT_UPLOAD_NORMALIZE_VIDEO: "1" normalizes portrait/b-roll uploads to
     # the strict delivery profile (rotation/cropdetect/1080p/bt709 + post-encode
     # validation) before admitting them. Off by default so the existing upload
@@ -735,10 +734,15 @@ def build_settings() -> Settings:
             refine_round_sec=_env_float("CUTAGENT_MOTION_GUARD_REFINE_ROUND_SEC", 0.1),
         ),
         upload=UploadSettings(
-            max_size_bytes=_env_int(
-                "CUTAGENT_UPLOAD_MAX_SIZE_BYTES", 2 * 1024 * 1024 * 1024
+            presign_ttl_seconds=_env_int("CUTAGENT_UPLOAD_PRESIGN_TTL_SECONDS", 900),
+            cors_allowed_origins=tuple(
+                o.strip()
+                for o in _env_str(
+                    "CUTAGENT_UPLOAD_CORS_ALLOWED_ORIGINS",
+                    "https://app.shuying.cyou,http://localhost:5173",
+                ).split(",")
+                if o.strip()
             ),
-            chunk_bytes=_env_int("CUTAGENT_UPLOAD_CHUNK_BYTES", 1024 * 1024),
             normalize_video=os.getenv("CUTAGENT_UPLOAD_NORMALIZE_VIDEO") == "1",
         ),
         api=ApiSettings(

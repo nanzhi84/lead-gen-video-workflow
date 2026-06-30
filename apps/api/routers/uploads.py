@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-from fastapi import APIRouter, Request, UploadFile
+from fastapi import APIRouter, Request
 
 from apps.api.dependencies import require_role
 from apps.api.services import uploads as service
@@ -9,18 +9,10 @@ from packages.core import contracts as c
 
 router = APIRouter()
 
-@router.post("/api/uploads/prepare", response_model=c.UploadSession, status_code=201)
-def prepare_upload(payload: c.PrepareUploadRequest, request: Request) -> c.UploadSession:
+@router.post("/api/uploads/prepare", response_model=c.PrepareUploadResponse, status_code=201)
+def prepare_upload(payload: c.PrepareUploadRequest, request: Request) -> c.PrepareUploadResponse:
     require_role(request, c.UserRole.operator)
     return service.prepare_upload(payload, request)
-
-
-@router.put("/api/uploads/{upload_session_id}/file", response_model=c.UploadSession)
-async def upload_file(
-    upload_session_id: str, request: Request, file: UploadFile | None = None
-) -> c.UploadSession:
-    require_role(request, c.UserRole.operator)
-    return await service.upload_file(upload_session_id, request, file)
 
 
 @router.post("/api/uploads/complete", response_model=c.CompleteUploadResponse)

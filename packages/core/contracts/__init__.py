@@ -36,7 +36,6 @@ from .base import (
     MediaInfo,
     Artifact,
     RetryPolicy,
-    ResumePolicy,
 )
 from .providers import (
     ProviderError,
@@ -392,7 +391,6 @@ __all__ = [
     "UsageMeterRecord",
     "ProviderInvocation",
     "RetryPolicy",
-    "ResumePolicy",
     "WorkflowEdge",
     "NodeSpec",
     "WorkflowTemplate",

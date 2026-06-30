@@ -775,6 +775,9 @@ async def run_websocket(websocket: WebSocket, run_id: str) -> None:
 
     await websocket.accept()
     sent_event_ids: set[str] = set()
+    # #87 D2: a reconnecting client passes ?after=<last event_id> so replay resumes
+    # just past what it already has, instead of re-sending the whole run history.
+    after_event_id = websocket.query_params.get("after")
     session_factory = getattr(websocket.app.state, "sqlalchemy_session_factory", None)
     hub = websocket.app.state.event_hub
     # Initialize before the try so the finally can pair the connected gauge with
@@ -788,6 +791,7 @@ async def run_websocket(websocket: WebSocket, run_id: str) -> None:
             session_factory,
             aggregate_type="run",
             aggregate_id=run_id,
+            after_event_id=after_event_id,
         )
         for payload in replay_payloads:
             if payload.get("event_id"):

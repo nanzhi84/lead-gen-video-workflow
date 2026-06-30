@@ -200,9 +200,6 @@ export default function StudioCreatePage() {
       strictness: {
         strict_timestamps: false,
         portrait_insufficient_policy: "hard_fail",
-        broll_insufficient_policy: "soft_degrade",
-        bgm_unavailable_policy: "soft_degrade",
-        strict_cost_pricing: false,
       },
     };
   }

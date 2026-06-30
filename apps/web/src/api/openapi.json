@@ -15286,26 +15286,6 @@
       },
       "OutputOptions": {
         "properties": {
-          "export_jianying_draft": {
-            "type": "boolean",
-            "title": "Export Jianying Draft",
-            "default": true
-          },
-          "export_editor_handoff": {
-            "type": "boolean",
-            "title": "Export Editor Handoff",
-            "default": true
-          },
-          "upload_to_oss": {
-            "type": "boolean",
-            "title": "Upload To Oss",
-            "default": true
-          },
-          "keep_local_originals": {
-            "type": "boolean",
-            "title": "Keep Local Originals",
-            "default": false
-          },
           "width": {
             "type": "integer",
             "title": "Width",
@@ -15320,12 +15300,6 @@
             "type": "integer",
             "title": "Fps",
             "default": 30
-          },
-          "format": {
-            "type": "string",
-            "const": "mp4",
-            "title": "Format",
-            "default": "mp4"
           }
         },
         "additionalProperties": false,
@@ -22600,23 +22574,6 @@
             "const": "hard_fail",
             "title": "Portrait Insufficient Policy",
             "default": "hard_fail"
-          },
-          "broll_insufficient_policy": {
-            "type": "string",
-            "const": "soft_degrade",
-            "title": "Broll Insufficient Policy",
-            "default": "soft_degrade"
-          },
-          "bgm_unavailable_policy": {
-            "type": "string",
-            "const": "soft_degrade",
-            "title": "Bgm Unavailable Policy",
-            "default": "soft_degrade"
-          },
-          "strict_cost_pricing": {
-            "type": "boolean",
-            "title": "Strict Cost Pricing",
-            "default": false
           }
         },
         "additionalProperties": false,

@@ -134,7 +134,7 @@ def test_request_options_use_spec_field_names_without_escape_hatches():
         subtitle=SubtitleOptions(enabled=True, style_preset="douyin"),
         bgm=BgmOptions(enabled=False, bgm_id=None),
         cover=CoverOptions(mode="frame"),
-        output=OutputOptions(export_jianying_draft=True),
+        output=OutputOptions(width=1080, height=1920, fps=30),
         strictness=StrictnessOptions(strict_timestamps=True),
     )
 

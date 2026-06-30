@@ -20,7 +20,7 @@ import pytest
 from pydantic import ValidationError
 
 import packages.core.contracts as contracts_pkg
-from packages.core.contracts import LipSyncOptions, OutboxEvent
+from packages.core.contracts import LipSyncOptions, OutboxEvent, OutputOptions, StrictnessOptions
 
 _CONTRACTS_DIR = pathlib.Path(contracts_pkg.__file__).parent
 _CONTRACT_FILES = sorted(_CONTRACTS_DIR.glob("*.py"))
@@ -58,6 +58,73 @@ def test_lipsync_options_still_accepts_supported_fields():
     options = LipSyncOptions(enabled=True, timeout_minutes=45)
     assert options.enabled is True
     assert options.timeout_minutes == 45
+
+
+# OutputOptions request-layer fields removed in issue #118: they were exposed on
+# the contract / OpenAPI / frontend but never consumed by any production node
+# (only ``width`` / ``height`` / ``fps`` reach the render/portrait/broll nodes;
+# export/upload/keep/format toggles were dead request knobs). They must no longer
+# be accepted on the user request layer.
+_REMOVED_OUTPUT_FIELDS = (
+    "export_jianying_draft",
+    "export_editor_handoff",
+    "upload_to_oss",
+    "keep_local_originals",
+    "format",
+)
+
+# StrictnessOptions request-layer fields removed in issue #118: ``strict_timestamps``
+# (NarrationAlignment) and ``portrait_insufficient_policy`` (PortraitPlanning) are
+# the only blocks a production node reads; the broll/bgm policies and the cost
+# pricing flag never drove any node and are dropped from the request layer.
+_REMOVED_STRICTNESS_FIELDS = (
+    "broll_insufficient_policy",
+    "bgm_unavailable_policy",
+    "strict_cost_pricing",
+)
+
+
+def test_output_options_drops_unconsumed_fields():
+    for name in _REMOVED_OUTPUT_FIELDS:
+        assert name not in OutputOptions.model_fields, (
+            f"{name} was removed from the Output request layer (#118) but is "
+            "still declared on OutputOptions"
+        )
+
+
+@pytest.mark.parametrize("name", _REMOVED_OUTPUT_FIELDS)
+def test_output_options_rejects_removed_field(name):
+    # ContractModel is extra="forbid", so a stored/legacy request still carrying
+    # one of these keys must now raise instead of silently round-tripping.
+    with pytest.raises(ValidationError):
+        OutputOptions.model_validate({name: None})
+
+
+def test_output_options_still_accepts_supported_fields():
+    options = OutputOptions(width=1280, height=720, fps=24)
+    assert options.width == 1280
+    assert options.height == 720
+    assert options.fps == 24
+
+
+def test_strictness_options_drops_unconsumed_fields():
+    for name in _REMOVED_STRICTNESS_FIELDS:
+        assert name not in StrictnessOptions.model_fields, (
+            f"{name} was removed from the Strictness request layer (#118) but is "
+            "still declared on StrictnessOptions"
+        )
+
+
+@pytest.mark.parametrize("name", _REMOVED_STRICTNESS_FIELDS)
+def test_strictness_options_rejects_removed_field(name):
+    with pytest.raises(ValidationError):
+        StrictnessOptions.model_validate({name: None})
+
+
+def test_strictness_options_still_accepts_supported_fields():
+    options = StrictnessOptions(strict_timestamps=False, portrait_insufficient_policy="hard_fail")
+    assert options.strict_timestamps is False
+    assert options.portrait_insufficient_policy == "hard_fail"
 
 
 def test_outbox_event_dedupe_key_is_required_str():

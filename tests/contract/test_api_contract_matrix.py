@@ -142,7 +142,8 @@ def value_for_schema(schema: dict[str, Any], spec: dict[str, Any]) -> Any:
         return schema["enum"][0]
     # Pydantic v2 emits single-value ``Literal[...]`` fields as ``const`` (not
     # ``enum``); honor it so generated bodies for option blocks with fixed-literal
-    # fields (e.g. OutputOptions.format, StrictnessOptions.*) stay valid.
+    # fields (e.g. StrictnessOptions.portrait_insufficient_policy, the
+    # ``schema_version`` discriminators) stay valid.
     if "const" in schema:
         return schema["const"]
 

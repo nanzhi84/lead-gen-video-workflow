@@ -101,22 +101,14 @@ class CoverOptions(ContractModel):
 
 
 class OutputOptions(ContractModel):
-    export_jianying_draft: bool = True
-    export_editor_handoff: bool = True
-    upload_to_oss: bool = True
-    keep_local_originals: bool = False
     width: int = 1080
     height: int = 1920
     fps: int = 30
-    format: Literal["mp4"] = "mp4"
 
 
 class StrictnessOptions(ContractModel):
     strict_timestamps: bool = True
     portrait_insufficient_policy: Literal["hard_fail"] = "hard_fail"
-    broll_insufficient_policy: Literal["soft_degrade"] = "soft_degrade"
-    bgm_unavailable_policy: Literal["soft_degrade"] = "soft_degrade"
-    strict_cost_pricing: bool = False
 
 
 class DigitalHumanVideoRequest(ContractModel):

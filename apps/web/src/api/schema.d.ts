@@ -5348,26 +5348,6 @@ export interface components {
         /** OutputOptions */
         OutputOptions: {
             /**
-             * Export Jianying Draft
-             * @default true
-             */
-            export_jianying_draft: boolean;
-            /**
-             * Export Editor Handoff
-             * @default true
-             */
-            export_editor_handoff: boolean;
-            /**
-             * Upload To Oss
-             * @default true
-             */
-            upload_to_oss: boolean;
-            /**
-             * Keep Local Originals
-             * @default false
-             */
-            keep_local_originals: boolean;
-            /**
              * Width
              * @default 1080
              */
@@ -5382,12 +5362,6 @@ export interface components {
              * @default 30
              */
             fps: number;
-            /**
-             * Format
-             * @default mp4
-             * @constant
-             */
-            format: "mp4";
         };
         /** PageResponse[AuditEvent] */
         PageResponse_AuditEvent_: {
@@ -8081,23 +8055,6 @@ export interface components {
              * @constant
              */
             portrait_insufficient_policy: "hard_fail";
-            /**
-             * Broll Insufficient Policy
-             * @default soft_degrade
-             * @constant
-             */
-            broll_insufficient_policy: "soft_degrade";
-            /**
-             * Bgm Unavailable Policy
-             * @default soft_degrade
-             * @constant
-             */
-            bgm_unavailable_policy: "soft_degrade";
-            /**
-             * Strict Cost Pricing
-             * @default false
-             */
-            strict_cost_pricing: boolean;
         };
         /** SubmitPublishBatchRequest */
         SubmitPublishBatchRequest: {

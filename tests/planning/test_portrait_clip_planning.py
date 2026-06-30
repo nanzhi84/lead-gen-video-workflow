@@ -109,7 +109,6 @@ def test_static_single_face_person_clip_can_feed_lipsync_source():
 
     candidates = rank_portrait_clip_candidates(
         annotations={"vid_person": _video_annotation("vid_person", [static_person])},
-        required_duration=0.0,
     )
     assert [candidate.clip_id for candidate in candidates] == ["static_person"]
 
@@ -124,9 +123,7 @@ def test_rank_portrait_clips_picks_only_lipsync_clips_with_source_windows():
             _clip("blip", 18.0, 18.3),  # too short -> excluded
         ],
     )
-    candidates = rank_portrait_clip_candidates(
-        annotations={"vid_mixed": annotation}, required_duration=0.0
-    )
+    candidates = rank_portrait_clip_candidates(annotations={"vid_mixed": annotation})
     assert len(candidates) == 1
     cand = candidates[0]
     assert cand.asset_id == "vid_mixed"
@@ -135,6 +132,11 @@ def test_rank_portrait_clips_picks_only_lipsync_clips_with_source_windows():
     assert cand.source_start == 2.0
     assert cand.source_end == 9.0
     assert cand.duration == 7.0
+    # Base score is a fixed availability baseline + lip-sync confidence only (no
+    # clip-duration "coverage" term): 70.0 availability + 0.9 confidence * 30.0.
+    assert cand.base_score == 97.0
+    assert cand.recency_penalty == 0.0
+    assert cand.score == 97.0
 
 
 def test_video_talking_head_clips_stay_out_of_broll_pool():
@@ -214,9 +216,7 @@ def test_video_backup_lipsync_clip_stays_out_of_broll_pool():
             ),
         ],
     )
-    portrait = rank_portrait_clip_candidates(
-        annotations={"vid_mixed": annotation}, required_duration=0.0
-    )
+    portrait = rank_portrait_clip_candidates(annotations={"vid_mixed": annotation})
     assert {c.clip_id for c in portrait} == {"backup_talk"}
 
     segments = [ScriptSegment(text="打磨工艺细节", start=0.0, end=4.0, keywords=("打磨", "工艺"))]

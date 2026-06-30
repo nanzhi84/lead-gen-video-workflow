@@ -353,7 +353,6 @@ def test_portrait_clip_recency_demotes_recently_used_portrait():
     }
     candidates = rank_portrait_clip_candidates(
         annotations=annotations,
-        required_duration=10.0,
         ledger_entries=[
             SelectionLedgerEntry(
                 case_id="case_demo",

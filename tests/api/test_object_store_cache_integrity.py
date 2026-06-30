@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 import time
 from pathlib import Path
 
@@ -58,8 +59,8 @@ def test_download_file_is_atomic_on_success(tmp_path):
     target = tmp_path / "out" / "obj.bin"
     result = store.download_file(ref, target)
     assert result.read_bytes() == b"x" * 1024
-    # No leftover .part sidecar after a successful atomic rename.
-    assert not (target.parent / f"{target.name}.part").exists()
+    # No leftover .part sidecar after a successful atomic rename (unique temp name).
+    assert not list(target.parent.glob("*.part"))
 
 
 def test_download_file_failure_leaves_no_final_or_part_file(tmp_path):
@@ -71,9 +72,49 @@ def test_download_file_failure_leaves_no_final_or_part_file(tmp_path):
     except RuntimeError:
         pass
     # A failed transfer must NOT leave a truncated file at the final path (which
-    # _path() exists()-checks would return as a valid cache hit), nor a .part.
+    # _path() exists()-checks would return as a valid cache hit), nor a .part sidecar.
     assert not target.exists()
-    assert not (target.parent / f"{target.name}.part").exists()
+    assert not list(target.parent.glob("*.part"))
+
+
+def test_concurrent_downloads_of_same_key_use_unique_part_files(tmp_path):
+    # Two concurrent downloads of the same key must each use a unique .part temp,
+    # so neither races os.replace into a FileNotFoundError. (#87 C1)
+    barrier = threading.Barrier(2)
+
+    class _BarrierFakeS3(_DownloadFakeS3):
+        def download_file(self, Bucket, Key, Filename, Config):
+            with open(Filename, "wb") as handle:
+                handle.write(self.objects[(Bucket, Key)])
+            barrier.wait()  # hold both writes so both threads reach os.replace together
+
+    store = S3ObjectStore(
+        endpoint_url="http://minio.local:9000",
+        bucket="cutagent-demo",
+        access_key="k",
+        secret_key="s",
+        client=_BarrierFakeS3(),
+        cache_root=tmp_path / "cache",
+    )
+    ref = ObjectRef(bucket="cutagent-demo", key="k/obj.bin", uri="s3://cutagent-demo/k/obj.bin")
+    target = tmp_path / "out" / "obj.bin"
+    errors: list[Exception] = []
+
+    def _download():
+        try:
+            store.download_file(ref, target)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=_download) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == [], f"concurrent download raced: {errors}"
+    assert target.read_bytes() == b"x" * 1024
+    assert not list(target.parent.glob("*.part")), "leftover .part sidecar"
 
 
 def test_sweep_object_cache_evicts_by_ttl(tmp_path):

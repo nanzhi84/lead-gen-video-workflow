@@ -327,7 +327,10 @@ class S3ObjectStore(ObjectStore):
         self._validate_read_ref(ref)
         target = Path(local_path)
         target.parent.mkdir(parents=True, exist_ok=True)
-        part = target.parent / f"{target.name}.part"
+        # Per-call unique suffix so concurrent downloads of the same key never
+        # share one .part: each writes its own temp and os.replace stays atomic
+        # last-writer-wins (issue #87 / C1). Same dir as target → same filesystem.
+        part = target.parent / f"{target.name}.{uuid4().hex}.part"
         try:
             self._client.download_file(
                 ref.bucket,

@@ -2,7 +2,6 @@ import pytest
 from pydantic import ValidationError
 
 from packages.core.contracts import (
-    ArtifactKind,
     BgmOptions,
     BrollOptions,
     CoverOptions,
@@ -15,7 +14,6 @@ from packages.core.contracts import (
     ProviderCapability,
     ProviderOptionsSchemaRef,
     ProviderProfile,
-    ResumePolicy,
     RetryPolicy,
     RotateSecretRequest,
     SecretRecord,
@@ -67,18 +65,6 @@ def test_provider_profile_capability_and_policy_contracts_match_spec():
     assert capability.capability == "tts.speech"
     with pytest.raises(ValidationError):
         RetryPolicy(max_attempts=0)
-
-
-def test_resume_policy_uses_spec_shape():
-    policy = ResumePolicy(
-        mode="reuse_if_hash_match",
-        reusable_artifact_kinds=[ArtifactKind.audio_tts],
-        side_effect_replay="idempotent_only",
-    )
-
-    assert policy.mode == "reuse_if_hash_match"
-    assert policy.reusable_artifact_kinds == [ArtifactKind.audio_tts]
-    assert policy.side_effect_replay == "idempotent_only"
 
 
 def test_secret_record_rotation_contract_links_old_and_new_records():

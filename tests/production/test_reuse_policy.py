@@ -99,3 +99,17 @@ def test_default_strict_reuses_completed_nodes(tmp_path):
 
     assert plan.reused_node_ids == ["A", "B"]
     assert plan.rerun_from_node_id is None
+
+
+def test_node_spec_exposes_only_the_consumed_reuse_shape():
+    """Guard: the live reuse contract is reuse_policy/side_effects/idempotency_key.
+
+    The dead ``resume_policy``/``ResumePolicy`` shape was never consumed and was
+    removed; this asserts it stays gone and the consumed fields stay present.
+    """
+    fields = c.NodeSpec.model_fields
+    assert "resume_policy" not in fields
+    assert "reuse_policy" in fields
+    assert "side_effects" in fields
+    assert "idempotency_key" in fields
+    assert not hasattr(c, "ResumePolicy")

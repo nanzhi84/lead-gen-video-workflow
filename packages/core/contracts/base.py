@@ -320,9 +320,3 @@ class RetryPolicy(ContractModel):
     backoff_seconds: float = Field(0, ge=0)
     backoff_multiplier: float = Field(2.0, ge=1.0)
     retryable_error_codes: list[ErrorCode] = Field(default_factory=list)
-
-
-class ResumePolicy(ContractModel):
-    mode: Literal["never", "reuse_if_hash_match", "always_rerun"] = "reuse_if_hash_match"
-    reusable_artifact_kinds: list[ArtifactKind] = Field(default_factory=list)
-    side_effect_replay: Literal["forbidden", "idempotent_only"] = "idempotent_only"

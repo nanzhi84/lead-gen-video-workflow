@@ -143,10 +143,12 @@ def test_s3_path_readback_uses_path_based_download_not_full_buffer(tmp_path):
     assert len(client.download_file_calls) == 1
     bucket, key, filename = client.download_file_calls[0]
     assert (bucket, key) == (ref.bucket, ref.key)
-    # Atomic download (#76): bytes land in a sibling .part file, then are renamed
-    # into place — so the download target is the .part, and no .part lingers.
-    assert filename == f"{path}.part"
-    assert not (path.parent / f"{path.name}.part").exists()
+    # Atomic download (#76 / #87 C1): bytes land in a per-call-unique sibling
+    # .part file ({path}.<uuid>.part), then are renamed into place — so the
+    # download target is a .part sibling (not the final path, not a full buffer),
+    # and no .part lingers afterward.
+    assert filename.startswith(f"{path}.") and filename.endswith(".part")
+    assert not list(path.parent.glob("*.part"))
     # The full-buffer (BytesIO) path was NOT used.
     assert client.download_fileobj_calls == []
     # Cached on disk; a second resolution does not re-download.

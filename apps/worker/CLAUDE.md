@@ -3,6 +3,7 @@
 Temporal worker 进程：连接 Temporal，注册数字人成片（digital-human production）的 workflow 与 activity，在任务队列 `cutagent-production` 上长驻消费。与 API 是**两个独立进程**。
 
 ## 职责
+- 启动最前运行 production preflight，发现不安全生产配置即 fail closed；通过后再 bootstrap SQL、连接 Temporal。
 - `Client.connect` 连接 Temporal，在 `settings.temporal_task_queue` 上启动 `Worker`，注册 `temporal_workflows()` / `temporal_activities()`。
 - `bootstrap_sqlalchemy_storage_if_enabled()` + `get_sqlalchemy_session_factory_if_enabled()` 初始化 SQLAlchemy 存储并取得 `session_factory`。
 - 装配 worker 级「无状态模板」运行时：`ProviderGateway`（secret store：SQL 后端用 `SqlAlchemySecretStore`（密钥活性以 DB 为准），否则 `LocalSecretStore`；并挂 `BudgetEnforcementGuard`（预算硬阻断）+ `ProviderCircuitBreaker`（熔断））、`PromptRegistry`、`build_digital_human_workflow(...)`（默认 `seed_media=True`，会一次性 ffmpeg 生成 demo 媒体）。
@@ -24,6 +25,7 @@ Temporal worker 进程：连接 Temporal，注册数字人成片（digital-human
 
 ## 注意 / 坑
 - **独立长驻进程，改代码必须重启 worker**，不随 API 热更。
+- 生产环境的 preflight 与 API 使用同一套 `validate_startup_settings()`；本地可先跑 `CUTAGENT_ENV=production python scripts/preflight.py` 看完整 unsafe setting 列表。
 - 设置经 `load_workflow_runtime_settings()`（`packages/core/workflow/runtime.py` 的 `WorkflowRuntimeSettings`）从 `WorkflowSettings`（`packages/core/config/settings.py`，`settings.workflow.*`）读取；env：`CUTAGENT_WORKFLOW_RUNTIME` + `CUTAGENT_TEMPORAL_ADDRESS`/`_NAMESPACE`/`_TASK_QUEUE`（默认 `127.0.0.1:7233` / `default` / `cutagent-production`）。
 - activity 执行用 `ThreadPoolExecutor(max_workers=8)`，activity 实现需线程安全。
 - task queue 两端必须一致：API 派发与 worker 消费的 `CUTAGENT_TEMPORAL_TASK_QUEUE` 不匹配则 run 永远 pending。

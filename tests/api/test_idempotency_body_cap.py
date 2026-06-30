@@ -187,6 +187,26 @@ def test_idempotency_request_capture_stops_at_cap():
     assert len(pulled) < 10, f"buffered the whole body ({len(pulled)} chunks); cap not enforced"
 
 
+def test_idempotency_request_capture_boundary_at_cap():
+    """A body exactly == cap passes through (no overflow); cap+1 overflows."""
+    import asyncio
+
+    from apps.api.dependencies import _read_request_body_capped
+
+    async def _read(total: int, cap: int) -> tuple[bytes, bool]:
+        class _FakeReq:
+            async def stream(self):
+                yield b"x" * total
+
+        return await _read_request_body_capped(_FakeReq(), cap=cap)
+
+    body, overflowed = asyncio.run(_read(128, 128))
+    assert overflowed is False
+    assert len(body) == 128
+    body, overflowed = asyncio.run(_read(129, 128))
+    assert overflowed is True
+
+
 def test_idempotency_oversized_passthrough_preserves_full_body():
     """The over-cap passthrough must stream back the COMPLETE body (already-read
     prefix + the remaining chunks), never dropping or corrupting bytes."""

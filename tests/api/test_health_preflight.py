@@ -1,4 +1,4 @@
-"""Readiness probe + production fail-closed lifespan (issue #66)."""
+"""Readiness probe + production fail-closed at construction + lifespan (issue #66 / #87 B4)."""
 
 from __future__ import annotations
 
@@ -18,16 +18,21 @@ def test_health_ready_is_public_and_ready_outside_production():
     assert body["preflight_issues"] == []
 
 
-def test_production_lifespan_fails_closed_on_unsafe_config(monkeypatch):
-    # conftest leaves an unsafe-for-prod baseline (memory backend, sandbox
-    # fallback on, open registration, ...). Flipping CUTAGENT_ENV=production must
-    # make the lifespan startup preflight fail closed rather than serve.
+def test_production_create_app_fails_closed_eagerly_on_unsafe_config(monkeypatch):
+    # conftest leaves an unsafe-for-prod baseline (sqlalchemy backend w/o a
+    # database_url, sandbox fallback on, open registration, ...). Flipping
+    # CUTAGENT_ENV=production must make create_app() itself fail closed: #87 B4
+    # moved the aggregated preflight gate AHEAD of configure_app_state's eager
+    # engine build, so unsafe construction fails with the full report (not the
+    # opaque low-level DB error) and never returns a servable app. The lifespan
+    # gate is kept as defense-in-depth but is unreachable once construction fails.
     monkeypatch.setenv("CUTAGENT_ENV", "production")
-    app = create_app()
     with pytest.raises(RuntimeError) as excinfo:
-        with TestClient(app):
-            pass
-    assert "preflight" in str(excinfo.value).lower()
+        create_app()
+    msg = str(excinfo.value)
+    assert "preflight" in msg.lower()
+    # The aggregated report carries the unsafe codes, not a single DB engine error.
+    assert "registration_open" in msg
 
 
 def test_preflight_fails_closed_before_seeding_admin(monkeypatch):
@@ -38,9 +43,12 @@ def test_preflight_fails_closed_before_seeding_admin(monkeypatch):
     (which seeds usr_admin/usr_viewer with dev-default credentials when
     ``seed_local_auth`` is on) *before* ``validate_startup_settings``. On an unsafe
     production deploy that meant the hardcoded admin was written into the prod DB
-    and only *then* did startup refuse to serve — the credentials lingered. The
-    worker had the correct order; this asserts the API now mirrors it: no seeding
-    side effect may occur before the gate fails closed.
+    and only *then* did startup refuse to serve — the credentials lingered. #87 B4
+    moved the gate even earlier, into ``create_app()`` construction itself: the
+    preflight now runs and fails closed before configure_app_state/lifespan, so
+    bootstrap (which lives in the lifespan) never gets the chance to seed. This
+    asserts that construction-time ordering invariant — preflight ran, bootstrap
+    did not — which is strictly stronger than the original lifespan-time guard.
     """
     import apps.api.app as appmod
 
@@ -60,10 +68,10 @@ def test_preflight_fails_closed_before_seeding_admin(monkeypatch):
     monkeypatch.setattr(appmod, "validate_startup_settings", _spy_preflight)
     monkeypatch.setenv("CUTAGENT_ENV", "production")  # conftest baseline is unsafe-for-prod
 
-    app = appmod.create_app()
+    # create_app() now fails closed eagerly (before returning a servable app), so
+    # the construction-time gate — not lifespan — is what must raise here.
     with pytest.raises(RuntimeError):
-        with TestClient(app):
-            pass
+        appmod.create_app()
 
     assert "preflight" in calls, "preflight gate never ran"
     assert "bootstrap" not in calls, (

@@ -512,8 +512,11 @@ def _unique_name(original_name: str, used_names: set[str]) -> str:
 
 def _segments_by_timeline_id(plan: dict[str, Any] | None, prefix: str) -> dict[str, dict[str, Any]]:
     payload = plan or {}
+    # B-roll plans are keyed by the canonical ``overlays`` (#104); portrait plans
+    # (and pre-#104 persisted B-roll plans) still carry the legacy ``segments``.
+    items = payload.get("overlays") or payload.get("segments") or []
     result: dict[str, dict[str, Any]] = {}
-    for index, segment in enumerate(payload.get("segments") or []):
+    for index, segment in enumerate(items):
         if not isinstance(segment, dict):
             continue
         segment_id = (

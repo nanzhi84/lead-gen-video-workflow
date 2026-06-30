@@ -120,14 +120,17 @@ def test_broll_render_base_outputs_rendered_video_with_exact_frame_count(
                 ArtifactKind.plan_broll,
                 {
                     "enabled": True,
-                    "segments": [
+                    "overlays": [
                         {
+                            "overlay_id": "broll_1",
                             "asset_id": "asset_broll_demo",
                             "clip_id": "cover_a",
-                            "start_sec": 0.0,
-                            "end_sec": 2.0,
+                            "timeline_start": 0.0,
+                            "timeline_end": 2.0,
                             "source_start": 0.0,
                             "source_end": 2.0,
+                            "reason": "matched",
+                            "confidence": 0.8,
                         }
                     ],
                 },

@@ -103,7 +103,9 @@ def test_jianying_draft_endpoint_exports_multitrack_sources_from_plans(media_fix
             payload_schema="BrollPlanArtifact.v1",
             payload={
                 "enabled": True,
-                "segments": [{"asset_id": "asset_jy_broll", "clip_id": "clip_broll"}],
+                "overlays": [
+                    {"overlay_id": "broll_1", "asset_id": "asset_jy_broll", "clip_id": "clip_broll"}
+                ],
             },
         )
         narration = c.Artifact(

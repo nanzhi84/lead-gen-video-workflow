@@ -86,22 +86,28 @@ def test_broll_timeline_planning_builds_single_broll_track_and_render_plan():
                 ArtifactKind.plan_broll,
                 {
                     "enabled": True,
-                    "segments": [
+                    "overlays": [
                         {
+                            "overlay_id": "broll_1",
                             "asset_id": "asset_broll_demo",
                             "clip_id": "cover_a",
-                            "start_sec": 0.0,
-                            "end_sec": 2.0,
+                            "timeline_start": 0.0,
+                            "timeline_end": 2.0,
                             "source_start": 0.0,
                             "source_end": 2.0,
+                            "reason": "matched",
+                            "confidence": 0.8,
                         },
                         {
+                            "overlay_id": "broll_2",
                             "asset_id": "asset_broll_demo",
                             "clip_id": "cover_b",
-                            "start_sec": 2.0,
-                            "end_sec": duration,
+                            "timeline_start": 2.0,
+                            "timeline_end": duration,
                             "source_start": 0.0,
                             "source_end": 2.2,
+                            "reason": "matched",
+                            "confidence": 0.8,
                         },
                     ],
                 },

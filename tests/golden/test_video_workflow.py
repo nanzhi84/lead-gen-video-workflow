@@ -227,15 +227,17 @@ def test_spec_20_2_2_broll_enabled_with_real_annotation_creates_non_empty_plan()
         }
         broll_plan = artifacts[ArtifactKind.plan_broll].payload
         assert broll_plan["enabled"] is True
-        assert broll_plan["segments"]
-        segment = broll_plan["segments"][0]
-        # Real placement: anchored inside a narration window, not start_sec=0.
+        # overlays is the single canonical structure (#104); segments is gone.
+        assert "segments" not in broll_plan
+        assert broll_plan["overlays"]
+        overlay = broll_plan["overlays"][0]
+        # Real placement: anchored inside a narration window, not timeline_start=0.
         narration = artifacts[ArtifactKind.narration_units].payload["units"]
         assert any(
-            unit["start"] <= segment["start_sec"] < unit["end"] for unit in narration
+            unit["start"] <= overlay["timeline_start"] < unit["end"] for unit in narration
         )
         # Real matching: keyword overlap is surfaced, not a fabricated pick.
-        assert segment["matched_keywords"]
+        assert overlay["matched_keywords"]
 
 
 def test_spec_20_2_2b_broll_enabled_without_annotation_soft_degrades():
@@ -260,7 +262,7 @@ def test_spec_20_2_2b_broll_enabled_without_annotation_soft_degrades():
         }
         broll_plan = artifacts[ArtifactKind.plan_broll].payload
         assert broll_plan["enabled"] is True
-        assert broll_plan["segments"] == []
+        assert broll_plan["overlays"] == []
         assert broll_plan["skipped_reason"] == "broll.skipped_no_material"
 
 

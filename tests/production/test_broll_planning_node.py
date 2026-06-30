@@ -61,7 +61,7 @@ def _node_run() -> NodeRun:
     )
 
 
-def test_broll_planning_outputs_clip_id_on_segments_and_overlays(
+def test_broll_planning_outputs_clip_id_on_overlays(
     monkeypatch: pytest.MonkeyPatch,
 ):
     repository = Repository()
@@ -119,8 +119,12 @@ def test_broll_planning_outputs_clip_id_on_segments_and_overlays(
         if artifact.kind == ArtifactKind.plan_broll
     )
 
-    assert payload["segments"][0]["clip_id"] == "cover_a"
+    # overlays is the single canonical structure; segments is no longer written.
+    assert "segments" not in payload
     assert payload["overlays"][0]["clip_id"] == "cover_a"
+    assert payload["overlays"][0]["overlay_id"] == "broll_1"
+    assert payload["overlays"][0]["timeline_start"] == 0.0
+    assert payload["overlays"][0]["timeline_end"] == 2.0
 
 
 def _state_with_clean_unrelated_clip(*, allow_generic_coverage: bool):
@@ -200,8 +204,8 @@ def test_generic_coverage_fills_broll_on_default_template_when_enabled():
     ctx = NodeContext(adapter=adapter, run=_run(), node_run=_node_run(), state=state)
     output = nodes.broll_planning.run(ctx)
     payload = _broll_payload(output)
-    assert payload["segments"], "clean no-keyword clip should fill b-roll via generic coverage"
-    assert payload["segments"][0]["asset_id"] == "asset_clean"
+    assert payload["overlays"], "clean no-keyword clip should fill b-roll via generic coverage"
+    assert payload["overlays"][0]["asset_id"] == "asset_clean"
     assert output.status != NodeStatus.degraded
 
 
@@ -212,5 +216,5 @@ def test_generic_coverage_off_reverts_to_soft_degrade():
     ctx = NodeContext(adapter=adapter, run=_run(), node_run=_node_run(), state=state)
     output = nodes.broll_planning.run(ctx)
     payload = _broll_payload(output)
-    assert payload["segments"] == []
+    assert payload["overlays"] == []
     assert output.status == NodeStatus.degraded

@@ -168,8 +168,9 @@ def test_broll_coverage_planning_outputs_full_duration_plan(monkeypatch: pytest.
     )
 
     assert payload["enabled"] is True
-    assert payload["segments"][0]["start_sec"] == 0.0
-    assert payload["segments"][-1]["end_sec"] == 5.0
+    # overlays is the single canonical structure; segments is no longer written.
+    assert "segments" not in payload
+    assert payload["overlays"][0]["timeline_start"] == 0.0
     assert payload["overlays"][-1]["timeline_end"] == 5.0
 
 

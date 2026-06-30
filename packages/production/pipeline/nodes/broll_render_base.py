@@ -10,6 +10,7 @@ from packages.core.workflow import NodeExecutionError, NodeOutput
 from packages.media.assets import store_file
 from packages.media.rendering import render_broll_montage, validate_rendered_output
 from packages.media.video.ffmpeg import FfmpegCommandError
+from packages.production._broll_overlays import broll_overlays_from_plan
 from packages.production.pipeline._timeline_grid import to_frame
 from packages.production.pipeline._node_context import NodeContext
 
@@ -30,32 +31,12 @@ def run(ctx: NodeContext) -> NodeOutput:
     if total_frames <= 0:
         raise NodeExecutionError(ErrorCode.render_invalid_timeline, "Render plan has no frames.")
     broll_segments = []
-    for segment in list(broll_plan.get("segments", [])):
-        timeline_start = float(segment.get("timeline_start", segment.get("start_sec", 0)) or 0)
-        timeline_end = float(segment.get("timeline_end", segment.get("end_sec", 0)) or 0)
-        source_start = float(segment.get("source_start", 0) or 0)
-        source_end = float(segment.get("source_end", 0) or 0)
-        segment_frames = dict(segment)
-        segment_frames["timeline_start_frame"] = (
-            int(segment["timeline_start_frame"])
-            if segment.get("timeline_start_frame") is not None
-            else to_frame(timeline_start, fps)
-        )
-        segment_frames["timeline_end_frame"] = (
-            int(segment["timeline_end_frame"])
-            if segment.get("timeline_end_frame") is not None
-            else to_frame(timeline_end, fps)
-        )
-        segment_frames["source_start_frame"] = (
-            int(segment["source_start_frame"])
-            if segment.get("source_start_frame") is not None
-            else to_frame(source_start, fps)
-        )
-        segment_frames["source_end_frame"] = (
-            int(segment["source_end_frame"])
-            if segment.get("source_end_frame") is not None
-            else to_frame(source_end, fps)
-        )
+    for overlay in broll_overlays_from_plan(broll_plan):
+        segment_frames = overlay.model_dump()
+        segment_frames["timeline_start_frame"] = to_frame(overlay.timeline_start, fps)
+        segment_frames["timeline_end_frame"] = to_frame(overlay.timeline_end, fps)
+        segment_frames["source_start_frame"] = to_frame(overlay.source_start, fps)
+        segment_frames["source_end_frame"] = to_frame(overlay.source_end, fps)
         broll_segments.append(segment_frames)
 
     try:

@@ -58,7 +58,6 @@ const customForm = {
   bgmAutoMix: false,
   coverMode: "ai",
   lipsyncEnabled: false,
-  lipsyncVideoExtension: true,
   lipsyncTimeoutMinutes: 45,
 };
 
@@ -89,7 +88,6 @@ console.log(JSON.stringify({
   hydratedCoverMode: hydrated.coverMode,
   hydratedLipsyncEnabled: hydrated.lipsyncEnabled,
   hydratedLipsyncTimeout: hydrated.lipsyncTimeoutMinutes,
-  hydratedLipsyncExtension: hydrated.lipsyncVideoExtension,
   // content fields stay from base, not defaults
   hydratedTitle: hydrated.title,
   hydratedScript: hydrated.script,
@@ -118,7 +116,6 @@ console.log(JSON.stringify({
     assert result["hydratedCoverMode"] == "ai"
     assert result["hydratedLipsyncEnabled"] is False
     assert result["hydratedLipsyncTimeout"] == 45
-    assert result["hydratedLipsyncExtension"] is True
     # base content untouched
     assert result["hydratedTitle"] == defaults_title_should_be_empty()
     assert result["hydratedScript"] == defaults_script_from_base()

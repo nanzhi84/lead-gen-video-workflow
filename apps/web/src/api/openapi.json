@@ -13795,35 +13795,6 @@
             "title": "Provider Profile Id",
             "default": "runninghub.heygem.default"
           },
-          "ref_image_artifact_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ref Image Artifact Id"
-          },
-          "video_extension": {
-            "type": "boolean",
-            "title": "Video Extension",
-            "default": false
-          },
-          "query_face_threshold": {
-            "anyOf": [
-              {
-                "type": "number",
-                "maximum": 1.0,
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Query Face Threshold"
-          },
           "timeout_minutes": {
             "type": "integer",
             "maximum": 120.0,

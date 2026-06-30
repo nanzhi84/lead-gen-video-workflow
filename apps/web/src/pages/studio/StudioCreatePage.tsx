@@ -195,7 +195,6 @@ export default function StudioCreatePage() {
         // "口型同步: 开" the template can't perform.
         enabled: isBrollOnly || isSeedance ? false : form.lipsyncEnabled,
         provider_profile_id: "runninghub.heygem.prod",
-        video_extension: form.lipsyncVideoExtension,
         timeout_minutes: form.lipsyncTimeoutMinutes,
       },
       strictness: {

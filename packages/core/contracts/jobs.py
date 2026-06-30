@@ -69,9 +69,6 @@ class BrollOptions(ContractModel):
 class LipSyncOptions(ContractModel):
     enabled: bool = True
     provider_profile_id: str = "runninghub.heygem.default"
-    ref_image_artifact_id: str | None = None
-    video_extension: bool = False
-    query_face_threshold: float | None = Field(None, ge=0.0, le=1.0)
     timeout_minutes: int = Field(30, ge=5, le=120)
 
 

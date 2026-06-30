@@ -123,7 +123,6 @@ def run(ctx: NodeContext) -> NodeOutput:
     portrait_avoid_cache: dict[str, list[tuple[float, float]]] = {}
     for clip_candidate in rank_portrait_clip_candidates(
         annotations=portrait_annotations,
-        required_duration=0.0,
         ledger_entries=portrait_ledger,
     ):
         avoid = portrait_avoid_cache.get(clip_candidate.asset_id)

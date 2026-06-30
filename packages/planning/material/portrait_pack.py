@@ -1,9 +1,9 @@
 """Real portrait-clip / bgm / font candidate scoring (replaces the score=1 seed).
 
-Portrait candidates are clip-level talking-head windows, scored on how well the
-clip can cover the narration, VLM confidence, and a recency demotion so a source
-used in the last run is demoted below a fresh one. bgm/font score on availability
-and recency. All pure.
+Portrait candidates are clip-level talking-head windows, scored on lip-sync
+availability + VLM confidence, with a recency demotion so a source used in the
+last run is demoted below a fresh one. bgm/font score on availability and
+recency. All pure.
 """
 
 from __future__ import annotations
@@ -15,9 +15,12 @@ from packages.core.contracts import AnnotationV4, SelectionLedgerEntry
 from packages.planning.material.subject_terms import PERSON_SUBJECT_TERMS
 from packages.planning.selection.recency import RecencyConfig, recency_penalty_for
 
-_COVERAGE_WEIGHT = 60.0
+# A usable asset/clip starts from this fixed availability baseline. Portrait clips
+# add their lip-sync confidence on top; bgm/font stay flat at the baseline. (This was
+# historically _BASE_AVAILABLE 10.0 + a coverage term whose ratio was always 1.0 in the
+# only production path — collapsed here into one honest "available" constant.)
+_AVAILABLE_BASE = 70.0
 _LIPSYNC_WEIGHT = 30.0
-_BASE_AVAILABLE = 10.0
 _RECENCY_WEIGHT = 12.0
 
 # A lip-sync source window shorter than this is too small to anchor a narration
@@ -31,12 +34,6 @@ class SimpleCandidate:
     base_score: float
     recency_penalty: float
     reason: str
-
-
-def _coverage_ratio(source_duration: float, required_duration: float) -> float:
-    if required_duration <= 0:
-        return 1.0
-    return min(1.0, max(0.0, source_duration) / required_duration)
 
 
 @dataclass(frozen=True)
@@ -91,16 +88,16 @@ def _looks_like_static_lipsync_source(clip) -> bool:
 def rank_portrait_clip_candidates(
     *,
     annotations: dict[str, AnnotationV4],
-    required_duration: float,
     ledger_entries: Sequence[SelectionLedgerEntry] = (),
     recency_cfg: RecencyConfig | None = None,
 ) -> list[PortraitClipCandidate]:
     """Rank lip-sync-usable clips across (unified ``video``) assets.
 
-    ``annotations`` maps asset_id -> AnnotationV4. Each usable clip scores on how
-    much of the required audio its span can cover + the VLM confidence, demoted by
-    a recency penalty on its source asset. Empty when no clip clears the gate (the
-    honest "no usable portrait" signal — the node then soft-degrades).
+    ``annotations`` maps asset_id -> AnnotationV4. Each usable clip scores on a fixed
+    availability baseline + its VLM lip-sync confidence, demoted by a recency penalty
+    on its source asset. Empty when no clip clears the gate (the honest "no usable
+    portrait" signal — the node then soft-degrades). Audio coverage/capacity is NOT
+    scored here; it is enforced downstream by PortraitPlanning.
     """
     candidates: list[PortraitClipCandidate] = []
     for asset_id, annotation in annotations.items():
@@ -108,12 +105,7 @@ def rank_portrait_clip_candidates(
             if not clip_is_lip_sync_usable(clip):
                 continue
             duration = max(0.0, float(clip.end) - float(clip.start))
-            coverage = _coverage_ratio(duration, required_duration)
-            base = (
-                _BASE_AVAILABLE
-                + coverage * _COVERAGE_WEIGHT
-                + float(clip.confidence) * _LIPSYNC_WEIGHT
-            )
+            base = _AVAILABLE_BASE + float(clip.confidence) * _LIPSYNC_WEIGHT
             penalty = recency_penalty_for(ledger_entries, asset_id=asset_id, cfg=recency_cfg)
             final = max(0.0, base - penalty * _RECENCY_WEIGHT)
             reason = f"lip-sync clip {duration:.1f}s, confidence {float(clip.confidence):.0%}"
@@ -146,7 +138,7 @@ def score_simple_candidate(
     recency_cfg: RecencyConfig | None = None,
 ) -> SimpleCandidate:
     """Score an available bgm/font asset (availability base - recency demotion)."""
-    base = _BASE_AVAILABLE + _COVERAGE_WEIGHT  # fixed availability score
+    base = _AVAILABLE_BASE  # fixed availability score
     penalty = recency_penalty_for(ledger_entries, asset_id=asset_id, cfg=recency_cfg)
     final = max(0.0, base - penalty * _RECENCY_WEIGHT)
     reason = f"available {medium_label}"

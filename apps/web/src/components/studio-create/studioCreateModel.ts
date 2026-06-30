@@ -34,7 +34,6 @@ export type FormState = {
   coverMode: "none" | "frame" | "ai";
   lipsyncEnabled: boolean;
   lipsyncPreset: LipSyncPreset;
-  lipsyncVideoExtension: boolean;
   lipsyncTimeoutMinutes: number;
 };
 
@@ -62,7 +61,6 @@ const defaultForm: FormState = {
   coverMode: "frame",
   lipsyncEnabled: true,
   lipsyncPreset: "balanced",
-  lipsyncVideoExtension: false,
   lipsyncTimeoutMinutes: 30,
 };
 
@@ -75,11 +73,11 @@ export const emotionOptions = [
   { value: "energetic", label: "有力" },
 ] as const;
 
-export const lipsyncPresets: Record<LipSyncPreset, { label: string; description: string; videoExtension: boolean }> = {
-  balanced: { label: "标准均衡", description: "通用场景默认策略，兼顾锁脸稳定性与匹配成功率。", videoExtension: false },
-  large_motion: { label: "大幅头动", description: "适合转头、抬头、位移较大场景，提高匹配宽容度。", videoExtension: false },
-  strict_face: { label: "严格锁脸", description: "适合固定机位单人视频，减少误匹配。", videoExtension: false },
-  audio_priority: { label: "时长优先", description: "音频较长时自动延长视频，避免尾部被截断。", videoExtension: true },
+export const lipsyncPresets: Record<LipSyncPreset, { label: string; description: string }> = {
+  balanced: { label: "标准均衡", description: "通用场景默认策略，兼顾锁脸稳定性与匹配成功率。" },
+  large_motion: { label: "大幅头动", description: "适合转头、抬头、位移较大场景，提高匹配宽容度。" },
+  strict_face: { label: "严格锁脸", description: "适合固定机位单人视频，减少误匹配。" },
+  audio_priority: { label: "时长优先", description: "音频较长时自动延长视频，避免尾部被截断。" },
 };
 
 function clampNumber(value: number, min: number, max: number, fallback: number) {
@@ -228,7 +226,6 @@ export function mapFormToDefaults(form: FormState): UserGenerationDefaults {
     lipsync: {
       enabled: form.lipsyncEnabled,
       provider_profile_id: "runninghub.heygem.prod",
-      video_extension: form.lipsyncVideoExtension,
       timeout_minutes: form.lipsyncTimeoutMinutes,
     },
   };
@@ -274,7 +271,6 @@ export function mapDefaultsToForm(defaults: UserGenerationDefaults, base: FormSt
   }
   if (defaults.lipsync) {
     next.lipsyncEnabled = Boolean(defaults.lipsync.enabled);
-    next.lipsyncVideoExtension = Boolean(defaults.lipsync.video_extension);
     next.lipsyncTimeoutMinutes = clampNumber(
       Number(defaults.lipsync.timeout_minutes ?? base.lipsyncTimeoutMinutes),
       5,

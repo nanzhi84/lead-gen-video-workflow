@@ -4816,15 +4816,6 @@ export interface components {
              * @default runninghub.heygem.default
              */
             provider_profile_id: string;
-            /** Ref Image Artifact Id */
-            ref_image_artifact_id?: string | null;
-            /**
-             * Video Extension
-             * @default false
-             */
-            video_extension: boolean;
-            /** Query Face Threshold */
-            query_face_threshold?: number | null;
             /**
              * Timeout Minutes
              * @default 30

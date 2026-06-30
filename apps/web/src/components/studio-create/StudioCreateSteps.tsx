@@ -218,10 +218,7 @@ export function ProductionStep({
                   <button
                     type="button"
                     key={preset}
-                    onClick={() => {
-                      setField("lipsyncPreset", preset);
-                      setField("lipsyncVideoExtension", lipsyncPresets[preset].videoExtension);
-                    }}
+                    onClick={() => setField("lipsyncPreset", preset)}
                     className={`border-l-2 px-3 py-2 text-left transition-colors ${
                       form.lipsyncPreset === preset ? "border-accent bg-accent/10" : "border-border/60 hover:bg-hover"
                     }`}
@@ -231,11 +228,6 @@ export function ProductionStep({
                   </button>
                 ))}
               </div>
-              <ToggleLine
-                checked={form.lipsyncVideoExtension}
-                onChange={(checked) => setField("lipsyncVideoExtension", checked)}
-                label="允许视频时长扩展"
-              />
               <label>
                 <span>超时时间（分钟）</span>
                 <input

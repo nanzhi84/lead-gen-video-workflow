@@ -291,7 +291,11 @@ def test_build_video_segments_from_plans_uses_timeline_frames_and_asset_sources(
             {"segment_id": "portrait_1", "asset_id": "asset_portrait", "clip_id": "clip_portrait"}
         ]
     }
-    broll_plan = {"segments": [{"asset_id": "asset_broll", "clip_id": "clip_broll"}]}
+    broll_plan = {
+        "overlays": [
+            {"overlay_id": "broll_1", "asset_id": "asset_broll", "clip_id": "clip_broll"}
+        ]
+    }
     paths = {
         "asset_portrait": "/sources/portrait.mp4",
         "asset_broll": "/sources/broll.mp4",
@@ -318,6 +322,46 @@ def test_build_video_segments_from_plans_uses_timeline_frames_and_asset_sources(
         JianyingVideoSegment(
             track_name="B-roll覆盖",
             source_path=Path("/sources/broll.mp4"),
+            timeline_start_frame=15,
+            timeline_end_frame=45,
+            source_start_frame=30,
+            source_end_frame=60,
+            asset_id="asset_broll",
+            clip_id="clip_broll",
+        ),
+    ]
+
+
+def test_build_video_segments_from_plans_reads_legacy_broll_segments():
+    # Back-compat: a pre-#104 persisted BrollPlanArtifact only carried the legacy
+    # dict ``segments`` (no ``overlays``). The jianying draft builder must still
+    # resolve the B-roll source from it.
+    timeline_plan = {
+        "fps": 30,
+        "tracks": [
+            {
+                "track_id": "broll",
+                "segment_id": "broll_1",
+                "timeline_start_frame": 15,
+                "timeline_end_frame": 45,
+                "source_start_frame": 30,
+                "source_end_frame": 60,
+            },
+        ],
+    }
+    broll_plan = {"segments": [{"asset_id": "asset_broll", "clip_id": "clip_broll"}]}
+
+    segments = build_video_segments_from_plans(
+        timeline_plan,
+        None,
+        broll_plan,
+        resolve_source_path=lambda asset_id: f"/sources/{asset_id}.mp4",
+    )
+
+    assert segments == [
+        JianyingVideoSegment(
+            track_name="B-roll覆盖",
+            source_path=Path("/sources/asset_broll.mp4"),
             timeline_start_frame=15,
             timeline_end_frame=45,
             source_start_frame=30,

@@ -98,7 +98,6 @@ def test_finalize_success_records_selected_assets_once(monkeypatch: pytest.Monke
                 ArtifactKind.plan_broll,
                 {
                     "enabled": True,
-                    "segments": [],
                     "overlays": [
                         {
                             "overlay_id": "broll_1",
@@ -284,7 +283,6 @@ def test_finalize_records_same_portrait_asset_per_clip_and_broll_clip_id(
                 ArtifactKind.plan_broll,
                 {
                     "enabled": True,
-                    "segments": [],
                     "overlays": [
                         {
                             "overlay_id": "broll_1",

@@ -21,15 +21,17 @@ def test_render_broll_segments_use_timeline_frames_over_original_plan_seconds():
         ]
     }
     broll_plan = {
-        "segments": [
+        "overlays": [
             {
+                "overlay_id": "broll_1",
                 "asset_id": "asset_demo",
                 "clip_id": "clip_demo",
-                "start_sec": 3.0,
-                "end_sec": 4.9,
+                "timeline_start": 3.0,
+                "timeline_end": 4.9,
                 "source_start": 0.1,
                 "source_end": 2.0,
                 "reason": "matched",
+                "confidence": 0.8,
             }
         ]
     }

@@ -178,8 +178,11 @@ class BrollOverlay(ContractModel):
 
 
 class BrollPlanArtifact(ContractModel):
+    # ``overlays`` is the single canonical B-roll insert structure (#104). The
+    # legacy dict ``segments`` double-write was removed; readers go through
+    # ``packages.production._broll_overlays.broll_overlays_from_plan`` which still
+    # derives overlays from any pre-#104 persisted ``segments``.
     enabled: bool
-    segments: list[dict[str, Any]] = Field(default_factory=list)
     overlays: list[BrollOverlay] = Field(default_factory=list)
     skipped_reason: str | None = None
 

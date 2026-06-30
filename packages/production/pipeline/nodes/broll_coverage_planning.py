@@ -75,22 +75,6 @@ def run(ctx: NodeContext) -> NodeOutput:
             "B_roll material insufficient to cover the full narration duration.",
         )
 
-    segments_payload = [
-        {
-            "asset_id": segment.asset_id,
-            "clip_id": segment.clip_id,
-            "start_sec": segment.timeline_start,
-            "end_sec": segment.timeline_end,
-            "source_start": segment.source_start,
-            "source_end": segment.source_end,
-            "reason": segment.reason,
-            "confidence": segment.confidence,
-            "matched_keywords": list(segment.matched_keywords),
-            "scene_name": segment.scene_name,
-            "diversity_key": segment.diversity_key,
-        }
-        for segment in plan.segments
-    ]
     overlays = [
         BrollOverlay(
             overlay_id=f"broll_{index + 1}",
@@ -114,7 +98,6 @@ def run(ctx: NodeContext) -> NodeOutput:
                 ArtifactKind.plan_broll,
                 BrollPlanArtifact(
                     enabled=True,
-                    segments=segments_payload,
                     overlays=overlays,
                 ).model_dump(mode="json"),
                 "BrollPlanArtifact.v1",

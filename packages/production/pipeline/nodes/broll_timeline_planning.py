@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from packages.core.contracts import ArtifactKind, ErrorCode
 from packages.core.workflow import NodeExecutionError, NodeOutput
+from packages.production._broll_overlays import broll_overlays_from_plan
 from packages.production.pipeline._node_context import NodeContext
 from packages.production.pipeline._timeline_grid import build_tracks, to_frame, validate_timeline
 from packages.production.pipeline.nodes._timeline_output import timeline_output
@@ -23,9 +24,9 @@ def run(ctx: NodeContext) -> NodeOutput:
     total_frames = max(1, round(duration * fps))
 
     raw_segments: list[dict] = []
-    for index, segment in enumerate(broll.get("segments", [])):
-        start_sec = float(segment.get("start_sec", segment.get("timeline_start", 0)) or 0)
-        end_sec = float(segment.get("end_sec", segment.get("timeline_end", 0)) or 0)
+    for index, overlay in enumerate(broll_overlays_from_plan(broll)):
+        start_sec = overlay.timeline_start
+        end_sec = overlay.timeline_end
         raw_segments.append(
             {
                 "track_id": "broll",
@@ -33,8 +34,8 @@ def run(ctx: NodeContext) -> NodeOutput:
                 "asset_ref": repository.artifact_ref(broll_artifact.id),
                 "start_sec": start_sec,
                 "end_sec": end_sec,
-                "source_start_sec": float(segment.get("source_start", 0) or 0),
-                "source_end_sec": float(segment.get("source_end", end_sec) or 0),
+                "source_start_sec": overlay.source_start,
+                "source_end_sec": overlay.source_end or end_sec,
                 "timeline_start_frame": to_frame(start_sec, fps),
                 "timeline_end_frame": to_frame(end_sec, fps),
                 "source_start_frame": None,

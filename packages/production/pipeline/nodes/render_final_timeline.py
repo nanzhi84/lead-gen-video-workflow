@@ -10,6 +10,7 @@ from packages.core.workflow import NodeExecutionError, NodeOutput
 from packages.media.assets import store_file
 from packages.media.rendering import render_video_timeline, validate_rendered_output
 from packages.media.video.ffmpeg import FfmpegCommandError
+from packages.production._broll_overlays import broll_overlays_from_plan
 from packages.production.pipeline._timeline_grid import to_frame
 from packages.production.pipeline._node_context import NodeContext
 
@@ -23,7 +24,7 @@ def _broll_segment_index(segment_id: str | None, fallback: int) -> int:
 
 
 def _broll_segments_from_timeline(timeline: dict, broll_plan: dict, fps: int) -> list[dict]:
-    plan_segments = list(broll_plan.get("segments", []))
+    plan_segments = [overlay.model_dump() for overlay in broll_overlays_from_plan(broll_plan)]
     tracks = [
         track
         for track in timeline.get("tracks", [])

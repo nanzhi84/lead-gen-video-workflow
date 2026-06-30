@@ -9,6 +9,7 @@ from packages.production.pipeline._timeline_grid import (
     build_tracks,
     validate_timeline,
 )
+from packages.production._broll_overlays import broll_overlays_from_plan
 from packages.production.pipeline._node_context import NodeContext
 from packages.production.pipeline.nodes._timeline_output import timeline_output
 
@@ -51,22 +52,22 @@ def run(ctx: NodeContext) -> NodeOutput:
                 "pad_end": float(segment.get("pad_end", 0) or 0),
             }
         )
-    for index, segment in enumerate(broll.get("segments", [])):
+    for index, overlay in enumerate(broll_overlays_from_plan(broll)):
         raw_segments.append(
             {
                 "track_id": "broll",
                 "segment_id": f"broll_{index + 1}",
                 "asset_ref": repository.artifact_ref(broll_artifact.id),
-                "start_sec": float(segment.get("start_sec", 0)),
-                "end_sec": float(segment.get("end_sec", 0)),
-                "source_start_sec": float(segment.get("source_start", 0)),
-                "source_end_sec": float(segment.get("source_end", segment.get("end_sec", 0))),
+                "start_sec": overlay.timeline_start,
+                "end_sec": overlay.timeline_end,
+                "source_start_sec": overlay.source_start,
+                "source_end_sec": overlay.source_end,
                 "timeline_start_frame": None,
                 "timeline_end_frame": None,
                 "source_start_frame": None,
                 "source_end_frame": None,
-                "pad_start": float(segment.get("pad_start", 0) or 0),
-                "pad_end": float(segment.get("pad_end", 0) or 0),
+                "pad_start": 0.0,
+                "pad_end": 0.0,
             }
         )
 

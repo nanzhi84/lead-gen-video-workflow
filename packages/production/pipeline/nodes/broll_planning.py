@@ -53,7 +53,7 @@ def run(ctx: NodeContext) -> NodeOutput:
             artifacts=[
                 ctx.artifact(
                     ArtifactKind.plan_broll,
-                    BrollPlanArtifact(enabled=False, segments=[]).model_dump(mode="json"),
+                    BrollPlanArtifact(enabled=False).model_dump(mode="json"),
                     "BrollPlanArtifact.v1",
                 )
             ]
@@ -100,7 +100,6 @@ def run(ctx: NodeContext) -> NodeOutput:
             ArtifactKind.plan_broll,
             BrollPlanArtifact(
                 enabled=True,
-                segments=[],
                 skipped_reason=WarningCode.broll_skipped_no_material.value,
             ).model_dump(mode="json"),
             "BrollPlanArtifact.v1",
@@ -118,22 +117,6 @@ def run(ctx: NodeContext) -> NodeOutput:
             ],
         )
 
-    segments_payload = [
-        {
-            "asset_id": ins.asset_id,
-            "clip_id": ins.clip_id,
-            "start_sec": ins.timeline_start,
-            "end_sec": ins.timeline_end,
-            "source_start": ins.source_start,
-            "source_end": ins.source_end,
-            "reason": ins.reason,
-            "confidence": ins.confidence,
-            "matched_keywords": list(ins.matched_keywords),
-            "scene_name": ins.scene_name,
-            "diversity_key": ins.diversity_key,
-        }
-        for ins in insertions
-    ]
     overlays = [
         BrollOverlay(
             overlay_id=f"broll_{index + 1}",
@@ -157,7 +140,6 @@ def run(ctx: NodeContext) -> NodeOutput:
                 ArtifactKind.plan_broll,
                 BrollPlanArtifact(
                     enabled=True,
-                    segments=segments_payload,
                     overlays=overlays,
                 ).model_dump(mode="json"),
                 "BrollPlanArtifact.v1",

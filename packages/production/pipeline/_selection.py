@@ -7,6 +7,7 @@ diversity ledger that drives usage-aware recency demotion on the next run).
 from __future__ import annotations
 
 from packages.core.contracts import ArtifactKind, SelectionLedgerEntry, WorkflowRun
+from packages.production._broll_overlays import broll_overlays_from_plan
 from packages.production.pipeline._run_state import RunState
 
 
@@ -71,25 +72,18 @@ def selection_entries_from_state(run: WorkflowRun, state: RunState) -> list[Sele
     else:
         add("portrait", portrait_payload.get("asset_id"), "portrait_main")
 
+    # overlays is the canonical B-roll structure; the helper derives them from a
+    # legacy persisted plan's segments only when overlays are absent (#104).
     broll = state.artifacts.get(ArtifactKind.plan_broll)
     broll_payload = broll.payload if broll and isinstance(broll.payload, dict) else {}
-    overlays = broll_payload.get("overlays")
-    segments = broll_payload.get("segments")
-    broll_items = overlays if isinstance(overlays, list) and overlays else segments
-    if isinstance(broll_items, list):
-        for index, item in enumerate(broll_items):
-            if not isinstance(item, dict):
-                continue
-            slot_phase = str(
-                item.get("overlay_id") or item.get("segment_id") or f"broll_{index + 1}"
-            )
-            add(
-                "broll",
-                item.get("asset_id"),
-                slot_phase,
-                item.get("diversity_key"),
-                item.get("clip_id"),
-            )
+    for overlay in broll_overlays_from_plan(broll_payload):
+        add(
+            "broll",
+            overlay.asset_id,
+            overlay.overlay_id,
+            overlay.diversity_key,
+            overlay.clip_id,
+        )
 
     style = state.artifacts.get(ArtifactKind.plan_style)
     style_payload = style.payload if style and isinstance(style.payload, dict) else {}

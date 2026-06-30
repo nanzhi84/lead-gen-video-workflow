@@ -173,14 +173,15 @@ def test_list_cases_industry_filter_and_counts() -> None:
 
 
 def test_seeded_demo_case_reports_material_count_from_assets() -> None:
-    # The seed creates 4 reusable media assets (portrait/broll/bgm/font) for
-    # case_demo, so material_count must be 4 (R6 count semantics).
+    # The seed creates 6 reusable media assets for case_demo: 3 distinct portrait
+    # sources (asset-level portrait uniqueness, issue #102, needs >1 for a multi-segment
+    # main track) plus broll/bgm/font, so material_count must be 6 (R6 count semantics).
     with TestClient(create_app()) as client:
         _login_admin(client)
         listing = client.get("/api/cases", params={"search": "Demo", "limit": 200})
         assert listing.status_code == 200, listing.text
         demo = next(item for item in listing.json()["items"] if item["id"] == "case_demo")
-        assert demo["material_count"] == 4
+        assert demo["material_count"] == 6
         assert demo["voice_count"] == 0  # seeded voice is a VoiceProfile, not a media asset
         assert demo["script_count"] == 0
         assert demo["quality_count"] == 0

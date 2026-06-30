@@ -96,18 +96,24 @@ def new_id(prefix: str) -> str:
     return f"{prefix}_{uuid4().hex[:12]}"
 
 
-def demo_portrait_annotation_v4(case_id: str = "case_demo") -> AnnotationV4:
-    """Annotation backing the seeded ``asset_portrait_demo`` (15s talking-head source).
+def demo_portrait_annotation_v4(
+    case_id: str = "case_demo", asset_id: str = "asset_portrait_demo"
+) -> AnnotationV4:
+    """Annotation backing a seeded portrait asset (15s talking-head source).
 
-    The demo portrait asset ships marked ``annotated``; clip-level material selection
+    The demo portrait assets ship marked ``annotated``; clip-level material selection
     requires a real annotation (there is no whole-asset fallback for an unannotated
-    source), so back it with one whole-source talking-head clip that clears the
+    source), so back each one with a whole-source talking-head clip that clears the
     lip-sync gate. Shared by the in-memory seed and the SQL ``seed_media_assets`` so
     both backends stay in sync.
+
+    Several DISTINCT portrait assets are seeded because portrait selection now enforces
+    asset-level uniqueness (issue #102): one asset is used at most once per run, so a
+    multi-segment portrait main track needs multiple distinct source videos.
     """
     return AnnotationV4(
         meta=AnnotationMetaV4(
-            asset_id="asset_portrait_demo",
+            asset_id=asset_id,
             case_id=case_id,
             material_type="portrait",
             duration=15.0,
@@ -128,6 +134,18 @@ def demo_portrait_annotation_v4(case_id: str = "case_demo") -> AnnotationV4:
         ],
         quality_report={"lip_sync_suitability_score": 80, "usable_ratio": 0.9},
     )
+
+
+# Distinct portrait source assets seeded for the demo case. Asset-level portrait
+# uniqueness (issue #102) means each is used at most once per run, so a multi-segment
+# main track (the golden flow's ~10s audio splits into 2 boundary chunks) needs more
+# than one distinct portrait video. ``asset_portrait_demo`` stays first so it remains
+# the primary/opening pick (material ranking tie-breaks on asset_id ascending).
+SEED_PORTRAIT_ASSET_IDS: tuple[str, ...] = (
+    "asset_portrait_demo",
+    "asset_portrait_demo_b",
+    "asset_portrait_demo_c",
+)
 
 
 def demo_bgm_annotation_v4(case_id: str = "case_demo") -> AnnotationV4:
@@ -276,8 +294,12 @@ class Repository:
             target_audience="operators",
         )
         self.cases[case.id] = case
+        portrait_asset_specs = [
+            (asset_id, f"Demo portrait main track {index + 1}", "portrait")
+            for index, asset_id in enumerate(SEED_PORTRAIT_ASSET_IDS)
+        ]
         for asset_id, title, kind in [
-            ("asset_portrait_demo", "Demo portrait main track", "portrait"),
+            *portrait_asset_specs,
             ("asset_broll_demo", "Demo b-roll clip", "broll"),
             ("asset_bgm_demo", "Demo background music", "bgm"),
             ("asset_font_demo", "Demo subtitle font", "font"),
@@ -296,12 +318,13 @@ class Repository:
         # gate, so clip-level material selection yields an A-roll candidate (the
         # production pipeline requires an annotation — there is no whole-asset
         # fallback for an unannotated source).
-        self.annotations["asset_portrait_demo"] = AnnotationEditorVm(
-            asset=self.media_assets["asset_portrait_demo"],
-            etag="seed-portrait-demo",
-            canonical=demo_portrait_annotation_v4(case.id),
-            projection={},
-        )
+        for asset_id in SEED_PORTRAIT_ASSET_IDS:
+            self.annotations[asset_id] = AnnotationEditorVm(
+                asset=self.media_assets[asset_id],
+                etag=f"seed-portrait-{asset_id}",
+                canonical=demo_portrait_annotation_v4(case.id, asset_id=asset_id),
+                projection={},
+            )
         self.annotations["asset_bgm_demo"] = AnnotationEditorVm(
             asset=self.media_assets["asset_bgm_demo"],
             etag="seed-bgm-demo",

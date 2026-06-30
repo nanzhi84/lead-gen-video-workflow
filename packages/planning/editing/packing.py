@@ -3,8 +3,10 @@
 Ported from editing_agent/boundary_planning.py (the capacity half). After chunk
 durations are known, pick portrait source windows so every cut lands on a boundary
 and no window is over-extended. Strategy (origin's calibration, faithful):
-  - candidate scopes: fresh-unique -> fresh-limited-reuse -> all-penalty ->
-    capacity-fallback-all (each with its own scope_penalty + relax passes);
+  - candidate scopes: fresh-unique -> all-penalty (each with its own scope_penalty +
+    relax passes). Asset-level uniqueness is HARD: every relax pass caps max_uses at 1,
+    so a portrait asset is used at most once per run; there is no unlimited-reuse
+    fallback scope (issue #102) -- insufficient coverage hard-fails upstream;
   - per scope, try chunk variants (rhythm / preserve-tail / inventory caps), tier 0
     first; within a tier keep the highest-scoring feasible plan;
   - per relax pass, run the fixed-width beam; if every pass fails but coverage is
@@ -54,11 +56,14 @@ def assign_boundary_windows_for_chunks(
     ignore_repetition_penalty: bool = False,
     beam_width: int = BOUNDARY_BEAM_WIDTH,
 ) -> tuple[list[dict[str, Any]] | None, list[dict[str, Any]], float]:
+    # Asset-level uniqueness default: if a caller omits relax_passes, fall back to
+    # max_uses=1 (not the old unlimited 999) so a missing scope can never silently
+    # restore infinite portrait reuse (issue #102).
     active_relax_passes = list(
         relax_passes
         or [
-            {"allow_adjacent": True, "max_uses": 999, "allow_original": False},
-            {"allow_adjacent": True, "max_uses": 999, "allow_original": True},
+            {"allow_adjacent": True, "max_uses": 1, "allow_original": False},
+            {"allow_adjacent": True, "max_uses": 1, "allow_original": True},
         ]
     )
     trace: list[dict[str, Any]] = [
@@ -184,7 +189,6 @@ def build_boundary_locked_portrait_plan(
     target_duration: float,
     pause_windows: list[dict[str, float]] | None = None,
     max_chunk_duration: float | None = None,
-    include_unlimited_reuse_scope: bool = True,
     beam_width: int = BOUNDARY_BEAM_WIDTH,
 ) -> tuple[list[dict[str, Any]] | None, list[dict[str, Any]]]:
     """Select portrait windows after boundary durations are known.
@@ -217,9 +221,7 @@ def build_boundary_locked_portrait_plan(
     best_score = float("-inf")
     best_variant: dict[str, Any] = variants[0]
     attempt_trace: list[dict[str, Any]] = []
-    scopes = portrait_boundary_candidate_scopes(
-        portrait_candidates, include_unlimited_reuse_scope=include_unlimited_reuse_scope
-    )
+    scopes = portrait_boundary_candidate_scopes(portrait_candidates)
     for scope in scopes:
         scope_best_plan: list[dict[str, Any]] | None = None
         scope_best_score = float("-inf")

@@ -411,6 +411,29 @@ def test_backtracking_rescue_finds_feasible_packing_when_greedy_beam_fails() -> 
     assert round(plan[-1]["duration"], 2) == 9.0
 
 
+def test_asset_level_uniqueness_blocks_window_reuse() -> None:
+    # Issue #102: one portrait asset (template_id) exposing TWO distinct lip-sync
+    # windows still cannot cover a 2-chunk timeline, because every scope caps max_uses
+    # at 1 PER ASSET (template_id), not per window. Reuse is banned at the asset level
+    # -> the planner returns no plan rather than reusing the asset across both chunks.
+    units = build_narration_units(
+        script="第一段讲产品卖点很重要。第二段讲使用方法要点。",
+        asr_segments=None,
+        video_duration=18.0,
+    )
+    cands = [
+        _portrait_window("solo:w1", "SOLO", 10.0, confidence=0.9),
+        {**_portrait_window("solo:w2", "SOLO", 10.0, confidence=0.85), "start": 10.0, "end": 20.0},
+    ]
+    plan = plan_boundary_timeline(
+        narration_units=units,
+        portrait_candidates=cands,
+        constraints=BoundaryConstraints(target_duration=18.0),
+    )
+    assert not plan.ok
+    assert plan.segments == []
+
+
 def test_infeasible_capacity_returns_no_plan_not_overextension() -> None:
     # 4 chunks of 6s = 24s, but three 9s windows can each cover only one 6s chunk
     # (3s left can't cover another 6s chunk) -> only 18s coverable -> honest failure.

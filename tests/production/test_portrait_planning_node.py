@@ -66,6 +66,29 @@ def _units(duration: float = 12.0) -> list[dict]:
     return units
 
 
+def _back_portrait_sources(adapter: LocalRuntimeAdapter, asset_ids: list[str]) -> None:
+    """Back each asset_id with the seeded 15s portrait source artifact.
+
+    Only ``asset_portrait_demo`` is seeded with real demo media, but asset-level
+    uniqueness (issue #102) means a multi-chunk timeline needs several DISTINCT
+    portrait assets. Cloning the seeded media-asset record under new ids (sharing the
+    same 15s source artifact) lets a test stand up N distinct portrait sources without
+    generating N videos — every clone resolves through ``source_artifact_for_asset``.
+    """
+    base = adapter.repository.media_assets.get("asset_portrait_demo")
+    if base is None:
+        return
+    for asset_id in asset_ids:
+        if asset_id == "asset_portrait_demo":
+            continue
+        existing = adapter.repository.media_assets.get(asset_id)
+        if existing is not None and existing.source_artifact_id:
+            continue
+        adapter.repository.media_assets[asset_id] = base.model_copy(
+            update={"id": asset_id, "title": f"Demo portrait {asset_id}"}
+        )
+
+
 def _state(
     adapter: LocalRuntimeAdapter,
     *,
@@ -73,7 +96,9 @@ def _state(
     duration: float = 12.0,
     with_clip_metadata: bool = True,
     recent_usage: dict | None = None,
+    source_window: tuple[float, float] = (0.0, 15.0),
 ) -> RunState:
+    _back_portrait_sources(adapter, candidate_ids)
     request = DigitalHumanVideoRequest(
         case_id="case_demo",
         script=SCRIPT,
@@ -85,7 +110,11 @@ def _state(
     def _metadata(cid: str) -> dict:
         if not with_clip_metadata:
             return {}
-        meta = {"clip_id": f"{cid}_talk", "source_start": 0.0, "source_end": 15.0}
+        meta = {
+            "clip_id": f"{cid}_talk",
+            "source_start": source_window[0],
+            "source_end": source_window[1],
+        }
         if recent_usage is not None:
             # Mirror MaterialPackPlanning, which (as the single ledger reader) stamps the
             # recency context onto each portrait candidate's metadata.
@@ -170,7 +199,12 @@ def test_semantic_only_when_no_real_pauses(monkeypatch, tmp_path):
         lambda *a, **k: [],
     )
     adapter = _adapter(object_store)
-    output = _run_node(adapter, _state(adapter, candidate_ids=["asset_portrait_demo"]))
+    # Asset-level uniqueness (issue #102): a multi-chunk 12s timeline needs several
+    # DISTINCT portrait assets — one asset can no longer be reused across chunks.
+    output = _run_node(
+        adapter,
+        _state(adapter, candidate_ids=["asset_portrait_demo", "asset_portrait_b", "asset_portrait_c"]),
+    )
 
     payload = _portrait_payload(output)
     assert payload["diagnostics"]["used_audio_pauses"] is False
@@ -207,7 +241,11 @@ def test_boundaries_land_on_detected_pauses(monkeypatch, tmp_path):
     # A real, resolvable TTS audio artifact must exist for detection to be attempted
     # (the node resolves its local path before running detection on it).
     adapter = _adapter(object_store)
-    state = _state(adapter, candidate_ids=["asset_portrait_demo"])
+    # Several distinct assets so the multi-chunk timeline is coverable under
+    # asset-level uniqueness (issue #102); the cuts still snap to the detected pauses.
+    state = _state(
+        adapter, candidate_ids=["asset_portrait_demo", "asset_portrait_b", "asset_portrait_c"]
+    )
     audio_path = generate_test_audio(tmp_path, duration_sec=12, frequency=440)
     stored = store_file(object_store, audio_path, purpose="generated-audio")
     state.artifacts[ArtifactKind.audio_tts] = Artifact(
@@ -282,7 +320,15 @@ def test_asr_narration_units_are_rehydrated_with_pause_boundaries():
     assert units[0].boundary_score > 0
 
 
-def test_escalation_uses_real_pause_capacity_split_below_longest_window():
+def test_asset_uniqueness_hard_fails_when_only_window_reuse_could_cover():
+    # Issue #102: real-world fixture that USED to cover a 34.74s timeline by reusing a
+    # few uploaded videos across their many lip-sync windows. There are only 3 DISTINCT
+    # portrait assets (template_id); under asset-level uniqueness each is used at most
+    # once, so 3 assets cover at most ~27s. No escalation round (full pool ->
+    # capacity-controlled split -> pause-capacity split) can cover, so the planner
+    # returns no plan and the node hard-fails (material_insufficient_portrait) — it
+    # never silently reuses an asset to pad coverage. This is the intended behavior
+    # change (lower unified-video yield, honest hard-fail on thin material).
     from packages.planning.editing import SpokenSegment, build_narration_units_from_asr
     from packages.production.pipeline.nodes import portrait_planning as pp
 
@@ -342,6 +388,8 @@ def test_escalation_uses_real_pause_capacity_split_below_longest_window():
         for asset_id, clip_id, duration in windows
     ]
 
+    assert len({c["template_id"] for c in candidates}) == 3  # only 3 distinct assets
+
     plan, escalation = pp._plan_with_escalation(
         narration_units=units,
         candidates=candidates,
@@ -349,11 +397,11 @@ def test_escalation_uses_real_pause_capacity_split_below_longest_window():
         audio_pauses=pauses,
     )
 
-    assert plan.ok
-    assert plan.used_audio_pauses is True
-    assert escalation["stage"] == "capacity_controlled_split"
-    assert escalation["capacity_controlled_split"] is True
-    assert escalation["audio_pause_capacity_cap"] is None
+    # Reuse can no longer rescue coverage: every escalation round is exhausted.
+    assert not plan.ok
+    assert plan.segments == []
+    assert escalation["stage"] == "exhausted"
+    assert escalation["capacity_controlled_split"] is False
 
 
 def test_plan_is_frame_contiguous_and_covers_full_audio(monkeypatch, tmp_path):
@@ -365,7 +413,12 @@ def test_plan_is_frame_contiguous_and_covers_full_audio(monkeypatch, tmp_path):
     )
     adapter = _adapter(object_store)
     output = _run_node(
-        adapter, _state(adapter, candidate_ids=["asset_portrait_demo"], duration=12.0)
+        adapter,
+        _state(
+            adapter,
+            candidate_ids=["asset_portrait_demo", "asset_portrait_b", "asset_portrait_c"],
+            duration=12.0,
+        ),
     )
 
     payload = _portrait_payload(output)
@@ -445,7 +498,12 @@ def test_escalation_ladder_diagnostics_on_success(monkeypatch, tmp_path):
     )
     adapter = _adapter(object_store)
     output = _run_node(
-        adapter, _state(adapter, candidate_ids=["asset_portrait_demo"], duration=12.0)
+        adapter,
+        _state(
+            adapter,
+            candidate_ids=["asset_portrait_demo", "asset_portrait_b", "asset_portrait_c"],
+            duration=12.0,
+        ),
     )
     diag = _portrait_payload(output)["diagnostics"]
     assert diag["recovery_stage"] == "full_pool"
@@ -476,12 +534,7 @@ def test_capacity_controlled_split_retry_drives_recovery(monkeypatch, tmp_path):
         used_audio_pauses = False
 
     def fake_plan(*, narration_units, portrait_candidates, constraints, audio_pauses=None, fps=30):
-        calls.append(
-            {
-                "max_chunk_duration": constraints.max_chunk_duration,
-                "include_unlimited_reuse_scope": constraints.include_unlimited_reuse_scope,
-            }
-        )
+        calls.append({"max_chunk_duration": constraints.max_chunk_duration})
         # The full-pool, no-cap pass cannot cover, forcing escalation.
         if constraints.max_chunk_duration is None:
             return _Empty()
@@ -497,7 +550,12 @@ def test_capacity_controlled_split_retry_drives_recovery(monkeypatch, tmp_path):
     monkeypatch.setattr(pp, "plan_boundary_timeline", fake_plan)
     adapter = _adapter(object_store)
     output = _run_node(
-        adapter, _state(adapter, candidate_ids=["asset_portrait_demo"], duration=12.0)
+        adapter,
+        _state(
+            adapter,
+            candidate_ids=["asset_portrait_demo", "asset_portrait_b", "asset_portrait_c"],
+            duration=12.0,
+        ),
     )
 
     diag = _portrait_payload(output)["diagnostics"]
@@ -505,7 +563,6 @@ def test_capacity_controlled_split_retry_drives_recovery(monkeypatch, tmp_path):
     assert diag["capacity_controlled_split"] is True
     assert calls[0]["max_chunk_duration"] is None
     assert calls[1]["max_chunk_duration"] is not None
-    assert calls[1]["include_unlimited_reuse_scope"] is True
     assert isinstance(_BC, type)
 
 
@@ -555,12 +612,15 @@ def test_recency_context_demotes_recently_used_template_and_records_opening(monk
 
     monkeypatch.setattr(adapter.repository, "recent_selections", _spy_recent_selections)
 
+    # A single-chunk (8s) timeline so the lone recently-used asset can still cover it
+    # under asset-level uniqueness (issue #102) — it is demoted but, as the only
+    # candidate, still used exactly once (no fabricated reuse to pad coverage).
     output = _run_node(
         adapter,
         _state(
             adapter,
             candidate_ids=["asset_portrait_demo"],
-            duration=12.0,
+            duration=8.0,
             recent_usage=recent_usage,
         ),
     )
@@ -601,3 +661,110 @@ def test_segment_payload_derives_clip_id_from_window_id():
     assert payload["asset_id"] == "asset_portrait_demo"
     assert payload["clip_id"] == "talk:take_1"
     assert payload["slot_phase"] == "portrait_main"
+
+
+# Issue #102 PR-B acceptance: asset-level portrait uniqueness (max_uses=1) + hard-fail.
+
+
+def test_single_asset_cannot_cover_multiple_chunks_hard_fails_no_reuse(monkeypatch, tmp_path):
+    """Acceptance #1: one asset, narration needs >1 chunk, only this asset -> hard-fail.
+
+    A 12s timeline splits into 2 boundary chunks; with only ONE distinct portrait asset
+    and asset-level uniqueness (issue #102) the asset cannot be reused to fill the
+    second chunk. The node returns material_insufficient_portrait — never a reuse-padded
+    plan — and the error details carry the diagnosis (distinct asset count == 1) so the
+    run report shows the failure is portrait coverage, not some other fault.
+    """
+    object_store = LocalObjectStore(tmp_path / "objects")
+    monkeypatch.setattr("packages.core.storage.object_store._OBJECT_STORE", object_store)
+    monkeypatch.setattr(
+        "packages.production.pipeline.nodes.portrait_planning.detect_silence_windows",
+        lambda *a, **k: [],
+    )
+    adapter = _adapter(object_store)
+    with pytest.raises(NodeExecutionError) as exc:
+        _run_node(adapter, _state(adapter, candidate_ids=["asset_portrait_demo"], duration=12.0))
+
+    assert exc.value.error.code == ErrorCode.material_insufficient_portrait
+    details = exc.value.error.details
+    assert details["reason"] == "portrait_coverage_insufficient_under_asset_uniqueness"
+    assert details["distinct_portrait_asset_count"] == 1
+    assert details["recovery_stage"] == "exhausted"
+
+
+def test_multi_asset_capacity_split_covers_each_asset_at_most_once(monkeypatch, tmp_path):
+    """Acceptance #2: multiple short assets, rhythm pass fails, split recovers, each once.
+
+    Four DISTINCT portrait assets each expose a short 5s source window. The default
+    full-pool (rhythm) pass builds chunks longer than 5s, so no 5s window can cover them
+    -> it fails. The capacity-controlled split shortens chunks below the longest usable
+    window, letting the short windows from DISTINCT assets cover the timeline. Every
+    asset is used at most once (no reuse), proving asset-level uniqueness holds through
+    the split path (issue #102 requirement #4).
+    """
+    object_store = LocalObjectStore(tmp_path / "objects")
+    monkeypatch.setattr("packages.core.storage.object_store._OBJECT_STORE", object_store)
+    monkeypatch.setattr(
+        "packages.production.pipeline.nodes.portrait_planning.detect_silence_windows",
+        lambda *a, **k: [],
+    )
+    adapter = _adapter(object_store)
+    output = _run_node(
+        adapter,
+        _state(
+            adapter,
+            candidate_ids=[
+                "asset_portrait_demo",
+                "asset_portrait_b",
+                "asset_portrait_c",
+                "asset_portrait_d",
+            ],
+            duration=12.0,
+            source_window=(0.0, 5.0),
+        ),
+    )
+
+    payload = _portrait_payload(output)
+    diag = payload["diagnostics"]
+    assert diag["recovery_stage"] == "capacity_controlled_split"
+    assert diag["capacity_controlled_split"] is True
+    # Each portrait asset appears at most once across the whole main track.
+    asset_ids = [seg["asset_id"] for seg in payload["segments"]]
+    assert len(asset_ids) == len(set(asset_ids)), f"asset reused: {asset_ids}"
+
+
+def test_sufficient_distinct_material_uses_fresh_unique_each_once(monkeypatch, tmp_path):
+    """Acceptance #3: plenty of distinct fresh assets -> fresh-first, each asset once.
+
+    With enough DISTINCT fresh portrait assets the single full-pool pass covers the
+    timeline directly (no capacity split, no reuse). Behaviour is unchanged from before
+    issue #102 for the material-rich case: every chunk gets a distinct fresh asset.
+    """
+    object_store = LocalObjectStore(tmp_path / "objects")
+    monkeypatch.setattr("packages.core.storage.object_store._OBJECT_STORE", object_store)
+    monkeypatch.setattr(
+        "packages.production.pipeline.nodes.portrait_planning.detect_silence_windows",
+        lambda *a, **k: [],
+    )
+    adapter = _adapter(object_store)
+    output = _run_node(
+        adapter,
+        _state(
+            adapter,
+            candidate_ids=[
+                "asset_portrait_demo",
+                "asset_portrait_b",
+                "asset_portrait_c",
+                "asset_portrait_d",
+            ],
+            duration=12.0,
+        ),
+    )
+
+    payload = _portrait_payload(output)
+    diag = payload["diagnostics"]
+    assert diag["recovery_stage"] == "full_pool"
+    assert diag["capacity_controlled_split"] is False
+    asset_ids = [seg["asset_id"] for seg in payload["segments"]]
+    assert len(asset_ids) >= 2
+    assert len(asset_ids) == len(set(asset_ids)), f"asset reused: {asset_ids}"

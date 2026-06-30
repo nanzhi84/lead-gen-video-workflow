@@ -778,32 +778,37 @@ async def run_websocket(websocket: WebSocket, run_id: str) -> None:
         return
 
     await websocket.accept()
-    record_event_stream_connected()
     repo = websocket.app.state.repository
     sent_event_ids: set[str] = set()
     session_factory = getattr(websocket.app.state, "sqlalchemy_session_factory", None)
-    if session_factory is not None:
-        replay_payloads = replay_sqlalchemy_outbox(
-            session_factory,
-            aggregate_type="run",
-            aggregate_id=run_id,
-        )
-    else:
-        writer = OutboxWriter(repo)
-        replay_payloads = [
-            event.payload
-            for event in writer.replay(aggregate_type="run", aggregate_id=run_id)
-            if isinstance(event.payload, dict)
-        ]
-    for payload in replay_payloads:
-        if payload.get("event_id"):
-            sent_event_ids.add(str(payload["event_id"]))
-        await websocket.send_json(payload)
-
     hub = websocket.app.state.event_hub
-    subscriber = hub.subscribe(run_id)
-    last_send = time.monotonic()
+    # Initialize before the try so the finally can pair the connected gauge with
+    # the disconnected gauge regardless of where the body unwinds: outbox replay,
+    # a replay-time send_json raising WebSocketDisconnect, or hub.subscribe all
+    # used to raise *outside* this try and leak event_stream_connections_active.
+    subscriber = None
+    record_event_stream_connected()
     try:
+        if session_factory is not None:
+            replay_payloads = replay_sqlalchemy_outbox(
+                session_factory,
+                aggregate_type="run",
+                aggregate_id=run_id,
+            )
+        else:
+            writer = OutboxWriter(repo)
+            replay_payloads = [
+                event.payload
+                for event in writer.replay(aggregate_type="run", aggregate_id=run_id)
+                if isinstance(event.payload, dict)
+            ]
+        for payload in replay_payloads:
+            if payload.get("event_id"):
+                sent_event_ids.add(str(payload["event_id"]))
+            await websocket.send_json(payload)
+
+        subscriber = hub.subscribe(run_id)
+        last_send = time.monotonic()
         while True:
             payload = await receive_from_subscriber(subscriber)
             if payload is not None:
@@ -831,5 +836,6 @@ async def run_websocket(websocket: WebSocket, run_id: str) -> None:
             except WebSocketDisconnect:
                 break
     finally:
-        hub.unsubscribe(run_id, subscriber)
+        if subscriber is not None:
+            hub.unsubscribe(run_id, subscriber)
         record_event_stream_disconnected()

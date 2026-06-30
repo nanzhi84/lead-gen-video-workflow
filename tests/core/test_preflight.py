@@ -106,3 +106,20 @@ def test_preflight_always_flags_seed_local_auth_in_production(monkeypatch, seed_
     _arm_safe_production(monkeypatch)
     monkeypatch.setenv("CUTAGENT_SEED_LOCAL_AUTH", seed_value)
     assert "seed_local_auth" in _codes(validate_startup_settings(build_settings()))
+
+
+def test_create_app_raises_aggregated_preflight_report_when_unsafe(monkeypatch):
+    # create_app() eagerly builds the SQLAlchemy engine via configure_app_state,
+    # which (in production, missing DATABASE_URL) would raise the low-level engine
+    # RuntimeError before lifespan's preflight ever runs. The eager gate must fire
+    # first so operators get the FULL aggregated unsafe-config report, not one
+    # opaque DB error. (#87 B4)
+    _arm_unsafe_production(monkeypatch)
+    from apps.api.app import create_app
+
+    with pytest.raises(RuntimeError) as exc:
+        create_app()
+    msg = str(exc.value)
+    # The aggregated report carries multiple codes — not the single DB engine error.
+    assert "registration_open" in msg
+    assert "seed_local_auth" in msg

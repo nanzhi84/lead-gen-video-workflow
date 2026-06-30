@@ -223,6 +223,14 @@ def configure_app_state(app: FastAPI, *, session_factory=None) -> None:
 
 def create_app() -> FastAPI:
     configure_logging()
+    # Fail closed BEFORE configure_app_state eagerly builds the SQLAlchemy engine:
+    # a production deploy missing CUTAGENT_DATABASE_URL would otherwise hit the
+    # low-level engine RuntimeError here (still fail-closed, but one opaque error)
+    # instead of lifespan's aggregated preflight report. Mirror lifespan's gate so
+    # eager app construction surfaces the full unsafe-config list. (#87 B4)
+    _preflight_issues = validate_startup_settings(build_settings())
+    if _preflight_issues:
+        raise RuntimeError(format_preflight_report(_preflight_issues))
     app = FastAPI(
         title="Cutagent Clean-Slate API",
         version="0.1.0",

@@ -41,7 +41,6 @@ def _request(**overrides) -> DigitalHumanVideoRequest:
         case_id="case_demo",
         script="先讲开场活动，再讲产品亮点，最后提醒到店。",
         voice={"voice_id": "voice_sandbox"},
-        portrait={"template_mode": "agent"},
         broll={"enabled": True},
         bgm={"enabled": True},
         strictness={"strict_timestamps": False},

@@ -131,7 +131,6 @@ def _payload(title: str) -> dict:
         "title": title,
         "script": "用一个短脚本验证 Temporal worker 执行。",
         "voice": {"voice_id": "voice_sandbox"},
-        "portrait": {"template_mode": "agent"},
         "broll": {"enabled": False},
         "bgm": {"enabled": False},
         "subtitle": {"enabled": True},

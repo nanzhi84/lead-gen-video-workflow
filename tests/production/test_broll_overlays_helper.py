@@ -117,6 +117,18 @@ def test_overlays_win_over_any_stale_legacy_segments():
     assert overlays[0].timeline_start == 5.0
 
 
+def test_empty_overlays_still_win_over_stale_legacy_segments():
+    # overlays being present is the schema signal. An intentionally empty canonical
+    # plan must not resurrect stale legacy segments from a mixed payload.
+    plan = {
+        "enabled": True,
+        "overlays": [],
+        "segments": [{"asset_id": "stale", "start_sec": 0.0, "end_sec": 1.0}],
+    }
+
+    assert broll_overlays_from_plan(plan) == []
+
+
 def test_empty_or_disabled_plan_yields_no_overlays():
     assert broll_overlays_from_plan(None) == []
     assert broll_overlays_from_plan({}) == []

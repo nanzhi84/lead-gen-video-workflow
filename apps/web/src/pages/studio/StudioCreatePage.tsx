@@ -160,11 +160,6 @@ export default function StudioCreatePage() {
         emotion: form.emotion.trim() || "neutral",
         volume: 1,
       },
-      portrait: {
-        template_mode: form.portraitMode,
-        rhythm_preset: form.rhythmPreset,
-        template_sequence_ids: [],
-      },
       broll: {
         // Seedance generates the whole frame itself; B_roll-only fills with material;
         // digital-human uses the user's toggle.

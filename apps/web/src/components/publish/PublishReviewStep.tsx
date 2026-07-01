@@ -125,7 +125,7 @@ export function PublishReviewStep({
           <div>
             <h2 className="text-lg font-semibold text-text-primary">选择账号并发布</h2>
             <p className="mt-1 text-sm text-text-secondary">
-              已选中 {selectedVideoGroups.length} 条视频、{selectedAccountIds.length} 个账号，可提交 {publishableCount} 条。
+              已选中 {selectedVideoGroups.length} 条视频、{selectedAccounts.length} 个账号，可提交 {publishableCount} 条。
             </p>
           </div>
           <StatusPill status={batch.status} />
@@ -143,7 +143,7 @@ export function PublishReviewStep({
               </h3>
               <p className="mt-1 text-sm text-text-secondary">按客户、平台和关键词缩小范围，再从账号列表中勾选。</p>
             </div>
-            <span className="rounded-full bg-accent/15 px-3 py-1 text-sm font-semibold text-accent">已选 {selectedAccountIds.length} 个</span>
+            <span className="rounded-full bg-accent/15 px-3 py-1 text-sm font-semibold text-accent">已选 {selectedAccounts.length} 个</span>
           </div>
 
           <div className="grid gap-3 lg:grid-cols-[240px_minmax(0,1fr)]">

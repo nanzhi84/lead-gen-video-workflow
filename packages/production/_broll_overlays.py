@@ -26,7 +26,7 @@ def broll_overlays_from_plan(plan: dict[str, Any] | None) -> list[BrollOverlay]:
     """Return the canonical typed B-roll overlays for a plan payload."""
     payload = plan or {}
     items = payload.get("overlays")
-    if not (isinstance(items, list) and items):
+    if "overlays" not in payload:
         # Legacy fallback: derive from the pre-#104 dict ``segments`` shape.
         items = payload.get("segments")
     if not isinstance(items, list):

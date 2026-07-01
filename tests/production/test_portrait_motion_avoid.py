@@ -166,7 +166,6 @@ def _request() -> DigitalHumanVideoRequest:
         case_id="case_demo",
         script="展示打磨工艺。",
         voice={"voice_id": "voice_sandbox"},
-        portrait={"template_mode": "agent"},
         broll={"enabled": False},
         strictness={"strict_timestamps": False},
     )

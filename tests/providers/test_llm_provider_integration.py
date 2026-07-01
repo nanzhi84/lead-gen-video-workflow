@@ -241,7 +241,6 @@ def test_creative_intent_prefers_real_llm_profile_over_sandbox():
                 "title": "Provider LLM",
                 "script": "Use the real LLM profile for intent.",
                 "voice": {"voice_id": "voice_sandbox"},
-                "portrait": {"template_mode": "agent"},
                 "broll": {"enabled": False},
                 "bgm": {"enabled": False},
                 "subtitle": {"enabled": True},

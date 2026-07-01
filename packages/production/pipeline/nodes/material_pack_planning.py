@@ -70,16 +70,6 @@ def run(ctx: NodeContext) -> NodeOutput:
             and not _is_ai_reference(asset)
         )
 
-    def _portrait_template_allowed(asset) -> bool:
-        # template_mode pins WHICH source(s) supply the talking-head track. ``specific``
-        # / ``sequence`` restrict to the named asset ids; ``agent`` lets any usable
-        # source compete. Applies to every visual asset contributing lip-sync clips.
-        return (
-            request.portrait.template_mode == "agent"
-            or asset.id == request.portrait.specific_template_id
-            or asset.id in request.portrait.template_sequence_ids
-        )
-
     portrait_reserved = _active_reserved_asset_ids(
         repo, case_id=request.case_id, run_id=ctx.run.id, medium="portrait"
     )
@@ -99,7 +89,7 @@ def run(ctx: NodeContext) -> NodeOutput:
     portrait_visual_assets = [
         asset
         for asset in visual_assets
-        if _portrait_template_allowed(asset) and asset.id not in portrait_reserved
+        if asset.id not in portrait_reserved
     ]
     broll_visual_assets = [
         asset

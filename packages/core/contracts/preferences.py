@@ -15,7 +15,6 @@ from .jobs import (
     CoverOptions,
     LipSyncOptions,
     OutputOptions,
-    PortraitOptions,
     StrictnessOptions,
     SubtitleOptions,
     VoiceOptions,
@@ -30,7 +29,6 @@ class UserGenerationDefaults(ContractModel):
     """
 
     voice: VoiceOptions | None = None
-    portrait: PortraitOptions | None = None
     broll: BrollOptions | None = None
     lipsync: LipSyncOptions | None = None
     subtitle: SubtitleOptions | None = None

@@ -603,7 +603,6 @@ def test_tts_node_uses_voice_provider_profile_when_request_omits_override():
                 "title": "Voice profile routing",
                 "script": "音色自带 provider 应该驱动 TTS。",
                 "voice": {"voice_id": "voice_db"},
-                "portrait": {"template_mode": "agent"},
                 "broll": {"enabled": False},
                 "bgm": {"enabled": False},
                 "subtitle": {"enabled": True},

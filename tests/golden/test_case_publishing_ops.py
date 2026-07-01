@@ -43,7 +43,6 @@ def video_payload(title: str):
         "title": title,
         "script": "用一个简短脚本补齐发布测试。",
         "voice": {"voice_id": "voice_sandbox"},
-        "portrait": {"template_mode": "agent"},
         "strictness": {"strict_timestamps": False},
     }
 
@@ -104,7 +103,6 @@ def test_case_publish_flow_reaches_ops_dashboard():
                     "title": "Publishing seed",
                     "script": "用一个简短脚本补齐发布测试。",
                     "voice": {"voice_id": "voice_sandbox"},
-                    "portrait": {"template_mode": "agent"},
                     "strictness": {"strict_timestamps": False},
                 },
             )

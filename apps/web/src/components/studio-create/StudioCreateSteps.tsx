@@ -14,8 +14,6 @@ import {
   contentModeLabel,
   emotionOptions,
   lipsyncPresets,
-  portraitModeLabel,
-  rhythmLabel,
   subtitleLabel,
   type FormState,
   type LipSyncPreset,
@@ -77,16 +75,11 @@ export function TemplateStep({ form, setField, caseId }: { form: FormState; setF
     { value: "broll_only", label: "仅 B_roll 画外音", detail: "不出现数字人，用画外音 + 素材画面铺满，保留字幕/BGM。" },
     { value: "seedance", label: "Seedance 文生视频", detail: "一次性生成 15s / 3:4 / 720p 短片，可纯文本出片，也可附参考图。" },
   ];
-  const options: Array<{ value: FormState["portraitMode"]; label: string; detail: string }> = [
-    { value: "agent", label: "自动模板", detail: "由系统按脚本和案例素材选择人像模板。" },
-    { value: "specific", label: "指定模板", detail: "素材库接入后可选择固定模板。" },
-    { value: "sequence", label: "模板序列", detail: "素材库接入后可编排模板序列。" },
-  ];
   const isDigitalHuman = form.contentMode === "digital_human";
   const isSeedance = form.contentMode === "seedance";
   return (
     <div className="grid gap-4">
-      <SectionTitle icon={Film} title="模板" description="先选择内容模式；数字人口播沿用自动模板策略，指定模板与序列后续接入素材库。" />
+      <SectionTitle icon={Film} title="模板" description="选择内容模式；数字人口播由系统按脚本和案例素材自动选择人像模板。" />
       <div className="divide-y divide-border/60 border-y border-border/60 md:grid md:grid-cols-3 md:divide-x md:divide-y-0">
         {contentModeOptions.map((option) => (
           <button
@@ -109,36 +102,9 @@ export function TemplateStep({ form, setField, caseId }: { form: FormState; setF
           onChange={(ids) => setField("seedanceReferenceAssetIds", ids)}
         />
       ) : isDigitalHuman ? (
-        <>
-          <div className="divide-y divide-border/60 border-y border-border/60 md:grid md:grid-cols-3 md:divide-x md:divide-y-0">
-            {options.map((option) => (
-              <button
-                type="button"
-                key={option.value}
-                onClick={() => setField("portraitMode", option.value)}
-                className={`px-3 py-4 text-left transition-colors ${
-                  form.portraitMode === option.value ? "bg-accent/10 text-accent" : "hover:bg-hover"
-                }`}
-              >
-                <span className="font-semibold text-text-primary">{option.label}</span>
-                <span className="mt-2 block text-sm text-text-secondary">{option.detail}</span>
-              </button>
-            ))}
-          </div>
-          {form.portraitMode !== "agent" ? (
-            <div className="stateBox danger">
-              <span>当前版本请切回自动模板后继续。</span>
-            </div>
-          ) : null}
-          <label>
-            <span>剪辑节奏</span>
-            <select value={form.rhythmPreset} onChange={(event) => setField("rhythmPreset", event.target.value as FormState["rhythmPreset"])}>
-              <option value="steady">稳</option>
-              <option value="balanced">均衡</option>
-              <option value="fast">快</option>
-            </select>
-          </label>
-        </>
+        <div className="stateBox muted">
+          <span>数字人口播将由系统按脚本和案例素材自动选择人像模板。</span>
+        </div>
       ) : (
         <div className="stateBox muted">
           <span>仅 B_roll 模式会跳过数字人模板和口型同步。</span>
@@ -322,10 +288,7 @@ export function SubmitStep({ form, selectedVoiceLabel, scriptCount }: { form: Fo
           <ReviewItem label="声音" value={`${selectedVoiceLabel} · ${form.speed.toFixed(1)}x`} />
         )}
         {form.contentMode === "digital_human" ? (
-          <>
-            <ReviewItem label="模板" value={`${portraitModeLabel(form.portraitMode)} · ${rhythmLabel(form.rhythmPreset)}`} />
-            <ReviewItem label="口型" value={form.lipsyncEnabled ? lipsyncPresets[form.lipsyncPreset].label : "关闭"} />
-          </>
+          <ReviewItem label="口型" value={form.lipsyncEnabled ? lipsyncPresets[form.lipsyncPreset].label : "关闭"} />
         ) : form.contentMode === "broll_only" ? (
           <ReviewItem label="画面" value="B_roll 铺满全片" />
         ) : null}
@@ -361,10 +324,7 @@ export function ConfigSummary({ form, selectedVoiceLabel, scriptCount }: { form:
           <SummaryRow icon={Mic2} label="声音" value={`${selectedVoiceLabel} · ${form.speed.toFixed(1)}x`} />
         )}
         {form.contentMode === "digital_human" ? (
-          <>
-            <SummaryRow icon={Film} label="模板" value={`${portraitModeLabel(form.portraitMode)} · ${rhythmLabel(form.rhythmPreset)}`} />
-            <SummaryRow icon={Sparkles} label="口型" value={form.lipsyncEnabled ? lipsyncPresets[form.lipsyncPreset].label : "关闭"} />
-          </>
+          <SummaryRow icon={Sparkles} label="口型" value={form.lipsyncEnabled ? lipsyncPresets[form.lipsyncPreset].label : "关闭"} />
         ) : null}
         {form.contentMode === "seedance" ? null : (
           <>

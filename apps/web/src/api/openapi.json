@@ -9106,16 +9106,6 @@
               }
             ]
           },
-          "portrait": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/PortraitOptions"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "broll": {
             "anyOf": [
               {
@@ -12685,9 +12675,6 @@
           },
           "voice": {
             "$ref": "#/components/schemas/VoiceOptions"
-          },
-          "portrait": {
-            "$ref": "#/components/schemas/PortraitOptions"
           },
           "broll": {
             "$ref": "#/components/schemas/BrollOptions"
@@ -18013,51 +18000,6 @@
         ],
         "title": "PlatformAccountList"
       },
-      "PortraitOptions": {
-        "properties": {
-          "template_mode": {
-            "type": "string",
-            "enum": [
-              "agent",
-              "specific",
-              "sequence"
-            ],
-            "title": "Template Mode",
-            "default": "agent"
-          },
-          "specific_template_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Specific Template Id"
-          },
-          "template_sequence_ids": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Template Sequence Ids"
-          },
-          "rhythm_preset": {
-            "type": "string",
-            "enum": [
-              "steady",
-              "balanced",
-              "fast"
-            ],
-            "title": "Rhythm Preset",
-            "default": "balanced"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "title": "PortraitOptions"
-      },
       "PrepareUploadRequest": {
         "properties": {
           "kind": {
@@ -23156,16 +23098,6 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/VoiceOptions"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "portrait": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/PortraitOptions"
               },
               {
                 "type": "null"

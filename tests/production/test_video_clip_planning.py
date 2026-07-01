@@ -159,7 +159,6 @@ def _request(**overrides):
         case_id="case_demo",
         script=SCRIPT,
         voice={"voice_id": "voice_sandbox"},
-        portrait={"template_mode": "agent"},
         broll={"enabled": True},
         strictness={"strict_timestamps": False},
     )

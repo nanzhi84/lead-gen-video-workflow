@@ -46,8 +46,6 @@ const customForm = {
   voiceId: "voice_42",
   speed: 1.25,
   emotion: "energetic",
-  portraitMode: "agent",
-  rhythmPreset: "fast",
   brollEnabled: false,
   maxInserts: 7,
   subtitleEnabled: true,
@@ -77,7 +75,6 @@ console.log(JSON.stringify({
   hydratedVoiceId: hydrated.voiceId,
   hydratedSpeed: hydrated.speed,
   hydratedEmotion: hydrated.emotion,
-  hydratedRhythm: hydrated.rhythmPreset,
   hydratedBrollEnabled: hydrated.brollEnabled,
   hydratedMaxInserts: hydrated.maxInserts,
   hydratedSubtitleStyle: hydrated.subtitleStyle,
@@ -105,7 +102,6 @@ console.log(JSON.stringify({
     assert result["hydratedVoiceId"] == "voice_42"
     assert result["hydratedSpeed"] == 1.25
     assert result["hydratedEmotion"] == "energetic"
-    assert result["hydratedRhythm"] == "fast"
     assert result["hydratedBrollEnabled"] is False
     assert result["hydratedMaxInserts"] == 7
     assert result["hydratedSubtitleStyle"] == "news"

@@ -443,7 +443,6 @@ def create_digital_human_job(
 # Optional blocks on ``UserGenerationDefaults`` / ``BatchItemOverrides``.
 _OPTION_BLOCKS = (
     "voice",
-    "portrait",
     "broll",
     "lipsync",
     "subtitle",

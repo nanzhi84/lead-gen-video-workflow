@@ -67,7 +67,6 @@ def _payload(**overrides) -> dict:
         "title": "Provider integration",
         "script": "真实 provider 产物必须进入流水线。",
         "voice": {"voice_id": "voice_sandbox"},
-        "portrait": {"template_mode": "agent"},
         "broll": {"enabled": False},
         "bgm": {"enabled": False},
         "subtitle": {"enabled": True},

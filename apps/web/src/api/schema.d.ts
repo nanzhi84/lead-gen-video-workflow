@@ -2901,7 +2901,6 @@ export interface components {
          */
         BatchItemOverrides: {
             voice?: components["schemas"]["VoiceOptions"] | null;
-            portrait?: components["schemas"]["PortraitOptions"] | null;
             broll?: components["schemas"]["BrollOptions"] | null;
             lipsync?: components["schemas"]["LipSyncOptions"] | null;
             subtitle?: components["schemas"]["SubtitleOptions"] | null;
@@ -4410,7 +4409,6 @@ export interface components {
             /** Reference Asset Ids */
             reference_asset_ids?: string[];
             voice?: components["schemas"]["VoiceOptions"];
-            portrait?: components["schemas"]["PortraitOptions"];
             broll?: components["schemas"]["BrollOptions"];
             lipsync?: components["schemas"]["LipSyncOptions"];
             subtitle?: components["schemas"]["SubtitleOptions"];
@@ -6117,25 +6115,6 @@ export interface components {
             available: boolean;
             /** Unavailable Reason */
             unavailable_reason?: string | null;
-        };
-        /** PortraitOptions */
-        PortraitOptions: {
-            /**
-             * Template Mode
-             * @default agent
-             * @enum {string}
-             */
-            template_mode: "agent" | "specific" | "sequence";
-            /** Specific Template Id */
-            specific_template_id?: string | null;
-            /** Template Sequence Ids */
-            template_sequence_ids?: string[];
-            /**
-             * Rhythm Preset
-             * @default balanced
-             * @enum {string}
-             */
-            rhythm_preset: "steady" | "balanced" | "fast";
         };
         /** PrepareUploadRequest */
         PrepareUploadRequest: {
@@ -8305,7 +8284,6 @@ export interface components {
          */
         UserGenerationDefaults: {
             voice?: components["schemas"]["VoiceOptions"] | null;
-            portrait?: components["schemas"]["PortraitOptions"] | null;
             broll?: components["schemas"]["BrollOptions"] | null;
             lipsync?: components["schemas"]["LipSyncOptions"] | null;
             subtitle?: components["schemas"]["SubtitleOptions"] | null;

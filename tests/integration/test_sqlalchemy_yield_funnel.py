@@ -42,7 +42,6 @@ def _create_run_with_finished_video(client: TestClient) -> tuple[str, str]:
             "script": "用一个简短脚本验证成品率漏斗在数据库后端的事件落库。",
             "publish_content": "Yield funnel DB handoff.",
             "voice": {"voice_id": "voice_sandbox"},
-            "portrait": {"template_mode": "agent"},
             "strictness": {"strict_timestamps": False},
         },
     )

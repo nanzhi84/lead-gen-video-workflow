@@ -44,13 +44,6 @@ class VoiceOptions(ContractModel):
     volume: float = Field(1.0, ge=0.0, le=2.0)
 
 
-class PortraitOptions(ContractModel):
-    template_mode: Literal["agent", "specific", "sequence"] = "agent"
-    specific_template_id: str | None = None
-    template_sequence_ids: list[str] = Field(default_factory=list)
-    rhythm_preset: Literal["steady", "balanced", "fast"] = "balanced"
-
-
 class BrollOptions(ContractModel):
     enabled: bool = True
     case_id: str | None = None
@@ -124,7 +117,6 @@ class DigitalHumanVideoRequest(ContractModel):
     # resolves each id to its source artifact uri and presigns it for the vendor.
     reference_asset_ids: list[str] = Field(default_factory=list)
     voice: VoiceOptions = Field(default_factory=VoiceOptions)
-    portrait: PortraitOptions = Field(default_factory=PortraitOptions)
     broll: BrollOptions = Field(default_factory=BrollOptions)
     lipsync: LipSyncOptions = Field(default_factory=LipSyncOptions)
     subtitle: SubtitleOptions = Field(default_factory=SubtitleOptions)
@@ -140,7 +132,6 @@ class BatchItemOverrides(ContractModel):
     back to the merge chain (my-defaults -> system default)."""
 
     voice: VoiceOptions | None = None
-    portrait: PortraitOptions | None = None
     broll: BrollOptions | None = None
     lipsync: LipSyncOptions | None = None
     subtitle: SubtitleOptions | None = None

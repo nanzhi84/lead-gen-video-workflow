@@ -26,7 +26,6 @@ def test_unset_defaults_returns_system_defaults():
     # No record yet -> all blocks are None (caller falls back to system defaults).
     assert body == {
         "voice": None,
-        "portrait": None,
         "broll": None,
         "lipsync": None,
         "subtitle": None,
@@ -51,7 +50,7 @@ def test_put_then_get_round_trips():
     assert saved["voice"]["speed"] == 1.25
     assert saved["output"]["width"] == 720
     # Unset blocks stay None.
-    assert saved["portrait"] is None
+    assert saved["broll"] is None
 
     again = client.get("/api/auth/me/generation-defaults")
     assert again.status_code == 200, again.text

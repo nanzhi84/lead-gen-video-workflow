@@ -21,8 +21,6 @@ export type FormState = {
   voiceId: string;
   speed: number;
   emotion: string;
-  portraitMode: "agent" | "specific" | "sequence";
-  rhythmPreset: "steady" | "balanced" | "fast";
   brollEnabled: boolean;
   maxInserts: number;
   subtitleEnabled: boolean;
@@ -48,8 +46,6 @@ const defaultForm: FormState = {
   voiceId: "",
   speed: 1,
   emotion: "neutral",
-  portraitMode: "agent",
-  rhythmPreset: "balanced",
   brollEnabled: true,
   maxInserts: 4,
   subtitleEnabled: true,
@@ -121,9 +117,6 @@ export function loadStoredForm(): FormState {
 
 export function validateStep(step: StudioStep, form: FormState, selectedVoice: string) {
   if (step === 0 && !form.script.trim()) return "请先输入脚本正文";
-  if (step === 1 && form.contentMode === "digital_human" && form.portraitMode !== "agent") {
-    return "当前版本请使用自动模板，指定模板和序列将在素材库里程碑接入";
-  }
   // Seedance has no TTS step (no voice, no speed), so neither is required for it.
   if (step === 2 && form.contentMode !== "seedance" && !selectedVoice) return "请选择可用声音";
   if (step === 2 && form.contentMode !== "seedance" && (form.speed < 0.5 || form.speed > 2))
@@ -148,18 +141,6 @@ export function contentModeLabel(value: FormState["contentMode"]) {
   return "数字人口播";
 }
 
-export function portraitModeLabel(value: FormState["portraitMode"]) {
-  if (value === "agent") return "自动模板";
-  if (value === "specific") return "指定模板";
-  return "模板序列";
-}
-
-export function rhythmLabel(value: FormState["rhythmPreset"]) {
-  if (value === "steady") return "稳";
-  if (value === "fast") return "快";
-  return "均衡";
-}
-
 export function subtitleLabel(value: FormState["subtitleStyle"]) {
   if (value === "clean") return "简洁风";
   if (value === "variety") return "综艺风";
@@ -177,8 +158,6 @@ const SUBTITLE_STYLES: FormState["subtitleStyle"][] = [
   "movie",
   "youshe_title_black",
 ];
-const PORTRAIT_MODES: FormState["portraitMode"][] = ["agent", "specific", "sequence"];
-const RHYTHM_PRESETS: FormState["rhythmPreset"][] = ["steady", "balanced", "fast"];
 const COVER_MODES: FormState["coverMode"][] = ["none", "frame", "ai"];
 
 function pickFrom<T extends string>(allowed: T[], value: unknown, fallback: T): T {
@@ -198,11 +177,6 @@ export function mapFormToDefaults(form: FormState): UserGenerationDefaults {
       speed: form.speed,
       emotion: form.emotion.trim() || "neutral",
       volume: 1,
-    },
-    portrait: {
-      template_mode: form.portraitMode,
-      rhythm_preset: form.rhythmPreset,
-      template_sequence_ids: [],
     },
     broll: {
       enabled: form.brollEnabled,
@@ -242,10 +216,6 @@ export function mapDefaultsToForm(defaults: UserGenerationDefaults, base: FormSt
     if (defaults.voice.voice_id) next.voiceId = defaults.voice.voice_id;
     next.speed = clampNumber(Number(defaults.voice.speed ?? base.speed), 0.5, 2, base.speed);
     if (defaults.voice.emotion) next.emotion = defaults.voice.emotion;
-  }
-  if (defaults.portrait) {
-    next.portraitMode = pickFrom(PORTRAIT_MODES, defaults.portrait.template_mode, base.portraitMode);
-    next.rhythmPreset = pickFrom(RHYTHM_PRESETS, defaults.portrait.rhythm_preset, base.rhythmPreset);
   }
   if (defaults.broll) {
     next.brollEnabled = Boolean(defaults.broll.enabled);

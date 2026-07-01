@@ -65,7 +65,6 @@ def video_payload(**overrides):
         "title": "Golden success",
         "script": "先指出低效内容生产的痛点。再展示 Case Memory 如何复用历史经验。最后邀请运营查看报告。",
         "voice": {"voice_id": "voice_sandbox"},
-        "portrait": {"template_mode": "agent"},
         "broll": {"enabled": False, "max_inserts": 2},
         "bgm": {"enabled": False},
         "subtitle": {"enabled": True},

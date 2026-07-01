@@ -72,7 +72,8 @@ export function PublishReviewStep({
   const clientById = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
   const selectedAccountSet = useMemo(() => new Set(selectedAccountIds), [selectedAccountIds]);
   const selectedAccounts = accounts.filter((account) => selectedAccountSet.has(account.id));
-  const selectedPlatformSet = new Set<string>(selectedAccounts.map((account) => account.platform));
+  const selectedBatchAccounts = selectedAccounts.filter((account) => batchPlatformSet.has(account.platform));
+  const selectedPlatformSet = new Set<string>(selectedBatchAccounts.map((account) => account.platform));
   const eligibleGroups = draftGroups.filter((group) => group.items.some((item) => selectedPlatformSet.has(item.platform)));
   const selectedVideoGroups = eligibleGroups.filter((group) => groupIsSelected(group, selectedPlatformSet, drafts));
   const allSelected = eligibleGroups.length > 0 && selectedVideoGroups.length === eligibleGroups.length;
@@ -106,7 +107,7 @@ export function PublishReviewStep({
         (!selectedClientId || account.client_id === selectedClientId),
     ).length,
   }));
-  const canSubmit = publishableCount > 0 && selectedAccounts.length > 0 && !isAccountsLoading;
+  const canSubmit = publishableCount > 0 && selectedBatchAccounts.length > 0 && !isAccountsLoading;
 
   function toggleAll() {
     eligibleGroups.forEach((group) => toggleGroup(group, !allSelected));
@@ -125,7 +126,7 @@ export function PublishReviewStep({
           <div>
             <h2 className="text-lg font-semibold text-text-primary">选择账号并发布</h2>
             <p className="mt-1 text-sm text-text-secondary">
-              已选中 {selectedVideoGroups.length} 条视频、{selectedAccounts.length} 个账号，可提交 {publishableCount} 条。
+              已选中 {selectedVideoGroups.length} 条视频、{selectedBatchAccounts.length} 个账号，可提交 {publishableCount} 条。
             </p>
           </div>
           <StatusPill status={batch.status} />
@@ -143,7 +144,7 @@ export function PublishReviewStep({
               </h3>
               <p className="mt-1 text-sm text-text-secondary">按客户、平台和关键词缩小范围，再从账号列表中勾选。</p>
             </div>
-            <span className="rounded-full bg-accent/15 px-3 py-1 text-sm font-semibold text-accent">已选 {selectedAccounts.length} 个</span>
+            <span className="rounded-full bg-accent/15 px-3 py-1 text-sm font-semibold text-accent">已选 {selectedBatchAccounts.length} 个</span>
           </div>
 
           <div className="grid gap-3 lg:grid-cols-[240px_minmax(0,1fr)]">
@@ -215,11 +216,11 @@ export function PublishReviewStep({
             </div>
           </div>
 
-          {selectedAccounts.length > 0 ? (
+          {selectedBatchAccounts.length > 0 ? (
             <div className="rounded-xl border border-border/70 bg-white/65 p-3">
               <div className="mb-2 text-xs font-semibold text-text-tertiary">已选账号</div>
               <div className="flex max-h-24 flex-wrap gap-2 overflow-y-auto pr-1 text-xs text-text-secondary">
-                {selectedAccounts.map((account) => (
+                {selectedBatchAccounts.map((account) => (
                   <button
                     key={account.id}
                     type="button"
@@ -309,7 +310,7 @@ export function PublishReviewStep({
           const draft = drafts[item.id];
           const groupSelected = groupIsSelected(group, selectedPlatformSet, drafts);
           const publishable = groupIsPublishable(group, selectedPlatformSet, drafts);
-          const targetAccounts = selectedAccounts.filter((account) => group.platforms.includes(account.platform));
+          const targetAccounts = selectedBatchAccounts.filter((account) => group.platforms.includes(account.platform));
           const retryItem = group.items.find(itemCanRetry);
           return (
             <div

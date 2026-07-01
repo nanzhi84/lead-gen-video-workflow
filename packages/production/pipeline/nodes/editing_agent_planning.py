@@ -160,7 +160,13 @@ def run(ctx: NodeContext) -> NodeOutput:
             ctx.prompt_registry.validate_output(
                 prompt_version_id=prompt_invocation.prompt_version_id, output=result.output
             )
-            return result.output
+            # llm.chat providers (e.g. DashScope) wrap the model's parsed JSON under
+            # ``output["intent"]`` (mirrors resolve_creative_intent.py) — the ID selection
+            # lives there, NOT at the top level. Unwrap before parse_selection, falling back
+            # to the raw dict for a provider that already returns the selection flat.
+            payload = result.output if isinstance(result.output, dict) else {}
+            nested = payload.get("intent")
+            return nested if isinstance(nested, dict) else payload
 
         selection, repair_trace, errors = select_with_repair(
             invoke=_invoke,

@@ -435,3 +435,27 @@ def test_select_with_repair_gives_up_after_budget():
     )
     assert errors  # still invalid after the repair budget
     assert len(trace) == 2  # 1 initial + 1 repair attempt
+
+
+def test_materialize_broll_drops_sub_frame_overlay():
+    # A broll candidate whose usable source window is shorter than one 30fps frame
+    # would quantize to a zero-length overlay; it must be dropped, not emitted.
+    material = _material()
+    material["broll_candidates"] = [
+        {
+            "asset_id": "broll_tiny",
+            "score": 80.0,
+            "metadata": {"clip_id": "c", "source_start": 1.0, "source_end": 1.01},
+        }
+    ]
+    candidates = index_candidates(material)
+    selection = EditingSelection(broll=[BrollChoice(slot_id="bslot_000", candidate_id="bc_000")])
+    payload = materialize_broll(
+        selection=selection,
+        boundary=_boundary(),
+        candidates=candidates,
+        cut_frames=[0, 180, 360],
+        enabled=True,
+        max_inserts=4,
+    )
+    assert payload["overlays"] == []

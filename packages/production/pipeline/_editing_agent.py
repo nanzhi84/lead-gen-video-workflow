@@ -595,7 +595,10 @@ def materialize_broll(
         avail = src_end - src_start
         if avail > 0:
             span = min(span, avail)
-        if span <= 0:
+        # Drop a degenerate sub-frame overlay: a span shorter than one 30fps frame
+        # quantizes to timeline_start_frame == timeline_end_frame, which TimelinePlanning
+        # rejects as negative_duration and would hard-fail the whole run.
+        if span < 1.0 / TIMELINE_FPS:
             continue
         raw.append(
             BrollInsertion(

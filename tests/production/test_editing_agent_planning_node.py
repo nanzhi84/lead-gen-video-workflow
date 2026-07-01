@@ -10,6 +10,8 @@ Also asserts the honest fail-fast when the sandbox gate is off.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from packages.ai.gateway import ProviderGateway
@@ -285,3 +287,55 @@ def test_no_provider_without_sandbox_fallback_fails_fast(monkeypatch, tmp_path):
     with pytest.raises(NodeExecutionError) as exc:
         _run_node(_adapter(tmp_path), _state())
     assert exc.value.error.code == ErrorCode.provider_unsupported_option
+
+
+def test_llm_path_unwraps_intent_wrapped_output(monkeypatch, tmp_path):
+    """Real provider path: DashScope-style output nests the selection under
+    ``output['intent']``; the node must unwrap it, honour the LLM's ID choices, and
+    NOT burn repair attempts. Regression for the intent-unwrap blocker that the
+    sandbox-only tests could not catch."""
+    adapter = _adapter(tmp_path)
+    fake_profile = SimpleNamespace(id="dashscope.llm.prod")
+    monkeypatch.setattr(
+        adapter.provider_profiles,
+        "first_available",
+        lambda capability, *, include_sandbox=True: fake_profile,
+    )
+    selection = {
+        "portrait_plan": [
+            {"slot_id": "pslot_000", "window_id": "pc_001"},
+            {"slot_id": "pslot_001", "window_id": "pc_001"},
+        ],
+        "broll_plan": [
+            {
+                "slot_id": "bslot_000",
+                "candidate_id": "bc_000",
+                "reason": "施工前",
+                "confidence": 0.9,
+            }
+        ],
+        "font_plan": {"font_id": "font_yst"},
+        "bgm_plan": {"bgm_id": "bgm_001"},
+        "analysis": "统一穿搭",
+    }
+    calls = []
+
+    def fake_invoke(call):
+        calls.append(call)
+        return (
+            SimpleNamespace(id="inv_1", error=None),
+            SimpleNamespace(output={"content": "...", "intent": selection}),
+        )
+
+    monkeypatch.setattr(adapter.provider_gateway, "invoke", fake_invoke)
+
+    output = _run_node(adapter, _state())
+
+    assert output.status == NodeStatus.succeeded  # real LLM path, no fallback degradation
+    assert output.provider_invocation_ids == ["inv_1"]  # exactly one call — no repair burn
+    assert len(calls) == 1
+    diagnostics = _payload(output, ArtifactKind.plan_editing_diagnostics)
+    assert diagnostics["mode"] == "llm"
+    # LLM chose pc_001 (portrait_b) for BOTH slots — honoured, asset-uniqueness relaxed.
+    portrait = _payload(output, ArtifactKind.plan_portrait)
+    assert [seg["asset_id"] for seg in portrait["segments"]] == ["portrait_b", "portrait_b"]

@@ -150,6 +150,7 @@ def configure_app_state(app: FastAPI, *, session_factory=None) -> None:
     app.state.xiaovmao_login_manager = XiaoVmaoLoginManager(
         host=app.state.settings.publishing.xiaovmao_cdp_host,
         port=app.state.settings.publishing.xiaovmao_cdp_port,
+        auto_launch=app.state.settings.publishing.xiaovmao_auto_launch,
     )
     app.state.event_hub = InProcessFanoutHub(redis_url=app.state.settings.redis_url)
     app.state.event_tokens = EventStreamTokenStore(redis_url=app.state.settings.redis_url)

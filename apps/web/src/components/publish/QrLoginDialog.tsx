@@ -191,7 +191,7 @@ export function QrLoginDialog({ account, onClose, onSuccess }: QrLoginDialogProp
           </p>
           <p className="mt-1 text-xs leading-5 text-text-secondary">
             请用对应 App 扫码登录（抖音→抖音App / 视频号→微信 / 快手→快手App / 小红书→小红书App）。
-            当前账号请使用 {platformApp}。二维码经小V猫实时刷新，无需手动重取。
+            当前账号请使用 {platformApp}。系统会先后台连接小V猫；如果它已关闭，会自动启动后等待二维码。
           </p>
         </div>
 
@@ -207,7 +207,7 @@ export function QrLoginDialog({ account, onClose, onSuccess }: QrLoginDialogProp
           {!beginLogin.isPending && !qrImage && !failedDetail ? (
             <div className="stateBox muted">
               <Loader2 className="h-4 w-4 animate-spin" />
-              <span>等待小V猫推送二维码</span>
+              <span>正在后台连接小V猫并等待二维码</span>
             </div>
           ) : null}
         </div>

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import re
+import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -52,8 +54,9 @@ def _install_fake_cdp(
     monkeypatch.setattr(cdp, "PUBLISH_TASK_TIMEOUT_SECONDS", 1.0)
 
     class FakeDriver:
-        def __init__(self, *, host, port):
+        def __init__(self, *, host, port, auto_launch=False):
             self.host, self.port = host, port
+            self.auto_launch = auto_launch
             self.local_id = "l_fake"
 
         async def connect(self, timeout_seconds: int = 30):
@@ -264,6 +267,71 @@ def test_cdp_close_does_not_mask_disconnected_webview():
     asyncio.run(driver.close())
 
     assert driver.websocket is None
+
+
+def test_driver_auto_launches_local_macos_app(monkeypatch):
+    calls: list[list[str]] = []
+
+    class FakeCompletedProcess:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(args, **_kwargs):
+        calls.append(list(args))
+        return FakeCompletedProcess()
+
+    monkeypatch.setattr(cdp.sys, "platform", "darwin")
+    monkeypatch.setattr(cdp.subprocess, "run", fake_run)
+
+    driver = cdp.XiaoVmaoDriver(auto_launch=True)
+
+    assert driver.try_launch_app() is True
+    assert calls == [
+        [
+            "open",
+            "-a",
+            "小V猫",
+            "--args",
+            "--remote-debugging-port=9222",
+        ]
+    ]
+
+
+def test_driver_does_not_auto_launch_for_remote_cdp_host(monkeypatch):
+    calls: list[list[str]] = []
+
+    def fake_run(args, **_kwargs):
+        calls.append(list(args))
+        raise AssertionError("remote CDP hosts must not launch a local app")
+
+    monkeypatch.setattr(cdp.sys, "platform", "darwin")
+    monkeypatch.setattr(cdp.subprocess, "run", fake_run)
+
+    driver = cdp.XiaoVmaoDriver(host="10.0.0.5", auto_launch=True)
+
+    assert driver.try_launch_app() is False
+    assert calls == []
+
+
+def test_connect_does_not_focus_already_running_app_without_cdp(monkeypatch):
+    monkeypatch.setitem(
+        sys.modules,
+        "websockets",
+        SimpleNamespace(connect=lambda *_args, **_kwargs: None),
+    )
+    monkeypatch.setattr(cdp.sys, "platform", "darwin")
+    driver = cdp.XiaoVmaoDriver(auto_launch=True)
+    monkeypatch.setattr(driver, "fetch_targets", lambda: [])
+    monkeypatch.setattr(driver, "is_app_running", lambda: True)
+
+    def fail_launch() -> bool:
+        raise AssertionError("running 小V猫 must not be focused via open -a")
+
+    monkeypatch.setattr(driver, "try_launch_app", fail_launch)
+
+    with pytest.raises(cdp.XiaoVmaoUnavailableError, match="不会反复聚焦"):
+        asyncio.run(driver.connect(timeout_seconds=0))
 
 
 class _FakeLoginPage:

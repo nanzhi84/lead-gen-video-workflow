@@ -48,6 +48,7 @@ os.environ.setdefault("CUTAGENT_DISABLE_BACKGROUND_DISPATCHER", "1")
 # app). Without this, a developer running a live 小V猫/CatBridge on :9222 turns the
 # probe into a real call -> local-only false failures.
 os.environ.setdefault("CUTAGENT_XIAOVMAO_CDP_PORT", "1")
+os.environ.setdefault("CUTAGENT_XIAOVMAO_AUTO_LAUNCH", "0")
 # Tests build many short-lived apps (TestClient(create_app())), each with its own
 # engine pool. Keep per-engine pools small so a long suite — and several suites
 # sharing one Postgres server — never exhaust max_connections.

@@ -108,6 +108,7 @@ _INFRA_ENV_VARS = (
     "CUTAGENT_ENFORCE_PROVIDER_HOST_ALLOWLIST",
     "CUTAGENT_XIAOVMAO_CDP_HOST",
     "CUTAGENT_XIAOVMAO_CDP_PORT",
+    "CUTAGENT_XIAOVMAO_AUTO_LAUNCH",
     "CUTAGENT_REDIS_URL",
     "CUTAGENT_REDIS_REQUIRED",
     "CUTAGENT_HEALTH_PROBE_TIMEOUT",
@@ -240,6 +241,7 @@ def test_settings_built_in_defaults() -> None:
     # Publishing 小V猫 CDP endpoint (consolidated from apps/api + packages/publishing).
     assert settings.publishing.xiaovmao_cdp_host == "127.0.0.1"
     assert settings.publishing.xiaovmao_cdp_port == 9222
+    assert settings.publishing.xiaovmao_auto_launch is True
     assert settings.redis_url is None
     assert settings.health_probe_timeout_seconds == 2.0
 
@@ -280,6 +282,7 @@ def test_provider_publishing_settings_read_env_overrides(monkeypatch: pytest.Mon
     monkeypatch.setenv("CUTAGENT_ENFORCE_PROVIDER_HOST_ALLOWLIST", "1")
     monkeypatch.setenv("CUTAGENT_XIAOVMAO_CDP_HOST", "10.0.0.5")
     monkeypatch.setenv("CUTAGENT_XIAOVMAO_CDP_PORT", "9333")
+    monkeypatch.setenv("CUTAGENT_XIAOVMAO_AUTO_LAUNCH", "0")
 
     prov = build_providers_settings()
     assert prov.max_inflight == 7
@@ -293,6 +296,7 @@ def test_provider_publishing_settings_read_env_overrides(monkeypatch: pytest.Mon
     pub = build_publishing_settings()
     assert pub.xiaovmao_cdp_host == "10.0.0.5"
     assert pub.xiaovmao_cdp_port == 9333
+    assert pub.xiaovmao_auto_launch is False
 
 
 def test_invalid_publishing_port_does_not_break_unrelated_settings(

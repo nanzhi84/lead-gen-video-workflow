@@ -21,6 +21,7 @@ import asyncio
 import json
 import queue
 import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -45,6 +46,7 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 9222
 APP_NAME = "小V猫"
 CDP_RESPONSE_TIMEOUT_SECONDS = 30.0
+LOCAL_CDP_HOSTS = {"127.0.0.1", "localhost", "::1", ""}
 
 
 class XiaoVmaoUnavailableError(RuntimeError):
@@ -62,9 +64,16 @@ class Target:
 class XiaoVmaoDriver:
     """Low-level CDP driver for the 小V猫 Electron app."""
 
-    def __init__(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
+    def __init__(
+        self,
+        host: str = DEFAULT_HOST,
+        port: int = DEFAULT_PORT,
+        *,
+        auto_launch: bool = False,
+    ) -> None:
         self.host = host
         self.port = port
+        self.auto_launch = auto_launch
         self.websocket = None
         self.message_id = 0
 
@@ -82,6 +91,50 @@ class XiaoVmaoDriver:
         except Exception:
             return False
         return bool((result.stdout or "").strip())
+
+    def should_auto_launch(self) -> bool:
+        return (
+            self.auto_launch
+            and sys.platform == "darwin"
+            and self.host.strip().lower() in LOCAL_CDP_HOSTS
+        )
+
+    def try_launch_app(self) -> bool:
+        if not self.should_auto_launch():
+            return False
+        try:
+            result = subprocess.run(
+                [
+                    "open",
+                    "-a",
+                    APP_NAME,
+                    "--args",
+                    f"--remote-debugging-port={self.port}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except Exception:
+            return False
+        return result.returncode == 0
+
+    def connect_hint(self, *, app_running: bool | None = None) -> str:
+        if app_running is None:
+            app_running = self.is_app_running()
+        if self.should_auto_launch():
+            if app_running:
+                return (
+                    "小V猫已运行但未开放 CDP 调试端口；系统不会反复聚焦或强制重启"
+                    "已运行的小V猫。请完全退出小V猫后重试，让系统用调试端口重新启动它。"
+                )
+            return (
+                "系统只会在小V猫未运行时自动启动它；如果仍失败，请确认已安装小V猫。"
+            )
+        return (
+            "请确认小V猫已启动并开启 CDP 调试端口；非本机 macOS CDP host "
+            "不会自动启动桌面 App。"
+        )
 
     def fetch_targets(self) -> list[Target]:
         try:
@@ -114,14 +167,22 @@ class XiaoVmaoDriver:
             import websockets  # noqa: PLC0415 (optional dependency)
         except Exception as exc:  # pragma: no cover - optional dep
             raise XiaoVmaoUnavailableError(f"websockets is required for the 小V猫 connector: {exc}") from exc
+        # Best-effort launch for local macOS operators, but only when 小V猫 is not
+        # running. ``open -a`` focuses an already-open app, so we deliberately do
+        # not call it for a running process whose CDP port is unavailable.
+        targets = self.fetch_targets()
+        app_running = self.is_app_running()
+        if not targets and not app_running and self.try_launch_app():
+            await asyncio.sleep(0.5)
+            targets = self.fetch_targets()
+            app_running = self.is_app_running()
         # Fail fast when the desktop app is not running AND nothing is listening on
-        # the CDP endpoint. This connector does NOT launch the app (that is the
-        # operator's / out-of-process supervisor's responsibility), so retrying for
-        # the full timeout would only stall. We still retry while the app is up but
-        # the publish page target has not appeared yet.
-        if not self.is_app_running() and not self.fetch_targets():
+        # the CDP endpoint. We still retry while the app is up but the publish page
+        # target has not appeared yet.
+        if not app_running and not targets:
             raise XiaoVmaoUnavailableError(
                 f"小V猫未运行或未开启 remote-debugging-port={self.port}，无法连接 CDP 调试端口。"
+                f"{self.connect_hint(app_running=app_running)}"
             )
         deadline = time.time() + timeout_seconds
         last_error: Exception | None = None
@@ -136,7 +197,9 @@ class XiaoVmaoDriver:
                 last_error = exc
             await asyncio.sleep(1)
         raise XiaoVmaoUnavailableError(
-            f"无法连接小V猫调试端口，请确认小V猫已启动并开启 remote-debugging-port={self.port}: {last_error}"
+            f"无法连接小V猫调试端口 remote-debugging-port={self.port}。"
+            f"{self.connect_hint()}"
+            f"最后错误: {last_error}"
         )
 
     async def connect_to_target(self, target: Target) -> None:
@@ -545,16 +608,18 @@ class XiaoVmaoLoginDriver:
         host: str = DEFAULT_HOST,
         port: int = DEFAULT_PORT,
         *,
+        auto_launch: bool = False,
         driver_factory: Callable[[], XiaoVmaoDriver] | None = None,
     ) -> None:
         self.host = host
         self.port = port
+        self.auto_launch = auto_launch
         self._driver_factory = driver_factory
 
     def _new_driver(self) -> XiaoVmaoDriver:
         if self._driver_factory is not None:
             return self._driver_factory()
-        return XiaoVmaoDriver(host=self.host, port=self.port)
+        return XiaoVmaoDriver(host=self.host, port=self.port, auto_launch=self.auto_launch)
 
     async def run_login(
         self,
@@ -810,10 +875,12 @@ class XiaoVmaoLoginManager:
         *,
         host: str = DEFAULT_HOST,
         port: int = DEFAULT_PORT,
+        auto_launch: bool = False,
         driver_factory: Callable[[], XiaoVmaoLoginDriver] | None = None,
     ) -> None:
         self.host = host
         self.port = port
+        self.auto_launch = auto_launch
         self._driver_factory = driver_factory
         self._sessions: dict[str, LoginSessionSnapshot] = {}
         self._events: dict[str, queue.Queue[c.LoginStreamEvent]] = {}
@@ -827,7 +894,11 @@ class XiaoVmaoLoginManager:
     _SESSION_TTL_SECONDS = 600
 
     def probe_accounts(self) -> tuple[list[PlatformAccount], bool, str | None]:
-        return probe_xiaovmao_accounts(host=self.host, port=self.port)
+        return probe_xiaovmao_accounts(
+            host=self.host,
+            port=self.port,
+            auto_launch=self.auto_launch,
+        )
 
     def begin(
         self,
@@ -895,7 +966,11 @@ class XiaoVmaoLoginManager:
     def _new_driver(self) -> XiaoVmaoLoginDriver:
         if self._driver_factory is not None:
             return self._driver_factory()
-        return XiaoVmaoLoginDriver(host=self.host, port=self.port)
+        return XiaoVmaoLoginDriver(
+            host=self.host,
+            port=self.port,
+            auto_launch=self.auto_launch,
+        )
 
     def _run_login(
         self,
@@ -1482,11 +1557,12 @@ def probe_xiaovmao_accounts(
     *,
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
+    auto_launch: bool = False,
     account_group: str | None = None,
     case_name: str | None = None,
 ) -> tuple[list[PlatformAccount], bool, str | None]:
     async def _run() -> list[PlatformAccount]:
-        driver = XiaoVmaoDriver(host=host, port=port)
+        driver = XiaoVmaoDriver(host=host, port=port, auto_launch=auto_launch)
         await driver.connect()
         try:
             return await _read_accounts(driver)
@@ -1507,9 +1583,10 @@ def publish_via_xiaovmao(
     *,
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
+    auto_launch: bool = False,
 ) -> PublishOutcome:
     async def _run() -> PublishOutcome:
-        driver = XiaoVmaoDriver(host=host, port=port)
+        driver = XiaoVmaoDriver(host=host, port=port, auto_launch=auto_launch)
         await driver.connect()
         try:
             accounts = await _read_accounts(driver)

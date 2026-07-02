@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from types import SimpleNamespace
 
 from sqlalchemy import delete, select
 
@@ -248,12 +249,39 @@ class SqlAlchemyPublishingRepository(BaseRepository):
             session.commit()
             return True
 
+    @staticmethod
+    def _assert_item_submittable(status: str) -> None:
+        """Fail fast (in transaction A) if an item cannot be submitted from its
+        current status, before any media download / publish adapter work runs."""
+        if status in {"review_ready", "manual_review_ready", "publish_failed"}:
+            return
+        publish_pipeline = ["uploaded", "normalizing", "asr_running", "copy_running", "cover_running"]
+        if status not in publish_pipeline:
+            raise NodeExecutionError(
+                ErrorCode.validation_invalid_options,
+                f"Publish item cannot be submitted from status {status}.",
+            )
+
     def submit_batch(
         self,
         batch_id: str,
         payload: SubmitPublishBatchRequest,
         publish_runner: Callable[[object, object], PublishOutcome] | None = None,
     ) -> PublishBatchVm | None:
+        # Resolve the publish adapter (sandbox by default; a production adapter
+        # via CUTAGENT_PUBLISH_ADAPTER or an explicit override) and normalize the
+        # Asia/Shanghai schedule. ``scheduled`` produces a 'scheduled' attempt.
+        adapter = select_adapter(payload.adapter_id)
+        scheduled_at = normalize_scheduled_at(payload.mode, payload.scheduled_at)
+        is_scheduled = scheduled_at is not None
+        uses_publish_runner = not payload.dry_run and publish_runner is not None
+
+        # Transaction A: load, validate and snapshot everything the publish runner
+        # needs, then commit and release the DB connection. Media preparation
+        # (downloading finished videos up to ~100MiB) and the publish adapter (小V猫
+        # CDP polls up to PUBLISH_TASK_TIMEOUT_SECONDS = 15min per item) must NOT run
+        # while a DB transaction/row lock is held — otherwise a single submit could
+        # pin a pooled connection for minutes and exhaust the pool.
         with self.session_factory() as session:
             batch = session.get(PublishBatchRow, batch_id)
             if batch is None:
@@ -270,14 +298,45 @@ class SqlAlchemyPublishingRepository(BaseRepository):
                     ErrorCode.validation_invalid_options,
                     "At least one publish item must be selected.",
                 )
+            # Fail fast on unsubmittable start states before doing any media work.
+            runner_inputs: list[tuple[str, object, object]] = []
+            for item in selected_items:
+                self._assert_item_submittable(item.status)
+                if uses_publish_runner:
+                    package = session.get(PublishPackageRow, item.publish_package_id)
+                    runner_inputs.append(
+                        (item.id, _item_snapshot(item), _package_snapshot(package))
+                    )
+            session.commit()
 
-            # Resolve the publish adapter (sandbox by default; a production adapter
-            # via CUTAGENT_PUBLISH_ADAPTER or an explicit override) and normalize the
-            # Asia/Shanghai schedule. ``scheduled`` produces a 'scheduled' attempt.
-            adapter = select_adapter(payload.adapter_id)
-            scheduled_at = normalize_scheduled_at(payload.mode, payload.scheduled_at)
-            is_scheduled = scheduled_at is not None
-            uses_publish_runner = not payload.dry_run and publish_runner is not None
+        # No-transaction window: prepare media + drive the publish adapter. Any
+        # failure here (adapter, download, timeout) must land as an honest
+        # ``publish_failed`` outcome rather than leaving the item mid-flight.
+        outcomes: dict[str, PublishOutcome] = {}
+        if uses_publish_runner and publish_runner is not None:
+            for item_id, item_snapshot, package_snapshot in runner_inputs:
+                try:
+                    outcomes[item_id] = publish_runner(item_snapshot, package_snapshot)
+                except Exception as exc:  # noqa: BLE001 - any failure is an honest publish_failed
+                    outcomes[item_id] = PublishOutcome(
+                        success=False,
+                        adapter_id=adapter.adapter_id,
+                        error_message=str(exc),
+                    )
+
+        # Transaction B: reload fresh rows and drive the state machine to the
+        # terminal item/batch statuses using the runner outcomes computed above,
+        # recording attempts/records and staging the §9.5 funnel events.
+        with self.session_factory() as session:
+            batch = session.get(PublishBatchRow, batch_id)
+            if batch is None:
+                return None
+            statement = (
+                select(PublishBatchItemRow)
+                .where(PublishBatchItemRow.batch_id == batch_id)
+                .order_by(PublishBatchItemRow.created_at.asc(), PublishBatchItemRow.id.asc())
+            )
+            selected_items = [item for item in session.scalars(statement) if item.selected]
 
             if payload.dry_run:
                 assert_transition("publish_batch", batch.status, "processing")
@@ -322,7 +381,13 @@ class SqlAlchemyPublishingRepository(BaseRepository):
                     assert_transition("publish_item", current_item_status, "publishing")
                     current_item_status = "publishing"
                     if uses_publish_runner:
-                        outcome = publish_runner(item, package)
+                        outcome = outcomes.get(item.id)
+                        if outcome is None:
+                            outcome = PublishOutcome(
+                                success=False,
+                                adapter_id=adapter.adapter_id,
+                                error_message="Publish outcome missing.",
+                            )
                         if outcome.success:
                             assert_transition("publish_item", current_item_status, "published")
                             current_item_status = "published"
@@ -615,3 +680,33 @@ class SqlAlchemyPublishingRepository(BaseRepository):
                 )
                 record = publish_record_row_to_contract(record_row) if record_row else None
             return PublishAttemptDetail(attempt=publish_attempt_row_to_contract(row), record=record)
+
+
+def _item_snapshot(item: PublishBatchItemRow) -> SimpleNamespace:
+    """Detach exactly the item fields the publish runner reads, so publishing runs
+    outside any DB session (see ``submit_batch`` transaction A/B split)."""
+    return SimpleNamespace(
+        id=item.id,
+        publish_package_id=item.publish_package_id,
+        platform=item.platform,
+        title=item.title,
+        description=item.description,
+        publish_content=item.publish_content,
+        tags=list(item.tags or []),
+        location=item.location,
+        account_group=item.account_group,
+    )
+
+
+def _package_snapshot(package: PublishPackageRow | None) -> SimpleNamespace | None:
+    """Detach the package fields the publish runner reads (video/cover artifacts,
+    case id) so publishing runs with no open DB session."""
+    if package is None:
+        return None
+    return SimpleNamespace(
+        id=package.id,
+        case_id=package.case_id,
+        source_finished_video_id=package.source_finished_video_id,
+        video_artifact=package.video_artifact,
+        cover_artifact=package.cover_artifact,
+    )

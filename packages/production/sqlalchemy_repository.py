@@ -287,7 +287,7 @@ def _run_card_from_parts(
         current_node_label=_current_node_label(node_runs),
         title=_run_title(job, finished_video_title),
         warnings=_run_warnings(node_runs),
-        can_resume=run.status == RunStatus.succeeded or _run_has_retryable_failure(run, node_runs),
+        can_resume=_run_has_retryable_failure(run, node_runs),
         can_retry=run.status in {RunStatus.failed, RunStatus.cancelled},
         can_publish=run.status == RunStatus.succeeded and has_finished_video,
         preview_url=preview_url,

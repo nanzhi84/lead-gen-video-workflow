@@ -107,6 +107,9 @@ def test_warning_code_is_single_spec_enum_and_degradation_notice_shape():
         # Editing-agent (issue #136) falls back to a deterministic selection when no
         # real llm.chat provider is armed; surfaced visibly, never a silent downgrade.
         "editing_agent.deterministic_fallback",
+        # Editing-agent relaxes the one-slot-per-portrait-asset uniqueness rule when
+        # distinct portrait sources are fewer than portrait slots; surfaced visibly.
+        "portrait.asset_reuse_relaxed",
     }
     assert DegradationCode.font_default_used.value == "font.default_used"
 

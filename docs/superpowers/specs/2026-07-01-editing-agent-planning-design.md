@@ -284,9 +284,9 @@ regen 提交。前端：`apps/web && npm run build` 绿。
 
 ## 15. 关键决策与风险
 
-- **刻意放宽资产级唯一性**：现有 `PortraitPlanning` 强制同素材每 run 只用一次；新模板
-  刻意不强制（用户示例"尽量用同样穿搭的人像"需要允许重复选相似素材）。这是特性不是
-  bug，在 PR body 与 diagnostics 中写明。
+- **保留资产级唯一性**：`EditingAgentPlanning` 与 `PortraitPlanning` 一样，强制同一
+  `asset_id` 在每个 run 的人像主轨里最多使用一次。用户要求"尽量用同样穿搭的人像"时，
+  只能在风格相近但不同 `asset_id` 的候选之间选择，不能靠重复同一素材填满全片。
 - **materializer 复用面**：portrait 复用 `frame_grid` 纯函数（已核实可行）；broll 复用
   `broll_plan` 对齐逻辑（接口在 writing-plans 阶段依探查定稿）；style 复用 `style_planning`
   的字体默认 + bgm 映射 + overlay 派生。

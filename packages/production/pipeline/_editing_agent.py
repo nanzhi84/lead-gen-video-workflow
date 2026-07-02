@@ -191,6 +191,74 @@ def _meta(candidate: dict) -> dict:
     return meta if isinstance(meta, dict) else {}
 
 
+def _source_frames_available(candidate: dict) -> int:
+    meta = _meta(candidate)
+    start = _as_float(meta.get("source_start"))
+    end = _as_float(meta.get("source_end"))
+    if end <= start:
+        return 0
+    return frame_index(end) - frame_index(start)
+
+
+def _slot_required_frames(slot: dict) -> int:
+    return max(0, int(slot.get("end_frame", 0)) - int(slot.get("start_frame", 0)))
+
+
+def _legal_portrait_window_ids(slot: dict, candidates: IndexedCandidates) -> list[str]:
+    need = _slot_required_frames(slot)
+    return [
+        cid
+        for cid, cand in candidates.portrait_by_id.items()
+        if _source_frames_available(cand) >= need
+    ]
+
+
+def _portrait_asset_key(candidate: dict) -> str:
+    return _as_str(candidate.get("asset_id"))
+
+
+def _distinct_portrait_asset_count(candidates: IndexedCandidates) -> int:
+    return len(
+        {key for cand in candidates.portrait_by_id.values() if (key := _portrait_asset_key(cand))}
+    )
+
+
+def portrait_asset_reuse_cap(*, boundary: dict, candidates: IndexedCandidates) -> int:
+    """Max portrait slots a single source asset may fill for this run.
+
+    Strict uniqueness (cap ``1``) is the hardened default. When the distinct
+    portrait asset pool ``A`` is smaller than the slot count ``S`` — a common
+    shortage when an operator uploads only 2-3 portrait sources for an 8-15 slot
+    short video — strict uniqueness is unsatisfiable and would strand slots, so
+    the cap relaxes to ``ceil(S / A)``: a deterministic, balanced reuse budget
+    whose total capacity ``A * ceil(S / A) >= S`` always covers every slot while
+    still spreading coverage across the available sources.
+    """
+    assets = _distinct_portrait_asset_count(candidates)
+    slots = sum(1 for s in (boundary.get("portrait_slots") or []) if isinstance(s, dict))
+    if assets <= 0 or slots <= 0 or assets >= slots:
+        return 1
+    return -(-slots // assets)
+
+
+def portrait_uniqueness_rule_text(cap: int) -> str:
+    """Human-readable portrait uniqueness rule, kept in lock-step with the cap.
+
+    The LLM prompt embeds this sentence so the model's constraint matches exactly
+    what ``validate_selection`` enforces — a strict one-slot rule when assets are
+    plentiful, or the relaxed per-asset reuse budget when they are scarce.
+    """
+    if cap <= 1:
+        return (
+            "同一个 asset_id 最多只能用于一个 portrait_slot"
+            "（人像素材充足，禁止在多个 slot 复用同一素材）。"
+        )
+    return (
+        f"人像可用素材数量少于人像插槽数，允许复用：同一个 asset_id 最多可用于 {cap} 个 "
+        "portrait_slot，请尽量把覆盖均衡分散到不同素材上，不要把所有 slot 都堆到同一个素材。"
+    )
+
+
 def build_agent_input(
     *,
     request,
@@ -204,14 +272,32 @@ def build_agent_input(
     Everything the agent needs to make semantic choices — the narration beats,
     the safe cut boundaries + slots #135 already quantized, and the ID-tagged
     candidate pools with their semantic annotations — and nothing it must not
-    invent (no raw seconds/frames to override).
+    invent. Slot frame windows are input-only constraints; the LLM still emits
+    IDs only, never authoritative frame values.
     """
+    portrait_slots = []
+    for slot in (boundary.get("portrait_slots") or []):
+        if not isinstance(slot, dict):
+            continue
+        need = _slot_required_frames(slot)
+        portrait_slots.append(
+            {
+                **slot,
+                "required_frames": need,
+                "required_seconds": round(to_seconds(need), 3),
+                "legal_window_ids": _legal_portrait_window_ids(slot, candidates),
+            }
+        )
+
     return {
         "script": request.script,
         "title": request.title or "",
         "edit_instruction": request.edit.instruction,
         "video_duration": round(float(duration), 3),
         "max_broll_inserts": request.broll.max_inserts if request.broll.enabled else 0,
+        "portrait_uniqueness_rule": portrait_uniqueness_rule_text(
+            portrait_asset_reuse_cap(boundary=boundary, candidates=candidates)
+        ),
         "narration_units": [
             {
                 "unit_id": _as_str(u.get("unit_id")),
@@ -226,7 +312,7 @@ def build_agent_input(
             for u in narration_units
         ],
         "safe_cut_boundaries": boundary.get("safe_cut_boundaries") or [],
-        "portrait_slots": boundary.get("portrait_slots") or [],
+        "portrait_slots": portrait_slots,
         "broll_slots": boundary.get("broll_slots") or [],
         "portrait_candidates": [
             {
@@ -235,6 +321,8 @@ def build_agent_input(
                 "clip_id": _as_str(_meta(cand).get("clip_id")),
                 "source_start": _as_float(_meta(cand).get("source_start")),
                 "source_end": _as_float(_meta(cand).get("source_end")),
+                "available_frames": _source_frames_available(cand),
+                "available_seconds": round(to_seconds(_source_frames_available(cand)), 3),
                 "score": _as_float(cand.get("score")),
                 "reason": _as_str(cand.get("reason")),
             }
@@ -278,15 +366,6 @@ def build_agent_input(
 # --------------------------------------------------------------------------- #
 # Validation
 # --------------------------------------------------------------------------- #
-def _source_frames_available(candidate: dict) -> int:
-    meta = _meta(candidate)
-    start = _as_float(meta.get("source_start"))
-    end = _as_float(meta.get("source_end"))
-    if end <= start:
-        return 0
-    return frame_index(end) - frame_index(start)
-
-
 def validate_selection(
     selection: EditingSelection,
     *,
@@ -311,8 +390,12 @@ def validate_selection(
         if isinstance(s, dict)
     }
 
-    # Portrait: every slot covered exactly once by a valid, long-enough window.
+    # Portrait: every slot covered exactly once by a valid, long-enough window;
+    # each source asset used at most ``asset_use_cap`` times (1 when assets are
+    # plentiful, ceil(S/A) when scarce — see portrait_asset_reuse_cap).
+    asset_use_cap = portrait_asset_reuse_cap(boundary=boundary, candidates=candidates)
     seen_slots: set[str] = set()
+    asset_slots: dict[str, list[str]] = {}
     for choice in selection.portrait:
         if choice.slot_id not in portrait_slots:
             errors.append(f"portrait slot_id '{choice.slot_id}' is not a known portrait slot")
@@ -326,11 +409,32 @@ def validate_selection(
             errors.append(f"portrait window_id '{choice.window_id}' is not a known candidate")
             continue
         slot = portrait_slots[choice.slot_id]
-        need = int(slot.get("end_frame", 0)) - int(slot.get("start_frame", 0))
-        if _source_frames_available(cand) < need:
+        need = _slot_required_frames(slot)
+        available = _source_frames_available(cand)
+        if available < need:
+            legal = _legal_portrait_window_ids(slot, candidates)
+            legal_hint = ", ".join(legal[:20]) if legal else "none"
             errors.append(
-                f"portrait window '{choice.window_id}' source is too short to cover slot '{choice.slot_id}'"
+                f"portrait window '{choice.window_id}' source is too short: has {available} frames "
+                f"but slot '{choice.slot_id}' requires {need} frames; "
+                f"choose one of legal_window_ids: {legal_hint}"
             )
+        asset_key = _portrait_asset_key(cand)
+        if asset_key:
+            prior_slots = asset_slots.setdefault(asset_key, [])
+            if len(prior_slots) >= asset_use_cap:
+                if asset_use_cap == 1:
+                    errors.append(
+                        f"portrait asset_id '{asset_key}' is assigned to more than one slot "
+                        f"('{prior_slots[0]}' and '{choice.slot_id}'); choose a different asset"
+                    )
+                else:
+                    errors.append(
+                        f"portrait asset_id '{asset_key}' is reused more than the allowed "
+                        f"{asset_use_cap} slots (portrait assets are scarce); spread coverage "
+                        f"across the other portrait assets"
+                    )
+            prior_slots.append(choice.slot_id)
     missing = sorted(set(portrait_slots) - seen_slots)
     if missing:
         errors.append(f"portrait slots not covered: {', '.join(missing)}")
@@ -381,10 +485,13 @@ def deterministic_selection(
 ) -> EditingSelection:
     """Score-ranked default selection equivalent to the deterministic nodes.
 
-    Used when there is no real LLM provider (sandbox) or an LLM selection stays
-    invalid after repair. Asset-level uniqueness is intentionally NOT enforced
-    (issue #136): the editing-agent template may reuse a look-alike portrait, so
-    every slot simply takes the top-scored source window that can cover it.
+    Used when there is no real LLM provider (sandbox). Portrait picks honour the
+    per-asset reuse budget from ``portrait_asset_reuse_cap`` (strict one-slot when
+    assets are plentiful, balanced ceil(S/A) reuse when scarce) and always fill
+    every slot — the portrait main track must stay gap-free, so a slot is never
+    dropped: the cap is relaxed, and as a last resort the top-ranked source is
+    reused (materialize_portrait clone-pads a short source) rather than leaving a
+    hole.
     """
     portrait_slots = [s for s in (boundary.get("portrait_slots") or []) if isinstance(s, dict)]
     broll_slots = [s for s in (boundary.get("broll_slots") or []) if isinstance(s, dict)]
@@ -393,19 +500,41 @@ def deterministic_selection(
     ranked_font = _ranked_ids(candidates.font_by_id)
     ranked_bgm = _ranked_ids(candidates.bgm_by_id)
 
+    reuse_cap = portrait_asset_reuse_cap(boundary=boundary, candidates=candidates)
     portrait: list[PortraitChoice] = []
+    asset_use: dict[str, int] = {}
     for slot in portrait_slots:
-        need = int(slot.get("end_frame", 0)) - int(slot.get("start_frame", 0))
+        need = _slot_required_frames(slot)
+        # Prefer a long-enough source whose asset still has reuse budget.
         window_id = next(
             (
                 cid
                 for cid in ranked_portrait
                 if _source_frames_available(candidates.portrait_by_id[cid]) >= need
+                and asset_use.get(_portrait_asset_key(candidates.portrait_by_id[cid]), 0) < reuse_cap
             ),
-            ranked_portrait[0] if ranked_portrait else None,
+            None,
         )
         if window_id is None:
+            # Budget exhausted across every long-enough asset: relax the cap
+            # rather than strand the slot.
+            window_id = next(
+                (
+                    cid
+                    for cid in ranked_portrait
+                    if _source_frames_available(candidates.portrait_by_id[cid]) >= need
+                ),
+                None,
+            )
+        if window_id is None and ranked_portrait:
+            # No source is long enough at all: reuse the top-ranked one (clone-pad
+            # fills the remainder) — still a covered slot, never a hole.
+            window_id = ranked_portrait[0]
+        if window_id is None:
             continue
+        asset_key = _portrait_asset_key(candidates.portrait_by_id[window_id])
+        if asset_key:
+            asset_use[asset_key] = asset_use.get(asset_key, 0) + 1
         portrait.append(
             PortraitChoice(
                 slot_id=_as_str(slot.get("slot_id")),

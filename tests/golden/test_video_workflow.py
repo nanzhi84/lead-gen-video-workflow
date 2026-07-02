@@ -153,6 +153,7 @@ def test_case_run_cards_list_recent_runs_for_case():
         assert card["progress"] == 1
         assert card["canPublish"] is True
         assert card["canRetry"] is False
+        assert card["canResume"] is False
         assert "warnings" in card
 
 
@@ -209,7 +210,7 @@ def test_spec_20_2_2_broll_enabled_with_real_annotation_creates_non_empty_plan()
     with fresh_client() as active_client:
         login_admin_for(active_client)
         repo = active_client.app.state.repository
-        _annotate_broll_demo(repo, keywords=["报告", "运营", "经验"])
+        _annotate_broll_demo(repo, keywords=["Case", "Memory", "复用", "展示"])
         response = active_client.post(
             "/api/jobs/digital-human-video",
             json=video_payload(title="B-roll success", broll={"enabled": True, "max_inserts": 1}),
@@ -360,6 +361,10 @@ def test_spec_20_2_6_lipsync_timeout_can_resume_reusing_valid_prefix():
         report = run_report(active_client, failed_run["id"])
         assert report["debug_report"]["node_errors"][-1]["code"] == "provider.timeout"
         assert report["debug_report"]["node_errors"][-1]["retryable"] is True
+        listed = active_client.get("/api/cases/case_demo/runs")
+        assert listed.status_code == 200, listed.text
+        failed_card = next(item for item in listed.json()["items"] if item["runId"] == failed_run["id"])
+        assert failed_card["canResume"] is True
 
         resumed = active_client.post(
             f"/api/runs/{failed_run['id']}/resume",

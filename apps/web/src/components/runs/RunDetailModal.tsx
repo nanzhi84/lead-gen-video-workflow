@@ -13,7 +13,7 @@ import { RunConfigPanel } from "./RunConfigPanel";
 import { StageProgress } from "./StageProgress";
 import { shortId } from "../../lib/format";
 import { toDisplayUrl } from "../../lib/url";
-import { artifactLabel, buildStages, lipsyncProviderLabel, nodeLabel, severityLabel, warningLabel, type RunAction } from "./runModel";
+import { artifactLabel, buildStages, canResumeRun, lipsyncProviderLabel, nodeLabel, severityLabel, warningLabel, type RunAction } from "./runModel";
 
 export function RunDetailModal({
   isOpen,
@@ -69,10 +69,12 @@ export function RunDetailModal({
                 <RotateCw className="h-4 w-4" />
                 <span>重试</span>
               </button>
-              <button className="btn-secondary compactButton" type="button" disabled={!card.canResume} onClick={() => onAction("resume", card)}>
-                <Play className="h-4 w-4" />
-                <span>续跑</span>
-              </button>
+              {canResumeRun(card) ? (
+                <button className="btn-secondary compactButton" type="button" onClick={() => onAction("resume", card)}>
+                  <Play className="h-4 w-4" />
+                  <span>续跑</span>
+                </button>
+              ) : null}
               <button className="btn-secondary compactButton" type="button" disabled={isProcessingStatus(card.status)} onClick={() => onAction("delete", card)}>
                 <Trash2 className="h-4 w-4" />
                 <span>删记录</span>

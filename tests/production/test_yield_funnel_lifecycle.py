@@ -15,12 +15,15 @@ prove the dependency-rule fix: digital_human imports the helper from
 from __future__ import annotations
 
 from packages.core.contracts import (
+    ArtifactKind,
     DigitalHumanVideoRequest,
     ErrorCode,
     Job,
     JobStatus,
     JobType,
     NodeStatus,
+    ProviderInvocation,
+    ProviderStatus,
     RunStatus,
 )
 from packages.core.observability import FUNNEL_TAXONOMY
@@ -170,3 +173,42 @@ def test_node_failure_emits_node_failed_not_workflow_failed():
     failed = next(e for e in adapter.repository.yield_events.values() if e.event_type == "node_failed")
     assert failed.run_id == run.id
     assert failed.dedupe_key.endswith(":node_failed")
+
+
+def test_node_failure_persists_provider_invocations_and_debug_artifacts():
+    adapter, run, _ = _adapter_with_run(RunStatus.running)
+    state = RunState(request=_request())
+
+    def boom(_node_id, run_arg, node_run, _state_arg):
+        artifact = adapter.repository.create_artifact(
+            kind=ArtifactKind.provider_raw_response,
+            payload_schema="TestProviderRawResponse.v1",
+            payload={"raw": "model output"},
+            case_id=run_arg.case_id,
+            run_id=run_arg.id,
+            node_run_id=node_run.id,
+        )
+        adapter.repository.provider_invocations["pinv_failed_node"] = ProviderInvocation(
+            id="pinv_failed_node",
+            case_id=run_arg.case_id,
+            run_id=run_arg.id,
+            node_run_id=node_run.id,
+            provider_id="dashscope.llm",
+            model_id="qwen-plus",
+            provider_profile_id="dashscope.llm.prod",
+            capability_id="llm.chat",
+            status=ProviderStatus.succeeded,
+            response_artifact_id=artifact.id,
+        )
+        raise NodeExecutionError(ErrorCode.prompt_output_invalid, "bad model output")
+
+    adapter._run_node = boom  # type: ignore[method-assign]
+    proceeded = adapter._execute_node("ValidateRequest", run, state)
+
+    assert proceeded is False
+    failed_node = adapter.repository.node_runs[run.id][-1]
+    assert failed_node.status == NodeStatus.failed
+    assert failed_node.provider_invocation_ids == ["pinv_failed_node"]
+    assert len(failed_node.output_artifact_ids) == 1
+    debug_report = adapter.repository.artifacts[adapter.repository.runs[run.id].debug_report_artifact_id]
+    assert debug_report.payload["provider_invocation_ids"] == ["pinv_failed_node"]

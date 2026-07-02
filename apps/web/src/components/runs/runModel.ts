@@ -57,6 +57,10 @@ export type PendingAction = {
   run: RunCard;
 };
 
+export function canResumeRun(run: RunCard) {
+  return run.status === "failed" && run.canResume;
+}
+
 export function connectionLabel(state: string) {
   if (state === "live") return "实时连接中";
   if (state === "connecting") return "正在连接";

@@ -100,7 +100,9 @@ class _FakeSeedSession:
 
 def test_seed_database_syncs_legacy_editing_agent_prompt_contract():
     current = next(
-        row for row in seed_rows() if isinstance(row, PromptVersionRow) and row.id == "prompt_editing_agent_v1"
+        row
+        for row in seed_rows()
+        if isinstance(row, PromptVersionRow) and row.id == "prompt_editing_agent_v1"
     )
     legacy = PromptVersionRow(
         id="prompt_editing_agent_v1",
@@ -117,3 +119,28 @@ def test_seed_database_syncs_legacy_editing_agent_prompt_contract():
     assert legacy.content == current.content
     assert "{asr_segments}" not in legacy.content
     assert "{narration_units}" in legacy.content
+
+
+def test_seed_database_syncs_editing_agent_prompt_missing_slot_constraints():
+    current = next(
+        row
+        for row in seed_rows()
+        if isinstance(row, PromptVersionRow) and row.id == "prompt_editing_agent_v1"
+    )
+    stale = PromptVersionRow(
+        id="prompt_editing_agent_v1",
+        prompt_template_id="prompt_editing_agent",
+        content=current.content.replace("legal_window_ids", "candidate_ids")
+        .replace("available_frames", "duration_frames")
+        .replace("同一个 asset_id 最多只能", "允许重复使用同一素材，同一个 asset_id 可以"),
+        status="published",
+    )
+    session = _FakeSeedSession([stale])
+
+    inserted = seed_database(session, rows=[current])
+
+    assert inserted == 0
+    assert stale.content == current.content
+    assert "legal_window_ids" in stale.content
+    assert "available_frames" in stale.content
+    assert "允许重复使用同一素材" not in stale.content

@@ -50,6 +50,19 @@ def test_tail_snaps_to_nearby_portrait_cut_and_records_pad():
     assert round(r.pad_end, 3) == 0.1
 
 
+def test_tail_residual_over_pad_cap_is_not_absorbed_by_snap():
+    # A 9-frame / 0.3s tail residual is inside the coarse 15-frame cut window, but
+    # outside the 0.15s clone-pad cap. Alignment must not silently widen that cap.
+    [r] = align_insertions_to_portrait_cuts(
+        [_ins(22.267, 23.833, 0.04, 1.6)],
+        fps=30,
+        portrait_cut_frames=[488, 724, 816],
+    )
+    assert (r.timeline_start_frame, r.timeline_end_frame) == (668, 715)
+    assert (r.source_start_frame, r.source_end_frame) == (1, 48)
+    assert round(r.pad_end, 3) == 0.0
+
+
 def test_head_residual_absorbed_with_pad_when_safe():
     [r] = align_insertions_to_portrait_cuts(
         [_ins(0.1, 8.0, 5.0, 12.9)], fps=30, portrait_cut_frames=[0, 300]
@@ -70,10 +83,10 @@ def test_head_and_tail_cover_whole_shot_with_safe_pads():
     assert round(r.pad_end, 3) == 0.1
 
 
-def test_short_residual_not_snapped_when_required_pad_exceeds_cap():
-    # Head residual of 60 frames (2.0s) would need 2.0s of clone-pad — far over the
-    # 0.15s cap — so the boundary stays at its quantized seconds position, no snap,
-    # no pad. Frames are still populated (authoritative) straight from seconds.
+def test_short_residual_not_snapped_when_required_pad_exceeds_snap_window():
+    # Head residual of 60 frames (2.0s) is a visible portrait window, far outside the
+    # 15-frame snap window, so the boundary stays at its quantized seconds position.
+    # Frames are still populated (authoritative) straight from seconds.
     [r] = align_insertions_to_portrait_cuts(
         [_ins(2.0, 5.0, 5.0, 8.0)],
         fps=30,
@@ -183,8 +196,8 @@ def test_plan_insertions_emits_frame_aligned_inserts_when_grid_supplied():
     units = [
         NarrationUnit(unit_id="u1", text="先讲解补漆效果对比。", start=0.0, end=5.0, confidence=1.0),
     ]
-    candidates = [_candidate(0.0, 4.0)]
-    # Portrait cut a few frames after where the insert would naturally end.
+    candidates = [_candidate(0.0, 3.0)]
+    # The insert leaves a visible 2s portrait tail, so it is legal without snap.
     insertions = plan_insertions(
         candidates=candidates,
         units=units,
@@ -199,6 +212,142 @@ def test_plan_insertions_emits_frame_aligned_inserts_when_grid_supplied():
     assert ins.source_start_frame is not None
     assert ins.source_end_frame is not None
     assert ins.timeline_end_frame > ins.timeline_start_frame
+
+
+def test_plan_insertions_rejects_unsnappable_short_portrait_sliver():
+    # Regression for run_39b847fc619b: the raw B-roll would end 9 frames before the
+    # portrait cut, leaving a 0.3s A-roll flash. That is too far for the 0.15s snap
+    # cap and too short to be a visible 2s portrait interval, so the candidate is
+    # rejected at planning time.
+    units = [
+        NarrationUnit(
+            unit_id="u1",
+            text="划个痕，就要全车重喷？",
+            start=22.267,
+            end=23.833,
+            confidence=1.0,
+        ),
+    ]
+    beat = ScriptSegment(text=units[0].text, start=22.267, end=23.833, keywords=("划痕",))
+    candidate = BrollCandidate(
+        asset_id="asset_flash",
+        clip_id="flash_clip",
+        score=90.0,
+        base_score=90.0,
+        recency_penalty=0.0,
+        matched_keywords=("划痕",),
+        scene_name="product",
+        source_start=0.04,
+        source_end=1.6,
+        diversity_key="product_showcase",
+        best_segment=beat,
+    )
+
+    insertions = plan_insertions(
+        candidates=[candidate],
+        units=units,
+        max_inserts=1,
+        fps=30,
+        portrait_cut_frames=[488, 724, 816],
+    )
+
+    assert insertions == []
+
+
+def test_plan_insertions_repositions_candidate_to_avoid_short_portrait_sliver():
+    # The semantic anchor at 2.7s would place a 2s insert at 2.7-4.7, leaving a
+    # 0.3s tail before the portrait cut at 5.0. The planner should keep the
+    # candidate by moving it to the legal in-window position 3.0-5.0 instead of
+    # widening the 0.15s snap cap or dropping the usable B-roll.
+    units = [
+        NarrationUnit(
+            unit_id="u1",
+            text="最后展示报告效果。",
+            start=0.0,
+            end=5.0,
+            confidence=1.0,
+        ),
+    ]
+    beat = ScriptSegment(text=units[0].text, start=2.7, end=5.0, keywords=("报告",))
+    candidate = BrollCandidate(
+        asset_id="asset_report",
+        clip_id="report_clip",
+        score=90.0,
+        base_score=90.0,
+        recency_penalty=0.0,
+        matched_keywords=("报告",),
+        scene_name="report",
+        source_start=0.0,
+        source_end=2.0,
+        diversity_key="report",
+        best_segment=beat,
+    )
+
+    [insertion] = plan_insertions(
+        candidates=[candidate],
+        units=units,
+        max_inserts=1,
+        fps=30,
+        portrait_cut_frames=[0, 150],
+    )
+
+    assert (insertion.timeline_start_frame, insertion.timeline_end_frame) == (90, 150)
+    assert round(insertion.pad_end, 3) == 0.0
+
+
+def test_plan_insertions_prefers_distinct_diversity_keys_within_run():
+    units = [
+        NarrationUnit(unit_id="u1", text="先展示品牌漆。", start=0.0, end=3.0, confidence=1.0),
+        NarrationUnit(unit_id="u2", text="再展示施工环境。", start=4.0, end=7.0, confidence=1.0),
+    ]
+    first_beat = ScriptSegment(text=units[0].text, start=0.0, end=3.0, keywords=("品牌",))
+    second_beat = ScriptSegment(text=units[1].text, start=4.0, end=7.0, keywords=("施工",))
+    candidates = [
+        BrollCandidate(
+            asset_id="asset_product_a",
+            clip_id="product_a",
+            score=90.0,
+            base_score=90.0,
+            recency_penalty=0.0,
+            matched_keywords=("品牌",),
+            scene_name="product",
+            source_start=0.0,
+            source_end=2.0,
+            diversity_key="product_showcase",
+            best_segment=first_beat,
+        ),
+        BrollCandidate(
+            asset_id="asset_product_b",
+            clip_id="product_b",
+            score=89.0,
+            base_score=89.0,
+            recency_penalty=0.0,
+            matched_keywords=("施工",),
+            scene_name="product",
+            source_start=0.0,
+            source_end=2.0,
+            diversity_key="product_showcase",
+            best_segment=second_beat,
+        ),
+        BrollCandidate(
+            asset_id="asset_workshop",
+            clip_id="workshop",
+            score=70.0,
+            base_score=70.0,
+            recency_penalty=0.0,
+            matched_keywords=("施工",),
+            scene_name="workshop",
+            source_start=0.0,
+            source_end=2.0,
+            diversity_key="workshop",
+            best_segment=second_beat,
+        ),
+    ]
+
+    insertions = plan_insertions(candidates=candidates, units=units, max_inserts=2)
+
+    assert [ins.asset_id for ins in insertions] == ["asset_product_a", "asset_workshop"]
+    assert {ins.diversity_key for ins in insertions} == {"product_showcase", "workshop"}
 
 
 def test_plan_insertions_leaves_frames_none_without_grid_context():

@@ -19,7 +19,13 @@ from sqlalchemy.orm import sessionmaker
 from packages.core.contracts import (
     ArtifactKind,
     ArtifactRef,
+    DigitalHumanVideoRequest,
     FinishedVideo,
+    Job,
+    JobStatus,
+    JobType,
+    RunStatus,
+    WorkflowRun,
     utcnow,
 )
 from packages.core.observability.funnel import (
@@ -29,10 +35,13 @@ from packages.core.observability.funnel import (
 from packages.core.storage.database import (
     FinishedVideoRow,
     JobRow,
+    SelectionReservationRow,
     UserRow,
     WorkflowRunRow,
     YieldFunnelEventRow,
 )
+from packages.core.storage import Repository
+from packages.production import SqlAlchemyProductionRepository
 
 
 sqlite3.register_adapter(dict, json.dumps)
@@ -57,6 +66,7 @@ def _session_factory():
         WorkflowRunRow.__table__,
         FinishedVideoRow.__table__,
         YieldFunnelEventRow.__table__,
+        SelectionReservationRow.__table__,
     ):
         table.create(engine)
     return sessionmaker(bind=engine, expire_on_commit=False)
@@ -183,6 +193,69 @@ def test_finished_video_contract_carries_owner_user_id():
         owner_user_id="usr_carol",
     )
     assert finished.owner_user_id == "usr_carol"
+
+
+def test_sync_workflow_snapshot_backfills_finished_video_owner_from_run_job():
+    factory = _session_factory()
+    owner = "usr_frank"
+    with factory() as session:
+        session.add(
+            UserRow(
+                id=owner,
+                email=f"{owner}@example.com",
+                display_name=owner,
+                password_hash="x",
+                role="operator",
+                status="active",
+            )
+        )
+        session.commit()
+
+    job = Job(
+        id="job_sync",
+        type=JobType.digital_human_video,
+        status=JobStatus.succeeded,
+        case_id="case_1",
+        created_by=owner,
+        request_schema="DigitalHumanVideoRequest.v1",
+        request=DigitalHumanVideoRequest(
+            case_id="case_1",
+            script="hello",
+            voice={"voice_id": "voice_sandbox"},
+        ),
+    )
+    run = WorkflowRun(
+        id="run_sync",
+        job_id=job.id,
+        case_id="case_1",
+        workflow_template_id="digital_human_v2",
+        workflow_version="1",
+        status=RunStatus.succeeded,
+        requested_by=owner,
+    )
+    runtime = Repository()
+    runtime.finished_videos["fv_sync"] = FinishedVideo(
+        id="fv_sync",
+        case_id="case_1",
+        run_id=run.id,
+        title="t",
+        video_artifact=ArtifactRef(
+            artifact_id="art_1", kind=ArtifactKind.video_finished, uri="s3://x"
+        ),
+        owner_user_id=None,
+    )
+
+    SqlAlchemyProductionRepository(factory).sync_workflow_snapshot(
+        job=job,
+        run=run,
+        repository=runtime,
+    )
+
+    with factory() as session:
+        row = session.get(FinishedVideoRow, "fv_sync")
+        assert row is not None
+        assert row.owner_user_id == owner
+    assert runtime.finished_videos["fv_sync"].owner_user_id == owner
 
 
 def test_export_node_sets_owner_from_run_requested_by():

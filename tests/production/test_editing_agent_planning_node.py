@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from packages.ai.gateway import ProviderGateway
+from packages.ai.gateway import ProviderGateway, ProviderResult
 from packages.ai.prompts import PromptRegistry
 from packages.core.contracts import (
     Artifact,
@@ -23,6 +23,8 @@ from packages.core.contracts import (
     ErrorCode,
     NodeRun,
     NodeStatus,
+    ProviderOptionsSchemaRef,
+    ProviderProfile,
     RunStatus,
     WarningCode,
     WorkflowRun,
@@ -38,6 +40,17 @@ from packages.production.pipeline.digital_human import LocalRuntimeAdapter
 SCRIPT = "今天带你看一下这套案例。第一步先看施工前的样子。"
 
 
+class _FakeEditingLlmProvider:
+    provider_id = "fake.llm"
+
+    def __init__(self, outputs: list[dict]) -> None:
+        self.outputs = list(outputs)
+
+    def invoke(self, _call):
+        output = self.outputs.pop(0)
+        return ProviderResult(output=output, input_tokens=100, output_tokens=20)
+
+
 def _adapter(tmp_path) -> LocalRuntimeAdapter:
     repository = Repository()
     object_store = LocalObjectStore(root=tmp_path)
@@ -45,6 +58,18 @@ def _adapter(tmp_path) -> LocalRuntimeAdapter:
         repository,
         provider_gateway=ProviderGateway(repository, object_store=object_store),
         prompt_registry=PromptRegistry(repository),
+    )
+
+
+def _seed_fake_llm_profile(adapter: LocalRuntimeAdapter) -> None:
+    adapter.repository.provider_profiles["fake.llm.prod"] = ProviderProfile(
+        id="fake.llm.prod",
+        provider_id="fake.llm",
+        model_id="qwen-plus",
+        capability="llm.chat",
+        display_name="Fake LLM",
+        environment="prod",
+        options_schema_ref=ProviderOptionsSchemaRef(schema_id="provider.llm.options"),
     )
 
 
@@ -289,7 +314,7 @@ def test_no_provider_without_sandbox_fallback_fails_fast(monkeypatch, tmp_path):
     assert exc.value.error.code == ErrorCode.provider_unsupported_option
 
 
-def test_llm_path_unwraps_intent_wrapped_output(monkeypatch, tmp_path):
+def test_llm_path_repairs_reused_portrait_asset(monkeypatch, tmp_path):
     """Real provider path: DashScope-style output nests the selection under
     ``output['intent']``; the node must unwrap it, honour the LLM's ID choices, and
     NOT burn repair attempts. Regression for the intent-unwrap blocker that the
@@ -301,7 +326,7 @@ def test_llm_path_unwraps_intent_wrapped_output(monkeypatch, tmp_path):
         "first_available",
         lambda capability, *, include_sandbox=True: fake_profile,
     )
-    selection = {
+    duplicate_selection = {
         "portrait_plan": [
             {"slot_id": "pslot_000", "window_id": "pc_001"},
             {"slot_id": "pslot_001", "window_id": "pc_001"},
@@ -318,13 +343,22 @@ def test_llm_path_unwraps_intent_wrapped_output(monkeypatch, tmp_path):
         "bgm_plan": {"bgm_id": "bgm_001"},
         "analysis": "统一穿搭",
     }
+    repaired_selection = {
+        **duplicate_selection,
+        "portrait_plan": [
+            {"slot_id": "pslot_000", "window_id": "pc_001"},
+            {"slot_id": "pslot_001", "window_id": "pc_000"},
+        ],
+    }
     calls = []
+    outputs = iter([duplicate_selection, repaired_selection])
 
     def fake_invoke(call):
         calls.append(call)
+        invocation_id = f"inv_{len(calls)}"
         return (
-            SimpleNamespace(id="inv_1", error=None),
-            SimpleNamespace(output={"content": "...", "intent": selection}),
+            SimpleNamespace(id=invocation_id, error=None),
+            SimpleNamespace(output={"content": "...", "intent": next(outputs)}),
         )
 
     monkeypatch.setattr(adapter.provider_gateway, "invoke", fake_invoke)
@@ -332,10 +366,47 @@ def test_llm_path_unwraps_intent_wrapped_output(monkeypatch, tmp_path):
     output = _run_node(adapter, _state())
 
     assert output.status == NodeStatus.succeeded  # real LLM path, no fallback degradation
-    assert output.provider_invocation_ids == ["inv_1"]  # exactly one call — no repair burn
-    assert len(calls) == 1
+    assert output.provider_invocation_ids == ["inv_1", "inv_2"]
+    assert len(calls) == 2
     diagnostics = _payload(output, ArtifactKind.plan_editing_diagnostics)
     assert diagnostics["mode"] == "llm"
-    # LLM chose pc_001 (portrait_b) for BOTH slots — honoured, asset-uniqueness relaxed.
+    assert diagnostics["repair_trace"][0]["error_count"] == 1
+    assert "more than one slot" in diagnostics["repair_trace"][0]["errors"][0]
     portrait = _payload(output, ArtifactKind.plan_portrait)
-    assert [seg["asset_id"] for seg in portrait["segments"]] == ["portrait_b", "portrait_b"]
+    assert [seg["asset_id"] for seg in portrait["segments"]] == ["portrait_b", "portrait_a"]
+
+
+def test_llm_invalid_selection_records_raw_artifacts_before_fail_fast(tmp_path):
+    adapter = _adapter(tmp_path)
+    _seed_fake_llm_profile(adapter)
+    adapter.provider_gateway.register(
+        _FakeEditingLlmProvider(
+            [
+                {"intent": {"portrait_plan": [{"slot_id": "pslot_000", "window_id": "pc_999"}]}},
+                {"intent": {"portrait_plan": [{"slot_id": "pslot_000", "window_id": "pc_999"}]}},
+            ]
+        )
+    )
+
+    with pytest.raises(NodeExecutionError) as exc:
+        _run_node(adapter, _state())
+
+    assert exc.value.error.code == ErrorCode.prompt_output_invalid
+    invocations = list(adapter.repository.provider_invocations.values())
+    assert len(invocations) == 2
+    assert all(inv.request_artifact_id for inv in invocations)
+    assert all(inv.response_artifact_id for inv in invocations)
+    raw_requests = [
+        artifact
+        for artifact in adapter.repository.artifacts.values()
+        if artifact.kind == ArtifactKind.provider_raw_request
+    ]
+    raw_responses = [
+        artifact
+        for artifact in adapter.repository.artifacts.values()
+        if artifact.kind == ArtifactKind.provider_raw_response
+    ]
+    assert len(raw_requests) == 2
+    assert len(raw_responses) == 2
+    assert "legal_window_ids" in raw_requests[0].payload["prompt"]
+    assert raw_responses[-1].payload["output"]["intent"]["portrait_plan"][0]["window_id"] == "pc_999"

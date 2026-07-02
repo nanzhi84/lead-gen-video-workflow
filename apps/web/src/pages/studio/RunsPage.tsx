@@ -14,6 +14,7 @@ import {
   confirmMessage,
   confirmTitle,
   connectionLabel,
+  canResumeRun,
   type PendingAction,
 } from "../../components/runs/runModel";
 import { useToast } from "../../components/ui/Toast";
@@ -244,15 +245,16 @@ export default function RunsPage() {
                       >
                         <RotateCw className="h-4 w-4" />
                       </button>
-                      <button
-                        className="rounded-lg p-2 text-text-tertiary hover:bg-surface hover:text-text-primary"
-                        type="button"
-                        disabled={!run.canResume}
-                        onClick={() => setPendingAction({ type: "resume", run })}
-                        title="续跑"
-                      >
-                        <Play className="h-4 w-4" />
-                      </button>
+                      {canResumeRun(run) ? (
+                        <button
+                          className="rounded-lg p-2 text-text-tertiary hover:bg-surface hover:text-text-primary"
+                          type="button"
+                          onClick={() => setPendingAction({ type: "resume", run })}
+                          title="续跑"
+                        >
+                          <Play className="h-4 w-4" />
+                        </button>
+                      ) : null}
                       <button
                         className="rounded-lg p-2 text-text-tertiary hover:bg-status-error/10 hover:text-status-error"
                         type="button"

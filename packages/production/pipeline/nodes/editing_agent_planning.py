@@ -24,11 +24,13 @@ import json
 from packages.ai.gateway import ProviderCall
 from packages.core.config.settings import sandbox_fallback_allowed
 from packages.core.contracts import (
+    Artifact,
     ArtifactKind,
     DegradationNotice,
     ErrorCode,
     NodeStatus,
     WarningCode,
+    utcnow,
 )
 from packages.core.workflow import NodeExecutionError, NodeOutput
 from packages.production.pipeline._editing_agent import (
@@ -61,6 +63,10 @@ _JSON_VARS = frozenset(
 )
 
 
+def _enum_value(value) -> str:
+    return value.value if hasattr(value, "value") else str(value)
+
+
 def _prompt_variables(agent_input: dict, previous_errors: list[str]) -> dict:
     variables = {
         key: (json.dumps(value, ensure_ascii=False) if key in _JSON_VARS else str(value))
@@ -73,6 +79,76 @@ def _prompt_variables(agent_input: dict, previous_errors: list[str]) -> dict:
         else ""
     )
     return variables
+
+
+def _record_llm_request_artifact(
+    *,
+    ctx: NodeContext,
+    profile,
+    prompt_invocation,
+    rendered_prompt: str,
+    attempt: int,
+    previous_errors: list[str],
+) -> Artifact:
+    payload = {
+        "capability_id": "llm.chat",
+        "provider_profile_id": profile.id,
+        "provider_id": getattr(profile, "provider_id", None),
+        "model_id": getattr(profile, "model_id", None),
+        "prompt_version_id": prompt_invocation.prompt_version_id,
+        "prompt_invocation_id": prompt_invocation.id,
+        "attempt": attempt,
+        "repair_errors": list(previous_errors),
+        "prompt": rendered_prompt,
+    }
+    return ctx.artifact(
+        ArtifactKind.provider_raw_request,
+        payload,
+        "EditingAgentLlmRequestSnapshot.v1",
+    )
+
+
+def _record_llm_response_artifact(
+    *,
+    ctx: NodeContext,
+    invocation,
+    result,
+    attempt: int,
+) -> Artifact:
+    payload = {
+        "capability_id": "llm.chat",
+        "provider_invocation_id": invocation.id,
+        "provider_profile_id": getattr(invocation, "provider_profile_id", None),
+        "provider_id": getattr(invocation, "provider_id", None),
+        "model_id": getattr(invocation, "model_id", None),
+        "prompt_version_id": getattr(invocation, "prompt_version_id", None),
+        "attempt": attempt,
+        "status": _enum_value(getattr(invocation, "status", "unknown")),
+        "error": getattr(invocation, "error", None).model_dump(mode="json")
+        if getattr(invocation, "error", None)
+        else None,
+        "output": result.output if result is not None else None,
+    }
+    return ctx.artifact(
+        ArtifactKind.provider_raw_response,
+        payload,
+        "EditingAgentLlmResponseSnapshot.v1",
+    )
+
+
+def _attach_provider_artifacts(
+    *, ctx: NodeContext, invocation_id: str, request_artifact: Artifact, response_artifact: Artifact
+) -> None:
+    current = ctx.repository.provider_invocations.get(invocation_id)
+    if current is None:
+        return
+    ctx.repository.provider_invocations[invocation_id] = current.model_copy(
+        update={
+            "request_artifact_id": request_artifact.id,
+            "response_artifact_id": response_artifact.id,
+            "updated_at": utcnow(),
+        }
+    )
 
 
 def run(ctx: NodeContext) -> NodeOutput:
@@ -136,6 +212,14 @@ def run(ctx: NodeContext) -> NodeOutput:
                 node_run_id=node_run.id,
                 provider_profile_id=profile.id,
             )
+            request_artifact = _record_llm_request_artifact(
+                ctx=ctx,
+                profile=profile,
+                prompt_invocation=prompt_invocation,
+                rendered_prompt=rendered,
+                attempt=attempt,
+                previous_errors=previous_errors,
+            )
             invocation, result = ctx.provider_gateway.invoke(
                 ProviderCall(
                     case_id=run.case_id,
@@ -147,6 +231,18 @@ def run(ctx: NodeContext) -> NodeOutput:
                     input={"prompt": rendered},
                     idempotency_key=f"{run.id}:{node_run.id}:editing_agent:{attempt}",
                 )
+            )
+            response_artifact = _record_llm_response_artifact(
+                ctx=ctx,
+                invocation=invocation,
+                result=result,
+                attempt=attempt,
+            )
+            _attach_provider_artifacts(
+                ctx=ctx,
+                invocation_id=invocation.id,
+                request_artifact=request_artifact,
+                response_artifact=response_artifact,
             )
             if result is None or invocation.error:
                 raise NodeExecutionError(

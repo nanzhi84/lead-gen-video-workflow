@@ -885,10 +885,25 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
             error = exc.error.model_copy(
                 update={"job_id": job.id, "run_id": run.id, "node_run_id": node_run.id}
             )
+            failed_provider_invocation_ids = [
+                invocation.id
+                for invocation in self.repository.provider_invocations.values()
+                if invocation.run_id == run.id and invocation.node_run_id == node_run.id
+            ]
+            failed_output_artifact_ids = [
+                artifact.id
+                for artifact in self.repository.artifacts.values()
+                if artifact.run_id == run.id and artifact.node_run_id == node_run.id
+            ]
+            for invocation_id in failed_provider_invocation_ids:
+                if invocation_id not in state.provider_invocation_ids:
+                    state.provider_invocation_ids.append(invocation_id)
             failed_node = node_run.model_copy(
                 update={
                     "status": NodeStatus.failed,
                     "error": error,
+                    "output_artifact_ids": failed_output_artifact_ids,
+                    "provider_invocation_ids": failed_provider_invocation_ids,
                     "finished_at": utcnow(),
                     "updated_at": utcnow(),
                 }

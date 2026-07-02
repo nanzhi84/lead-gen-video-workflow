@@ -203,7 +203,26 @@ def test_index_and_build_agent_input_number_candidates():
     assert payload["video_duration"] == 12.0
     assert [c["candidate_id"] for c in payload["portrait_candidates"]] == ["pc_000", "pc_001"]
     assert payload["portrait_candidates"][0]["source_end"] == 20.0
+    assert payload["portrait_candidates"][0]["available_frames"] == 600
+    assert payload["portrait_slots"][0]["required_frames"] == 180
+    assert payload["portrait_slots"][0]["required_seconds"] == 6.0
+    assert payload["portrait_slots"][0]["legal_window_ids"] == ["pc_000", "pc_001"]
     assert payload["max_broll_inserts"] == 4
+
+
+def test_agent_input_marks_short_portraits_illegal_per_slot():
+    payload = build_agent_input(
+        request=_request(),
+        boundary=_boundary(),
+        candidates=index_candidates(_material(short_portrait=True)),
+        narration_units=[],
+        duration=12.0,
+    )
+
+    assert payload["portrait_candidates"][1]["available_frames"] == 60
+    assert payload["portrait_slots"][0]["required_frames"] == 180
+    assert payload["portrait_slots"][0]["legal_window_ids"] == ["pc_000"]
+    assert payload["portrait_slots"][1]["legal_window_ids"] == ["pc_000"]
 
 
 def test_valid_selection_passes_validation():
@@ -247,6 +266,23 @@ def test_short_source_window_is_rejected():
         selection, boundary=_boundary(), candidates=candidates, bgm_enabled=False
     )
     assert any("too short" in e for e in errors)
+    assert any("requires 180 frames" in e and "pc_000" in e for e in errors)
+
+
+def test_reusing_same_portrait_asset_is_rejected():
+    candidates = index_candidates(_material())
+    selection = EditingSelection(
+        portrait=[
+            PortraitChoice(slot_id="pslot_000", window_id="pc_000"),
+            PortraitChoice(slot_id="pslot_001", window_id="pc_000"),
+        ]
+    )
+
+    errors = validate_selection(
+        selection, boundary=_boundary(), candidates=candidates, bgm_enabled=False
+    )
+
+    assert any("asset_id 'portrait_a' is assigned to more than one slot" in e for e in errors)
 
 
 def test_deterministic_selection_is_valid_and_covers_all_slots():
@@ -256,8 +292,7 @@ def test_deterministic_selection_is_valid_and_covers_all_slots():
         boundary=boundary, candidates=candidates, bgm_enabled=True, max_inserts=4
     )
     assert {c.slot_id for c in selection.portrait} == {"pslot_000", "pslot_001"}
-    # top-scored portrait (portrait_a=pc_000) chosen for every slot (uniqueness relaxed)
-    assert all(c.window_id == "pc_000" for c in selection.portrait)
+    assert [c.window_id for c in selection.portrait] == ["pc_000", "pc_001"]
     assert selection.font_id == "font_yst"
     assert selection.bgm_id == "bgm_001"
     assert (

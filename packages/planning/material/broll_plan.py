@@ -23,7 +23,8 @@ _MAX_INSERT_SECONDS = 4.0
 # downstream production helper ``_timeline_grid.align_broll_to_portrait_cuts`` so the
 # frame-grid constraint is enforced at plan time, not patched after the fact:
 #  - SNAP_MAX_FRAMES: largest portrait sliver (in frames) a b-roll boundary may snap
-#    across to land on the cut;
+#    across to land on the cut. The pad cap below is also enforced, so the effective
+#    snap window is the stricter of the frame window and the seconds cap;
 #  - MIN_VISIBLE_AROLL_SECONDS: a portrait sliver shorter than this is "too short to
 #    read" -> snap it away; longer -> leave the real portrait visible;
 #  - MAX_PAD_SECONDS: the snap may extend the timeline window by at most this much of
@@ -230,6 +231,17 @@ def _passes_diversity_phase(
     if phase == 2:
         return not same_diversity
     return True
+
+
+def _is_reused_candidate(
+    candidate: BrollCandidate,
+    *,
+    used_clips: set[tuple[str, str]],
+    used_diversity_keys: set[str],
+) -> bool:
+    if (candidate.asset_id, candidate.clip_id) in used_clips:
+        return True
+    return bool(candidate.diversity_key) and candidate.diversity_key in used_diversity_keys
 
 
 def _has_usable_span(
@@ -493,6 +505,216 @@ def align_insertions_to_portrait_cuts(
     return aligned
 
 
+def _portrait_windows_from_cuts(portrait_cut_frames: Sequence[int]) -> list[tuple[int, int]]:
+    cuts = sorted({int(frame) for frame in portrait_cut_frames})
+    return [(start, end) for start, end in zip(cuts, cuts[1:]) if end > start]
+
+
+def _resolved_min_visible_residual_frames(
+    *,
+    fps: int,
+    min_visible_residual_frames: int | None,
+) -> int:
+    return (
+        max(0, int(min_visible_residual_frames))
+        if min_visible_residual_frames is not None
+        else _seconds_to_frame(BROLL_MIN_VISIBLE_AROLL_SECONDS, fps)
+    )
+
+
+def _frame_bounds(ins: BrollInsertion, *, fps: int) -> tuple[int, int]:
+    start = (
+        int(ins.timeline_start_frame)
+        if ins.timeline_start_frame is not None
+        else _seconds_to_frame(ins.timeline_start, fps)
+    )
+    end = (
+        int(ins.timeline_end_frame)
+        if ins.timeline_end_frame is not None
+        else _seconds_to_frame(ins.timeline_end, fps)
+    )
+    return start, end
+
+
+def _has_short_visible_portrait_gap(
+    insertions: Sequence[BrollInsertion],
+    *,
+    fps: int,
+    portrait_cut_frames: Sequence[int],
+    min_visible_residual_frames: int | None,
+) -> bool:
+    """Return True when b-roll creates an unsnappable, too-short A-roll sliver.
+
+    The policy has two legal shapes:
+      - leave at least ``BROLL_MIN_VISIBLE_AROLL_SECONDS`` of portrait visible; or
+      - land close enough to a portrait cut for ``align_insertions_to_portrait_cuts``
+        to snap and clone-pad within ``BROLL_MAX_PAD_SECONDS``.
+
+    After alignment, any remaining visible portrait gap shorter than the minimum is
+    therefore an illegal flash/sliver and the candidate should be skipped at planning
+    time instead of relying on the renderer to hide it.
+    """
+    windows = _portrait_windows_from_cuts(portrait_cut_frames)
+    if not insertions or not windows:
+        return False
+    residual_limit = _resolved_min_visible_residual_frames(
+        fps=fps,
+        min_visible_residual_frames=min_visible_residual_frames,
+    )
+    if residual_limit <= 0:
+        return False
+
+    frame_bounds = [_frame_bounds(ins, fps=fps) for ins in insertions]
+    for portrait_start, portrait_end in windows:
+        overlaps: list[tuple[int, int]] = []
+        for start, end in frame_bounds:
+            clipped_start = max(portrait_start, start)
+            clipped_end = min(portrait_end, end)
+            if clipped_end > clipped_start:
+                overlaps.append((clipped_start, clipped_end))
+        if not overlaps:
+            continue
+
+        overlaps.sort()
+        merged: list[tuple[int, int]] = []
+        for start, end in overlaps:
+            if not merged or start > merged[-1][1]:
+                merged.append((start, end))
+            else:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+
+        cursor = portrait_start
+        for start, end in merged:
+            gap = start - cursor
+            if 0 < gap < residual_limit:
+                return True
+            cursor = max(cursor, end)
+        tail_gap = portrait_end - cursor
+        if 0 < tail_gap < residual_limit:
+            return True
+    return False
+
+
+def _align_insertions_to_grid_if_safe(
+    insertions: Sequence[BrollInsertion],
+    *,
+    fps: int | None,
+    portrait_cut_frames: Sequence[int] | None,
+    min_visible_residual_frames: int | None,
+) -> list[BrollInsertion] | None:
+    ordered = sorted(insertions, key=lambda ins: ins.timeline_start)
+    if fps is None or portrait_cut_frames is None:
+        return ordered
+
+    aligned = align_insertions_to_portrait_cuts(
+        ordered,
+        fps=fps,
+        portrait_cut_frames=portrait_cut_frames,
+        min_visible_residual_frames=min_visible_residual_frames,
+    )
+    if _has_short_visible_portrait_gap(
+        aligned,
+        fps=fps,
+        portrait_cut_frames=portrait_cut_frames,
+        min_visible_residual_frames=min_visible_residual_frames,
+    ):
+        return None
+    return aligned
+
+
+def _timeline_start_variants(
+    insert: BrollInsertion,
+    *,
+    start: float,
+    host_end: float,
+    fps: int | None,
+    portrait_cut_frames: Sequence[int] | None,
+    min_visible_residual_frames: int | None,
+) -> list[BrollInsertion]:
+    length = round(insert.timeline_end - insert.timeline_start, 6)
+    latest_start = round(host_end - length, 6)
+    if length <= 0 or latest_start < start:
+        return [insert]
+    if fps is None or portrait_cut_frames is None:
+        return [insert]
+
+    residual_frames = _resolved_min_visible_residual_frames(
+        fps=fps,
+        min_visible_residual_frames=min_visible_residual_frames,
+    )
+    residual_seconds = residual_frames / fps if fps > 0 else BROLL_MIN_VISIBLE_AROLL_SECONDS
+    candidates = {
+        round(insert.timeline_start, 3),
+        round(start, 3),
+        round(latest_start, 3),
+    }
+    for portrait_start, portrait_end in _portrait_windows_from_cuts(portrait_cut_frames):
+        portrait_start_seconds = portrait_start / fps
+        portrait_end_seconds = portrait_end / fps
+        candidates.update(
+            {
+                round(portrait_start_seconds, 3),
+                round(portrait_end_seconds - length, 3),
+                round(portrait_start_seconds + residual_seconds, 3),
+                round(portrait_end_seconds - residual_seconds - length, 3),
+            }
+        )
+
+    ordered_starts = sorted(
+        {
+            candidate
+            for candidate in candidates
+            if candidate >= round(start, 3) and candidate <= round(latest_start, 3)
+        },
+        key=lambda candidate: (abs(candidate - insert.timeline_start), candidate),
+    )
+    variants: list[BrollInsertion] = []
+    for candidate_start in ordered_starts:
+        variants.append(
+            replace(
+                insert,
+                timeline_start=round(candidate_start, 3),
+                timeline_end=round(candidate_start + length, 3),
+                timeline_start_frame=None,
+                timeline_end_frame=None,
+                source_start_frame=None,
+                source_end_frame=None,
+                pad_start=0.0,
+                pad_end=0.0,
+            )
+        )
+    return variants or [insert]
+
+
+def _accept_insertion_if_safe(
+    insertions: Sequence[BrollInsertion],
+    insert: BrollInsertion,
+    *,
+    start: float,
+    host_end: float,
+    fps: int | None,
+    portrait_cut_frames: Sequence[int] | None,
+    min_visible_residual_frames: int | None,
+) -> list[BrollInsertion] | None:
+    for variant in _timeline_start_variants(
+        insert,
+        start=start,
+        host_end=host_end,
+        fps=fps,
+        portrait_cut_frames=portrait_cut_frames,
+        min_visible_residual_frames=min_visible_residual_frames,
+    ):
+        accepted = _align_insertions_to_grid_if_safe(
+            [*insertions, variant],
+            fps=fps,
+            portrait_cut_frames=portrait_cut_frames,
+            min_visible_residual_frames=min_visible_residual_frames,
+        )
+        if accepted is not None:
+            return accepted
+    return None
+
+
 def plan_insertions(
     *,
     candidates: Sequence[BrollCandidate],
@@ -528,6 +750,7 @@ def plan_insertions(
     timeline_end = max(u.end for u in unit_list)
     insertions: list[BrollInsertion] = []
     used_clips: set[tuple[str, str]] = set()
+    used_diversity_keys: set[str] = set()
     occupied_units: set[str] = set()
     ordered = _fresh_candidate_order(candidates, freshness_seed=freshness_seed)
 
@@ -544,6 +767,12 @@ def plan_insertions(
             continue
         if candidate.best_segment is None:
             deferred.append(candidate)
+            continue
+        if _is_reused_candidate(
+            candidate,
+            used_clips=used_clips,
+            used_diversity_keys=used_diversity_keys,
+        ):
             continue
         anchor = candidate.best_segment.start
         host_unit = _unit_for_time(unit_list, anchor)
@@ -566,10 +795,23 @@ def plan_insertions(
         )
         if insert is None:
             continue
-        insertions.append(insert)
+        accepted = _accept_insertion_if_safe(
+            insertions,
+            insert,
+            start=start,
+            host_end=min(host_unit.end, timeline_end),
+            fps=fps,
+            portrait_cut_frames=portrait_cut_frames,
+            min_visible_residual_frames=min_visible_residual_frames,
+        )
+        if accepted is None:
+            continue
+        insertions = accepted
         used_clips.add(key)
+        if candidate.diversity_key:
+            used_diversity_keys.add(candidate.diversity_key)
         occupied_units.add(host_unit.unit_id)
-        cursor = insert.timeline_end
+        cursor = max(ins.timeline_end for ins in insertions)
 
     # Phase 2 — sprinkle leftover slots with generic fillers, one per still-empty
     # window, evenly spaced. Empty windows are reachable regardless of the Phase-1
@@ -602,18 +844,27 @@ def plan_insertions(
             )
             if insert is None:
                 continue
-            insertions.append(insert)
+            accepted = _accept_insertion_if_safe(
+                insertions,
+                insert,
+                start=unit.start,
+                host_end=min(unit.end, timeline_end),
+                fps=fps,
+                portrait_cut_frames=portrait_cut_frames,
+                min_visible_residual_frames=min_visible_residual_frames,
+            )
+            if accepted is None:
+                continue
+            insertions = accepted
             used_clips.add((candidate.asset_id, candidate.clip_id))
 
-    insertions.sort(key=lambda ins: ins.timeline_start)
-    if fps is not None and portrait_cut_frames is not None:
-        insertions = align_insertions_to_portrait_cuts(
-            insertions,
-            fps=fps,
-            portrait_cut_frames=portrait_cut_frames,
-            min_visible_residual_frames=min_visible_residual_frames,
-        )
-    return insertions
+    aligned = _align_insertions_to_grid_if_safe(
+        insertions,
+        fps=fps,
+        portrait_cut_frames=portrait_cut_frames,
+        min_visible_residual_frames=min_visible_residual_frames,
+    )
+    return aligned or []
 
 
 def _fresh_timeline_start(

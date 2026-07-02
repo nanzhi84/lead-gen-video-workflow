@@ -191,6 +191,32 @@ def _meta(candidate: dict) -> dict:
     return meta if isinstance(meta, dict) else {}
 
 
+def _source_frames_available(candidate: dict) -> int:
+    meta = _meta(candidate)
+    start = _as_float(meta.get("source_start"))
+    end = _as_float(meta.get("source_end"))
+    if end <= start:
+        return 0
+    return frame_index(end) - frame_index(start)
+
+
+def _slot_required_frames(slot: dict) -> int:
+    return max(0, int(slot.get("end_frame", 0)) - int(slot.get("start_frame", 0)))
+
+
+def _legal_portrait_window_ids(slot: dict, candidates: IndexedCandidates) -> list[str]:
+    need = _slot_required_frames(slot)
+    return [
+        cid
+        for cid, cand in candidates.portrait_by_id.items()
+        if _source_frames_available(cand) >= need
+    ]
+
+
+def _portrait_asset_key(candidate: dict) -> str:
+    return _as_str(candidate.get("asset_id"))
+
+
 def build_agent_input(
     *,
     request,
@@ -204,8 +230,23 @@ def build_agent_input(
     Everything the agent needs to make semantic choices — the narration beats,
     the safe cut boundaries + slots #135 already quantized, and the ID-tagged
     candidate pools with their semantic annotations — and nothing it must not
-    invent (no raw seconds/frames to override).
+    invent. Slot frame windows are input-only constraints; the LLM still emits
+    IDs only, never authoritative frame values.
     """
+    portrait_slots = []
+    for slot in (boundary.get("portrait_slots") or []):
+        if not isinstance(slot, dict):
+            continue
+        need = _slot_required_frames(slot)
+        portrait_slots.append(
+            {
+                **slot,
+                "required_frames": need,
+                "required_seconds": round(to_seconds(need), 3),
+                "legal_window_ids": _legal_portrait_window_ids(slot, candidates),
+            }
+        )
+
     return {
         "script": request.script,
         "title": request.title or "",
@@ -226,7 +267,7 @@ def build_agent_input(
             for u in narration_units
         ],
         "safe_cut_boundaries": boundary.get("safe_cut_boundaries") or [],
-        "portrait_slots": boundary.get("portrait_slots") or [],
+        "portrait_slots": portrait_slots,
         "broll_slots": boundary.get("broll_slots") or [],
         "portrait_candidates": [
             {
@@ -235,6 +276,8 @@ def build_agent_input(
                 "clip_id": _as_str(_meta(cand).get("clip_id")),
                 "source_start": _as_float(_meta(cand).get("source_start")),
                 "source_end": _as_float(_meta(cand).get("source_end")),
+                "available_frames": _source_frames_available(cand),
+                "available_seconds": round(to_seconds(_source_frames_available(cand)), 3),
                 "score": _as_float(cand.get("score")),
                 "reason": _as_str(cand.get("reason")),
             }
@@ -278,15 +321,6 @@ def build_agent_input(
 # --------------------------------------------------------------------------- #
 # Validation
 # --------------------------------------------------------------------------- #
-def _source_frames_available(candidate: dict) -> int:
-    meta = _meta(candidate)
-    start = _as_float(meta.get("source_start"))
-    end = _as_float(meta.get("source_end"))
-    if end <= start:
-        return 0
-    return frame_index(end) - frame_index(start)
-
-
 def validate_selection(
     selection: EditingSelection,
     *,
@@ -313,6 +347,7 @@ def validate_selection(
 
     # Portrait: every slot covered exactly once by a valid, long-enough window.
     seen_slots: set[str] = set()
+    seen_assets: dict[str, str] = {}
     for choice in selection.portrait:
         if choice.slot_id not in portrait_slots:
             errors.append(f"portrait slot_id '{choice.slot_id}' is not a known portrait slot")
@@ -326,11 +361,26 @@ def validate_selection(
             errors.append(f"portrait window_id '{choice.window_id}' is not a known candidate")
             continue
         slot = portrait_slots[choice.slot_id]
-        need = int(slot.get("end_frame", 0)) - int(slot.get("start_frame", 0))
-        if _source_frames_available(cand) < need:
+        need = _slot_required_frames(slot)
+        available = _source_frames_available(cand)
+        if available < need:
+            legal = _legal_portrait_window_ids(slot, candidates)
+            legal_hint = ", ".join(legal[:20]) if legal else "none"
             errors.append(
-                f"portrait window '{choice.window_id}' source is too short to cover slot '{choice.slot_id}'"
+                f"portrait window '{choice.window_id}' source is too short: has {available} frames "
+                f"but slot '{choice.slot_id}' requires {need} frames; "
+                f"choose one of legal_window_ids: {legal_hint}"
             )
+        asset_key = _portrait_asset_key(cand)
+        if asset_key:
+            previous_slot = seen_assets.get(asset_key)
+            if previous_slot is not None:
+                errors.append(
+                    f"portrait asset_id '{asset_key}' is assigned to more than one slot "
+                    f"('{previous_slot}' and '{choice.slot_id}'); choose a different asset"
+                )
+            else:
+                seen_assets[asset_key] = choice.slot_id
     missing = sorted(set(portrait_slots) - seen_slots)
     if missing:
         errors.append(f"portrait slots not covered: {', '.join(missing)}")
@@ -381,10 +431,8 @@ def deterministic_selection(
 ) -> EditingSelection:
     """Score-ranked default selection equivalent to the deterministic nodes.
 
-    Used when there is no real LLM provider (sandbox) or an LLM selection stays
-    invalid after repair. Asset-level uniqueness is intentionally NOT enforced
-    (issue #136): the editing-agent template may reuse a look-alike portrait, so
-    every slot simply takes the top-scored source window that can cover it.
+    Used when there is no real LLM provider (sandbox). Portrait picks enforce
+    asset-level uniqueness: one source asset can fill at most one slot per run.
     """
     portrait_slots = [s for s in (boundary.get("portrait_slots") or []) if isinstance(s, dict)]
     broll_slots = [s for s in (boundary.get("broll_slots") or []) if isinstance(s, dict)]
@@ -394,18 +442,23 @@ def deterministic_selection(
     ranked_bgm = _ranked_ids(candidates.bgm_by_id)
 
     portrait: list[PortraitChoice] = []
+    used_assets: set[str] = set()
     for slot in portrait_slots:
-        need = int(slot.get("end_frame", 0)) - int(slot.get("start_frame", 0))
+        need = _slot_required_frames(slot)
         window_id = next(
             (
                 cid
                 for cid in ranked_portrait
                 if _source_frames_available(candidates.portrait_by_id[cid]) >= need
+                and _portrait_asset_key(candidates.portrait_by_id[cid]) not in used_assets
             ),
-            ranked_portrait[0] if ranked_portrait else None,
+            None,
         )
         if window_id is None:
             continue
+        asset_key = _portrait_asset_key(candidates.portrait_by_id[window_id])
+        if asset_key:
+            used_assets.add(asset_key)
         portrait.append(
             PortraitChoice(
                 slot_id=_as_str(slot.get("slot_id")),

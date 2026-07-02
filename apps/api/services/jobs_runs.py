@@ -241,7 +241,7 @@ def _run_card(repo, run: c.WorkflowRun) -> c.RunCard:
         (video for video in repo.finished_videos.values() if video.run_id == run.id), None
     )
     has_finished_video = finished_video is not None
-    can_resume = run.status == c.RunStatus.succeeded or _run_has_retryable_failure(repo, run.id)
+    can_resume = _run_has_retryable_failure(repo, run.id)
     return c.RunCard(
         run_id=run.id,
         job_id=run.job_id,

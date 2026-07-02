@@ -357,5 +357,11 @@ def _sync_existing_seed_row(existing: object, seed: object) -> bool:
 def _needs_prompt_version_sync(existing: PromptVersionRow) -> bool:
     if existing.id == "prompt_editing_agent_v1":
         content = existing.content or ""
-        return any(marker in content for marker in _LEGACY_EDITING_AGENT_MARKERS)
+        return (
+            any(marker in content for marker in _LEGACY_EDITING_AGENT_MARKERS)
+            or "legal_window_ids" not in content
+            or "available_frames" not in content
+            or "允许重复使用同一素材" in content
+            or "同一个 asset_id 最多只能" not in content
+        )
     return False

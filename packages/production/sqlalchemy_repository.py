@@ -382,6 +382,13 @@ class SqlAlchemyProductionRepository(BaseRepository):
             for finished in repository.finished_videos.values():
                 if finished.run_id == run.id:
                     existing = session.get(FinishedVideoRow, finished.id)
+                    owner_user_id = self._finished_video_owner_user_id(
+                        session,
+                        finished=finished,
+                        existing=existing,
+                        run=run,
+                        job=job,
+                    )
                     if existing is None:
                         finished = finished.model_copy(
                             update={"video_number": self._next_finished_video_number(session, finished.case_id)}
@@ -392,6 +399,8 @@ class SqlAlchemyProductionRepository(BaseRepository):
                         finished = finished.model_copy(
                             update={"video_number": self._next_finished_video_number(session, finished.case_id)}
                         )
+                    if owner_user_id and owner_user_id != finished.owner_user_id:
+                        finished = finished.model_copy(update={"owner_user_id": owner_user_id})
                     repository.finished_videos[finished.id] = finished
                     finished_video_ids.add(finished.id)
                     session.merge(self._finished_video_row(finished))
@@ -867,6 +876,33 @@ class SqlAlchemyProductionRepository(BaseRepository):
         return next_finished_video_number(
             session.scalars(select(FinishedVideoRow.video_number).where(FinishedVideoRow.case_id == case_id))
         )
+
+    @staticmethod
+    def _finished_video_owner_user_id(
+        session: Session,
+        *,
+        finished: FinishedVideo,
+        existing: FinishedVideoRow | None,
+        run: WorkflowRun,
+        job: Job,
+    ) -> str | None:
+        if finished.owner_user_id:
+            return finished.owner_user_id
+        if existing is not None and existing.owner_user_id:
+            return existing.owner_user_id
+        if finished.run_id == run.id:
+            if run.requested_by:
+                return run.requested_by
+            if job.created_by:
+                return job.created_by
+        if finished.run_id:
+            return resolve_event_owner(
+                session,
+                run_id=finished.run_id,
+                job_id=None,
+                finished_video_id=None,
+            )
+        return None
 
     def list_finished_videos(
         self, *, case_id: str, limit: int = 50, owner_user_id: str | None = None

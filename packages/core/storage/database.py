@@ -346,6 +346,9 @@ class VoiceProfileRow(TimestampMixin, Base):
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     vendor: Mapped[str] = mapped_column(String, nullable=False, server_default="", default="")
     status: Mapped[str] = mapped_column(String, nullable=False, server_default="ready", default="ready")
+    case_ids: Mapped[list[str]] = mapped_column(
+        ARRAY(String), nullable=False, default=list, server_default="{}"
+    )
 
 
 class ProviderProfileRow(TimestampMixin, Base):

@@ -6,7 +6,14 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Literal
 from uuid import uuid4
-from pydantic import Field, JsonValue, ValidationError, field_serializer, field_validator, model_validator
+from pydantic import (
+    Field,
+    JsonValue,
+    ValidationError,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 from .base import ArtifactRef, ContractModel, EntityMeta, ErrorCode, utcnow
 from .publishing import PublishPackage
@@ -421,12 +428,14 @@ class VoiceProfile(EntityMeta):
     preview_artifact_id: str | None = None
     enabled: bool = True
     status: VoiceStatus = "ready"
+    case_ids: list[str] = Field(default_factory=list)
 
 
 class CloneVoiceRequest(ContractModel):
     display_name: str
     reference_upload_session_id: str
     provider_profile_id: str | None = None
+    case_ids: list[str] = Field(default_factory=list)
 
 
 class VoicePreviewRequest(ContractModel):
@@ -443,6 +452,7 @@ class VoicePreviewResponse(ContractModel):
 class PatchVoiceRequest(ContractModel):
     display_name: str | None = None
     enabled: bool | None = None
+    case_ids: list[str] | None = None
 
 
 class SyncVoicesRequest(ContractModel):

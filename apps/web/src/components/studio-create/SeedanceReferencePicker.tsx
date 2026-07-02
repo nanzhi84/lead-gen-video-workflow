@@ -1,3 +1,4 @@
+import { useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Check, ImageOff } from "lucide-react";
 import { api } from "../../api/client";
@@ -21,7 +22,20 @@ export function SeedanceReferencePicker({
     queryFn: () => api.mediaAssets.list({ case_id: caseId, limit: 100 }),
     enabled: Boolean(caseId),
   });
-  const cards = (assets.data?.items ?? []).filter((card) => (card.asset.tags ?? []).includes(AI_TAG));
+  const cards = useMemo(
+    () => (assets.data?.items ?? []).filter((card) => (card.asset.tags ?? []).includes(AI_TAG)),
+    [assets.data?.items],
+  );
+  const validAssetIds = useMemo(() => new Set(cards.map((card) => card.asset.id)), [cards]);
+  const visibleSelectedCount = selectedIds.filter((id) => validAssetIds.has(id)).length;
+
+  useEffect(() => {
+    if (!assets.data) return;
+    const nextSelectedIds = selectedIds.filter((id) => validAssetIds.has(id));
+    if (nextSelectedIds.length !== selectedIds.length) {
+      onChange(nextSelectedIds);
+    }
+  }, [assets.data, onChange, selectedIds, validAssetIds]);
 
   function toggle(assetId: string) {
     onChange(
@@ -35,7 +49,7 @@ export function SeedanceReferencePicker({
     <div className="grid gap-3 border-y border-border/60 py-4">
       <div className="flex items-center justify-between gap-2">
         <span className="font-semibold text-text-primary">参考素材（AI素材）</span>
-        <span className="text-xs text-text-tertiary">已选 {selectedIds.length} 个</span>
+        <span className="text-xs text-text-tertiary">已选 {visibleSelectedCount} 个</span>
       </div>
       <p className="text-xs text-text-secondary">
         可选择门头、产品、人物等图片/视频，让 Seedance 尽量保持画面与人物一致性；不选时按脚本纯文本生成。

@@ -20,6 +20,7 @@ from packages.core.contracts import (
     PublishDefaults,
     PublishPackage,
     SubmitPublishBatchRequest,
+    publish_record_status_from_item_status,
     utcnow,
 )
 from packages.core.contracts.state_machines import assert_transition
@@ -404,6 +405,7 @@ class SqlAlchemyPublishingRepository(BaseRepository):
                     item.scheduled_at = scheduled_at
                 item.updated_at = utcnow()
                 if package is not None and package.case_id:
+                    record_status = publish_record_status_from_item_status(target_item_status)
                     version = None
                     if package.source_finished_video_id:
                         version = session.scalar(
@@ -425,9 +427,9 @@ class SqlAlchemyPublishingRepository(BaseRepository):
                             publish_package_id=package.id,
                             publish_batch_id=batch.id,
                             platform=item.platform,
-                            status=target_item_status,
+                            status=record_status,
                             cover_artifact_id=record_cover_id,
-                            published_at=utcnow() if target_item_status == "published" else None,
+                            published_at=utcnow() if record_status == "published" else None,
                         )
                     )
                 if payload.dry_run:

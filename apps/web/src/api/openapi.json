@@ -2580,6 +2580,22 @@
             }
           },
           {
+            "name": "case_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Case Id"
+            }
+          },
+          {
             "name": "enabled",
             "in": "query",
             "required": false,
@@ -11002,6 +11018,13 @@
               }
             ],
             "title": "Provider Profile Id"
+          },
+          "case_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Case Ids"
           }
         },
         "additionalProperties": false,
@@ -17348,6 +17371,20 @@
               }
             ],
             "title": "Enabled"
+          },
+          "case_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Ids"
           }
         },
         "additionalProperties": false,
@@ -23560,6 +23597,13 @@
             ],
             "title": "Status",
             "default": "ready"
+          },
+          "case_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Case Ids"
           }
         },
         "additionalProperties": false,

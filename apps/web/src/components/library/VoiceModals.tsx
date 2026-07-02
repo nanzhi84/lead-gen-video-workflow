@@ -1,19 +1,87 @@
 import { CheckCircle2, Loader2, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type VoiceProfile } from "../../api/client";
+import { api, type CaseListItem, type VoiceProfile } from "../../api/client";
 import { useUpload } from "../../hooks/useUpload";
 import { DropZone } from "../ui/DropZone";
 import { Modal } from "../ui/Modal";
 import { useToast } from "../ui/Toast";
 import { uploadStageLabel, vendorLabel, VOICE_UPLOAD_ACCEPT } from "./libraryModel";
 
-export function CloneVoiceModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+type CaseBindingPickerProps = {
+  cases: CaseListItem[];
+  selectedCaseIds: string[];
+  onChange: (caseIds: string[]) => void;
+  disabled?: boolean;
+};
+
+function CaseBindingPicker({ cases, selectedCaseIds, onChange, disabled = false }: CaseBindingPickerProps) {
+  const selected = new Set(selectedCaseIds);
+
+  function toggle(caseId: string) {
+    if (selected.has(caseId)) {
+      onChange(selectedCaseIds.filter((id) => id !== caseId));
+      return;
+    }
+    onChange([...selectedCaseIds, caseId]);
+  }
+
+  return (
+    <fieldset className="grid gap-2">
+      <legend className="w-full">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm font-semibold text-text-primary">绑定案例</span>
+          <span className="text-xs font-normal text-text-tertiary">可多选 · 已选 {selectedCaseIds.length} 个</span>
+        </div>
+      </legend>
+      {cases.length === 0 ? (
+        <div className="stateBox muted">
+          <span>暂无可绑定案例</span>
+        </div>
+      ) : (
+        <div className="grid max-h-56 gap-2 overflow-y-auto rounded-2xl border border-border/80 bg-white/55 p-2">
+          {cases.map((item) => (
+            <label
+              key={item.id}
+              className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2 text-sm transition ${
+                selected.has(item.id)
+                  ? "border-accent/20 bg-accent/10"
+                  : "border-transparent hover:bg-white/75"
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={selected.has(item.id)}
+                disabled={disabled}
+                onChange={() => toggle(item.id)}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium text-text-primary">{item.name}</span>
+                {item.industry ? <span className="block truncate text-xs text-text-tertiary">{item.industry}</span> : null}
+              </span>
+            </label>
+          ))}
+        </div>
+      )}
+    </fieldset>
+  );
+}
+
+export function CloneVoiceModal({
+  isOpen,
+  onClose,
+  cases,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  cases: CaseListItem[];
+}) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const upload = useUpload();
   const [name, setName] = useState("");
   const [providerProfileId, setProviderProfileId] = useState("");
+  const [caseIds, setCaseIds] = useState<string[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const profilesQuery = useQuery({
@@ -31,14 +99,17 @@ export function CloneVoiceModal({ isOpen, onClose }: { isOpen: boolean; onClose:
         display_name: name.trim(),
         reference_upload_session_id: result.upload_session.id,
         provider_profile_id: providerProfileId.trim() || null,
+        case_ids: caseIds,
       });
     },
     onSuccess: async (voice) => {
       await queryClient.invalidateQueries({ queryKey: ["library", "voices"] });
       await queryClient.invalidateQueries({ queryKey: ["voices"] });
+      await queryClient.invalidateQueries({ queryKey: ["cases"] });
       toast.success("音色克隆已提交", `新音色：${voice.display_name}`);
       setName("");
       setProviderProfileId("");
+      setCaseIds([]);
       setFiles([]);
       upload.reset();
       onClose();
@@ -77,6 +148,7 @@ export function CloneVoiceModal({ isOpen, onClose }: { isOpen: boolean; onClose:
             </select>
           </label>
         </div>
+        <CaseBindingPicker cases={cases} selectedCaseIds={caseIds} onChange={setCaseIds} disabled={cloneMutation.isPending} />
         <DropZone accept={VOICE_UPLOAD_ACCEPT} maxSize={80} multiple={false} onFilesDrop={(nextFiles) => setFiles(nextFiles)} label="上传参考音频" />
         {upload.status !== "idle" ? (
           <div className="rounded-2xl border border-border/80 bg-white/65 p-3">
@@ -109,16 +181,19 @@ type EditVoiceModalProps = {
   isOpen: boolean;
   isLoading: boolean;
   onClose: () => void;
-  onSubmit: (displayName: string, enabled: boolean) => void;
+  cases: CaseListItem[];
+  onSubmit: (displayName: string, enabled: boolean, caseIds: string[]) => void;
 };
 
-export function EditVoiceModal({ voice, isOpen, isLoading, onClose, onSubmit }: EditVoiceModalProps) {
+export function EditVoiceModal({ voice, isOpen, isLoading, onClose, cases, onSubmit }: EditVoiceModalProps) {
   const [displayName, setDisplayName] = useState(voice.display_name);
   const [enabled, setEnabled] = useState(voice.enabled);
+  const [caseIds, setCaseIds] = useState<string[]>(voice.case_ids ?? []);
 
   useEffect(() => {
     setDisplayName(voice.display_name);
     setEnabled(voice.enabled);
+    setCaseIds(voice.case_ids ?? []);
   }, [voice]);
 
   return (
@@ -127,7 +202,7 @@ export function EditVoiceModal({ voice, isOpen, isLoading, onClose, onSubmit }: 
         className="grid gap-4"
         onSubmit={(event) => {
           event.preventDefault();
-          onSubmit(displayName.trim(), enabled);
+          onSubmit(displayName.trim(), enabled, caseIds);
         }}
       >
         <label>
@@ -141,6 +216,7 @@ export function EditVoiceModal({ voice, isOpen, isLoading, onClose, onSubmit }: 
             <span className="mt-1 block text-xs font-normal text-text-secondary">停用后不会出现在新任务可选音色中。</span>
           </span>
         </label>
+        <CaseBindingPicker cases={cases} selectedCaseIds={caseIds} onChange={setCaseIds} disabled={isLoading} />
         <div className="rounded-2xl border border-status-warning/20 bg-status-warning/10 p-3 text-xs leading-5 text-status-warning">
           修改名称会影响后续选择展示；停用只影响新建任务，不改写历史任务记录。
         </div>

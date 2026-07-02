@@ -1176,11 +1176,19 @@ class LocalRuntimeAdapter(WorkflowRuntimeAdapter):
         if not asset_id:
             raise NodeExecutionError(ErrorCode.artifact_missing, "Media asset is missing.")
         asset = self.repository.media_assets.get(asset_id)
-        if asset is None or not asset.source_artifact_id:
-            raise NodeExecutionError(ErrorCode.artifact_missing, "Media source artifact is missing.")
+        if asset is None:
+            raise NodeExecutionError(ErrorCode.artifact_missing, f"Media asset is missing: {asset_id}")
+        if not asset.source_artifact_id:
+            raise NodeExecutionError(
+                ErrorCode.artifact_missing,
+                f"Media asset source artifact is missing: {asset_id}",
+            )
         artifact = self.repository.artifacts.get(asset.source_artifact_id)
         if artifact is None or not artifact.uri:
-            raise NodeExecutionError(ErrorCode.artifact_missing, "Media source artifact is missing.")
+            raise NodeExecutionError(
+                ErrorCode.artifact_missing,
+                f"Media source artifact is missing: {asset_id}",
+            )
         return artifact
 
     def _artifact_path(self, artifact: Artifact) -> Path:

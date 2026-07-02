@@ -27,6 +27,7 @@ from packages.core.contracts.state_machines import (
     RUN_TRANSITIONS,
     assert_transition,
 )
+from packages.core.storage.database import ArtifactRow, MediaAssetRow
 from packages.core.storage.repository import new_id
 from packages.core.workflow import NodeExecutionError
 from packages.core.observability import record_funnel_event, workflow_stage
@@ -418,12 +419,86 @@ def _runtime_run(request: Request, run_id: str) -> c.WorkflowRun:
         production_repository(request).hydrate_workflow_runtime_snapshot(repo, run_id)
     return repo.runs[run_id]
 
+
+def _validate_seedance_reference_assets(
+    request: Request, payload: c.DigitalHumanVideoRequest
+) -> None:
+    """Fail fast when Seedance reference asset ids are stale or not streamable.
+
+    The Seedance node resolves each reference id to a source artifact before it
+    calls the provider. Validating here keeps stale browser-local selections from
+    creating an immediately failed workflow run.
+    """
+    if payload.workflow_template_id != "seedance_t2v_v1" or not payload.reference_asset_ids:
+        return
+
+    session_factory = getattr(request.app.state, "sqlalchemy_session_factory", None)
+    if session_factory is not None:
+        with session_factory() as session:
+            for asset_id in payload.reference_asset_ids:
+                asset = session.get(MediaAssetRow, asset_id)
+                if asset is None:
+                    raise NodeExecutionError(
+                        c.ErrorCode.validation_invalid_options,
+                        f"Seedance reference asset is missing: {asset_id}",
+                    )
+                if asset.case_id not in {None, payload.case_id}:
+                    raise NodeExecutionError(
+                        c.ErrorCode.validation_invalid_options,
+                        f"Seedance reference asset does not belong to this case: {asset_id}",
+                    )
+                if not asset.source_artifact_id:
+                    raise NodeExecutionError(
+                        c.ErrorCode.validation_invalid_options,
+                        f"Seedance reference asset has no source artifact: {asset_id}",
+                    )
+                artifact = session.get(ArtifactRow, asset.source_artifact_id)
+                if artifact is None or not artifact.uri:
+                    raise NodeExecutionError(
+                        c.ErrorCode.validation_invalid_options,
+                        f"Seedance reference asset source URI is missing: {asset_id}",
+                    )
+        return
+
+    repo = repository(request)
+    for asset_id in payload.reference_asset_ids:
+        asset = repo.media_assets.get(asset_id)
+        if asset is None:
+            raise NodeExecutionError(
+                c.ErrorCode.validation_invalid_options,
+                f"Seedance reference asset is missing: {asset_id}",
+            )
+        if asset.case_id not in {None, payload.case_id}:
+            raise NodeExecutionError(
+                c.ErrorCode.validation_invalid_options,
+                f"Seedance reference asset does not belong to this case: {asset_id}",
+            )
+        if not asset.source_artifact_id:
+            raise NodeExecutionError(
+                c.ErrorCode.validation_invalid_options,
+                f"Seedance reference asset has no source artifact: {asset_id}",
+            )
+        artifact = repo.artifacts.get(asset.source_artifact_id)
+        if artifact is None or not artifact.uri:
+            raise NodeExecutionError(
+                c.ErrorCode.validation_invalid_options,
+                f"Seedance reference asset source URI is missing: {asset_id}",
+            )
+
+
+def _validate_job_request_before_start(request: Request, job_id: str) -> None:
+    job = repository(request).jobs[job_id]
+    if isinstance(job.request, c.DigitalHumanVideoRequest):
+        _validate_seedance_reference_assets(request, job.request)
+
+
 def create_digital_human_job(
     payload: c.CreateDigitalHumanVideoJobRequest, request: Request
 ) -> c.CreateJobResponse:
     case = get_case(request, payload.case_id)
     if payload.case_id not in repository(request).cases:
         repository(request).cases[payload.case_id] = case
+    _validate_seedance_reference_assets(request, payload)
     _link_adopted_script(request, payload)
     job = c.Job(
         id=new_id("job"),
@@ -527,6 +602,7 @@ def create_digital_human_batch(
             continue
         try:
             item_request = _batch_item_request(payload, item, my_defaults)
+            _validate_seedance_reference_assets(request, item_request)
             _link_adopted_script(request, item_request)
             job = c.Job(
                 id=new_id("job"),
@@ -605,6 +681,7 @@ def create_run(job_id: str, payload: c.CreateRunRequest, request: Request) -> c.
     previous = repository(request).jobs[job_id].active_run_id
     if previous is not None:
         _runtime_run(request, previous)
+    _validate_job_request_before_start(request, job_id)
     run = _start_submitted_run(
         request,
         job_id=job_id,
@@ -700,6 +777,7 @@ def _delete_run_from_memory(repo, run: c.WorkflowRun) -> None:
 
 def retry_run(run_id: str, payload: c.RetryRunRequest, request: Request) -> c.RetryRunResponse:
     run = _runtime_run(request, run_id)
+    _validate_job_request_before_start(request, run.job_id)
     new_run = _start_submitted_run(
         request,
         job_id=run.job_id,
@@ -712,6 +790,7 @@ def retry_run(run_id: str, payload: c.RetryRunRequest, request: Request) -> c.Re
 
 def resume_run(run_id: str, payload: c.ResumeRunRequest, request: Request) -> c.ResumeRunResponse:
     run = _runtime_run(request, run_id)
+    _validate_job_request_before_start(request, run.job_id)
     new_run = _start_submitted_run(
         request,
         job_id=run.job_id,

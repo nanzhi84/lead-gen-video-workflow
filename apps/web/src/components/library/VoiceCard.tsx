@@ -1,4 +1,4 @@
-import { CheckCircle2, Edit3, Loader2, PauseCircle, Play, Trash2 } from "lucide-react";
+import { BriefcaseBusiness, CheckCircle2, Edit3, Loader2, PauseCircle, Play, Trash2 } from "lucide-react";
 import type { VoiceProfile } from "../../api/client";
 import { formatRelativeTime, shortId } from "../../lib/format";
 import {
@@ -14,14 +14,15 @@ type VoiceCardProps = {
   voice: VoiceProfile;
   isPreviewing: boolean;
   isPlaying: boolean;
+  caseNames: string[];
   onPreview: () => void;
   onEdit: () => void;
   onDelete: () => void;
 };
 
-export function VoiceCard({ voice, isPreviewing, isPlaying, onPreview, onEdit, onDelete }: VoiceCardProps) {
+export function VoiceCard({ voice, isPreviewing, isPlaying, caseNames, onPreview, onEdit, onDelete }: VoiceCardProps) {
   return (
-    <article className="rounded-[24px] border border-border/80 bg-white/65 p-4 shadow-glow transition-all hover:-translate-y-0.5 hover:border-accent/25">
+    <article className="min-w-0 rounded-[24px] border border-border/80 bg-white/65 p-4 shadow-glow transition-all hover:-translate-y-0.5 hover:border-accent/25">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">
@@ -43,6 +44,23 @@ export function VoiceCard({ voice, isPreviewing, isPlaying, onPreview, onEdit, o
         >
           {voice.enabled ? <CheckCircle2 className="h-5 w-5" /> : <PauseCircle className="h-5 w-5" />}
         </span>
+      </div>
+
+      <div className="mt-3 flex min-h-7 min-w-0 flex-wrap items-center gap-1.5 text-xs text-text-secondary">
+        <BriefcaseBusiness className="h-3.5 w-3.5 shrink-0" />
+        {caseNames.length > 0 ? (
+          <>
+            <span className="shrink-0 text-text-tertiary">已绑 {caseNames.length} 个</span>
+            {caseNames.slice(0, 2).map((name) => (
+              <span key={name} className="badge max-w-[9rem] truncate bg-surface-hover/80 text-text-secondary" title={name}>
+                {name}
+              </span>
+            ))}
+          </>
+        ) : (
+          <span>未绑定案例</span>
+        )}
+        {caseNames.length > 2 ? <span className="shrink-0 text-text-tertiary">+{caseNames.length - 2}</span> : null}
       </div>
 
       <dl className="mt-4 grid gap-2 text-xs text-text-secondary">

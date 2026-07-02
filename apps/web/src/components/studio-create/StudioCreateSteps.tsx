@@ -161,7 +161,7 @@ export function ProductionStep({
         <select value={selectedVoice} onChange={(event) => setField("voiceId", event.target.value)}>
           {voiceOptions.length === 0 ? (
             <option value="" disabled>
-              暂无可用音色，请先在音色库创建
+              当前案例暂无可用音色，请先在音色库绑定
             </option>
           ) : null}
           {voiceOptions.map((voice) => (

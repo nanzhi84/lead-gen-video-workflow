@@ -19,6 +19,7 @@ def test_voice_profile_defaults_to_ready_no_vendor() -> None:
     vp = VoiceProfile(id="v1", display_name="x", source="cloned")
     assert vp.vendor == ""
     assert vp.status == "ready"
+    assert vp.case_ids == []
 
 
 def test_voice_profile_accepts_training_status() -> None:

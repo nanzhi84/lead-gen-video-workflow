@@ -17,7 +17,9 @@ def load_voice(media_repository, voice_id: str) -> c.VoiceProfile | None:
         return voice_row_to_contract(row) if row is not None else None
 
 
-def hydrate_voice_reference_upload(media_repository, repository: Repository, upload_id: str) -> None:
+def hydrate_voice_reference_upload(
+    media_repository, repository: Repository, upload_id: str
+) -> None:
     hydrator = getattr(media_repository, "hydrate_voice_reference_upload", None)
     if callable(hydrator):
         hydrator(repository, upload_id)
@@ -25,7 +27,9 @@ def hydrate_voice_reference_upload(media_repository, repository: Repository, upl
     with media_repository.session_factory() as session:
         row = session.get(UploadSessionRow, upload_id)
         if row is None or row.status != c.UploadStatus.completed.value:
-            raise NodeExecutionError(c.ErrorCode.upload_invalid_state, "Reference upload must be completed first.")
+            raise NodeExecutionError(
+                c.ErrorCode.upload_invalid_state, "Reference upload must be completed first."
+            )
         upload = upload_row_to_contract(row)
         repository.uploads[upload.id] = upload
 
@@ -44,6 +48,7 @@ def persist_provider_voice(media_repository, voice: c.VoiceProfile) -> c.VoicePr
             preview_artifact_id=voice.preview_artifact_id,
             enabled=voice.enabled,
             status=voice.status,
+            case_ids=list(voice.case_ids),
             schema_version=voice.schema_version,
             created_at=voice.created_at,
             updated_at=voice.updated_at,
@@ -54,7 +59,9 @@ def persist_provider_voice(media_repository, voice: c.VoiceProfile) -> c.VoicePr
         return voice_row_to_contract(merged)
 
 
-def persist_provider_preview(media_repository, voice_id: str, artifact: c.Artifact) -> c.ArtifactRef:
+def persist_provider_preview(
+    media_repository, voice_id: str, artifact: c.Artifact
+) -> c.ArtifactRef:
     updater = getattr(media_repository, "update_provider_preview", None)
     if callable(updater):
         return updater(voice_id, artifact)

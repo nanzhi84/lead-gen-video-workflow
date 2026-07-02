@@ -1,7 +1,7 @@
-import { Mic2, RefreshCw, Upload } from "lucide-react";
+import { BriefcaseBusiness, Mic2, RefreshCw, Upload } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, type VoiceProfile } from "../../api/client";
+import { api, type CaseListItem, type VoiceProfile } from "../../api/client";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { SearchInput } from "../../components/ui/SearchInput";
 import { useToast } from "../../components/ui/Toast";
@@ -23,6 +23,7 @@ export function VoicesTab() {
   const [search, setSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState<VoiceSourceFilter>("all");
   const [vendorFilter, setVendorFilter] = useState<VoiceVendorFilter>("all");
+  const [caseFilter, setCaseFilter] = useState("all");
   const [limit, setLimit] = useState(50);
   const [cloneOpen, setCloneOpen] = useState(false);
   const [editVoice, setEditVoice] = useState<VoiceProfile | null>(null);
@@ -33,16 +34,23 @@ export function VoicesTab() {
   const [previewDuration, setPreviewDuration] = useState<number | null>(null);
 
   const voicesQuery = useQuery({
-    queryKey: ["library", "voices", sourceFilter, vendorFilter, limit],
+    queryKey: ["library", "voices", sourceFilter, vendorFilter, caseFilter, limit],
     queryFn: () =>
       api.voices.list({
         limit,
         source: sourceFilter === "all" ? null : sourceFilter,
         vendor: vendorFilter === "all" ? null : vendorFilter,
+        case_id: caseFilter === "all" ? null : caseFilter,
       }),
+  });
+  const casesQuery = useQuery({
+    queryKey: ["cases", "voice-bindings"],
+    queryFn: () => api.cases.list({ limit: 200 }),
   });
 
   const voices = voicesQuery.data?.items ?? [];
+  const cases = casesQuery.data?.items ?? [];
+  const casesById = useMemo(() => new Map(cases.map((item) => [item.id, item])), [cases]);
   const filteredVoices = useMemo(() => {
     const keyword = search.trim().toLowerCase();
     if (!keyword) return voices;
@@ -59,7 +67,7 @@ export function VoicesTab() {
 
   useEffect(() => {
     setLimit(50);
-  }, [search, sourceFilter, vendorFilter]);
+  }, [search, sourceFilter, vendorFilter, caseFilter]);
 
   // Poll any training (Volcengine clone) voices until they flip to ready/failed.
   useEffect(() => {
@@ -85,11 +93,21 @@ export function VoicesTab() {
   });
 
   const patchMutation = useMutation({
-    mutationFn: ({ voice, displayName, enabled }: { voice: VoiceProfile; displayName: string; enabled: boolean }) =>
-      api.voices.patch(voice.id, { display_name: displayName, enabled }),
+    mutationFn: ({
+      voice,
+      displayName,
+      enabled,
+      caseIds,
+    }: {
+      voice: VoiceProfile;
+      displayName: string;
+      enabled: boolean;
+      caseIds: string[];
+    }) => api.voices.patch(voice.id, { display_name: displayName, enabled, case_ids: caseIds }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["library", "voices"] });
       await queryClient.invalidateQueries({ queryKey: ["voices"] });
+      await queryClient.invalidateQueries({ queryKey: ["cases"] });
       toast.success("音色已更新");
       setEditVoice(null);
     },
@@ -114,6 +132,7 @@ export function VoicesTab() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["library", "voices"] });
       await queryClient.invalidateQueries({ queryKey: ["voices"] });
+      await queryClient.invalidateQueries({ queryKey: ["cases"] });
       toast.success("音色已删除", "创作页将不再展示该音色");
       setDeleteVoice(null);
     },
@@ -122,12 +141,12 @@ export function VoicesTab() {
 
   return (
     <section className="grid gap-4">
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="card grid gap-4">
+      <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="card grid min-w-0 gap-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-xl font-semibold text-text-primary">音色库</h2>
-              <p className="mt-1 text-sm text-text-secondary">搜索、试听、克隆 TTS 音色。</p>
+              <p className="mt-1 text-sm text-text-secondary">搜索、试听、克隆，并按案例归纳 TTS 音色。</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <button
@@ -170,30 +189,57 @@ export function VoicesTab() {
             ))}
           </div>
 
-          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
-            <SearchInput value={search} onChange={setSearch} placeholder="搜索音色名称、ID 或 provider profile" />
-            <select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as VoiceSourceFilter)}>
-              <option value="all">全部类型</option>
-              <option value="builtin">系统音色</option>
-              <option value="cloned">克隆音色</option>
-              <option value="designed">设计音色</option>
-            </select>
+          <div className="grid min-w-0 gap-3 md:grid-cols-[minmax(180px,1fr)_minmax(150px,190px)] xl:grid-cols-[minmax(220px,1fr)_180px_minmax(220px,280px)]">
+            <SearchInput
+              className="min-w-0"
+              value={search}
+              onChange={setSearch}
+              placeholder="搜索音色名称、ID 或 provider profile"
+            />
+            <label className="min-w-0">
+              <span className="sr-only">音色类型</span>
+              <select
+                value={sourceFilter}
+                onChange={(event) => setSourceFilter(event.target.value as VoiceSourceFilter)}
+              >
+                <option value="all">全部类型</option>
+                <option value="builtin">系统音色</option>
+                <option value="cloned">克隆音色</option>
+                <option value="designed">设计音色</option>
+              </select>
+            </label>
+            <label className="min-w-0" htmlFor="voice-case-filter">
+              <span className="sr-only">案例归纳</span>
+              <select id="voice-case-filter" value={caseFilter} onChange={(event) => setCaseFilter(event.target.value)}>
+                <option value="all">全部案例归纳</option>
+                {cases.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {caseLabel(item)}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
 
           {voicesQuery.isLoading ? <VoiceGridSkeleton /> : null}
           {voicesQuery.error ? <ErrorState error={voicesQuery.error} /> : null}
 
           {!voicesQuery.isLoading && filteredVoices.length === 0 ? (
-            <EmptyState icon={Mic2} title="没有匹配的音色" detail="调整搜索词或类型筛选后重试。" />
+            <EmptyState
+              icon={caseFilter === "all" ? Mic2 : BriefcaseBusiness}
+              title="没有匹配的音色"
+              detail={caseFilter === "all" ? "调整搜索词或类型筛选后重试。" : "编辑音色并绑定到当前案例后会显示在这里。"}
+            />
           ) : null}
 
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid min-w-0 gap-3 md:grid-cols-2">
             {filteredVoices.map((voice) => (
               <VoiceCard
                 key={voice.id}
                 voice={voice}
                 isPreviewing={previewMutation.isPending && previewMutation.variables?.id === voice.id}
                 isPlaying={playingVoiceId === voice.id}
+                caseNames={(voice.case_ids ?? []).map((caseId) => casesById.get(caseId)?.name ?? caseId)}
                 onPreview={() => previewMutation.mutate(voice)}
                 onEdit={() => setEditVoice(voice)}
                 onDelete={() => setDeleteVoice(voice)}
@@ -220,14 +266,17 @@ export function VoicesTab() {
         />
       </div>
 
-      <CloneVoiceModal isOpen={cloneOpen} onClose={() => setCloneOpen(false)} />
+      <CloneVoiceModal isOpen={cloneOpen} onClose={() => setCloneOpen(false)} cases={cases} />
       {editVoice ? (
         <EditVoiceModal
           voice={editVoice}
           isOpen={Boolean(editVoice)}
           isLoading={patchMutation.isPending}
+          cases={cases}
           onClose={() => setEditVoice(null)}
-          onSubmit={(displayName, enabled) => patchMutation.mutate({ voice: editVoice, displayName, enabled })}
+          onSubmit={(displayName, enabled, caseIds) =>
+            patchMutation.mutate({ voice: editVoice, displayName, enabled, caseIds })
+          }
         />
       ) : null}
       <ConfirmDialog
@@ -249,4 +298,8 @@ export function VoicesTab() {
       />
     </section>
   );
+}
+
+function caseLabel(item: CaseListItem) {
+  return item.industry ? `${item.name} · ${item.industry}` : item.name;
 }

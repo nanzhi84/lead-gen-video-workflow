@@ -53,6 +53,7 @@ from packages.core.contracts import (
     VideoVersion,
     WorkflowRun,
     YieldFunnelEvent,
+    normalize_publish_record_status,
     utcnow,
 )
 from packages.core.observability.funnel import resolve_event_owner
@@ -1531,7 +1532,7 @@ class SqlAlchemyProductionRepository(BaseRepository):
                 )
             )
         elif import_type == "publish_record":
-            status = str(row.get("status", "published"))
+            status = str(normalize_publish_record_status(row.get("status", "published")))
             session.add(
                 PublishRecordRow(
                     id=internal_id,

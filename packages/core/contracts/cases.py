@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Literal
-from pydantic import Field, JsonValue
+from pydantic import Field, JsonValue, field_validator
 
 from .base import ContractModel, EntityMeta, utcnow
 
@@ -82,6 +82,36 @@ class VideoVersion(EntityMeta):
     style_plan_artifact_id: str
 
 
+PUBLISH_RECORD_STATUSES = {"draft", "submitted", "published", "failed"}
+_PUBLISH_RECORD_STATUS_ALIASES = {
+    "uploaded": "draft",
+    "normalizing": "draft",
+    "asr_running": "draft",
+    "copy_running": "draft",
+    "cover_running": "draft",
+    "excluded": "draft",
+    "review_ready": "submitted",
+    "manual_review_ready": "submitted",
+    "publishing": "submitted",
+    "scheduled": "submitted",
+    "generation_failed": "failed",
+    "publish_failed": "failed",
+}
+
+
+def normalize_publish_record_status(status: object) -> object:
+    if not isinstance(status, str):
+        return status
+    return _PUBLISH_RECORD_STATUS_ALIASES.get(status, status)
+
+
+def publish_record_status_from_item_status(status: str) -> str:
+    normalized = normalize_publish_record_status(status)
+    if normalized not in PUBLISH_RECORD_STATUSES:
+        raise ValueError(f"Invalid publish record status from item status: {status}")
+    return str(normalized)
+
+
 class PublishRecord(EntityMeta):
     case_id: str
     video_version_id: str | None = None
@@ -91,6 +121,11 @@ class PublishRecord(EntityMeta):
     status: Literal["draft", "submitted", "published", "failed"] = "draft"
     cover_artifact_id: str | None = None
     published_at: datetime | None = None
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _normalize_status(cls, value: object) -> object:
+        return normalize_publish_record_status(value)
 
 
 MetricWindow = Literal["1h", "24h", "3d", "7d", "30d"]

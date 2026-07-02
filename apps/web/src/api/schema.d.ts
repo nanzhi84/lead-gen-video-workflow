@@ -3845,6 +3845,8 @@ export interface components {
             reference_upload_session_id: string;
             /** Provider Profile Id */
             provider_profile_id?: string | null;
+            /** Case Ids */
+            case_ids?: string[];
         };
         /** CompleteUploadRequest */
         CompleteUploadRequest: {
@@ -5850,6 +5852,8 @@ export interface components {
             display_name?: string | null;
             /** Enabled */
             enabled?: boolean | null;
+            /** Case Ids */
+            case_ids?: string[] | null;
         };
         /**
          * PendingRetroItem
@@ -8474,6 +8478,8 @@ export interface components {
              * @enum {string}
              */
             status: "ready" | "training" | "failed";
+            /** Case Ids */
+            case_ids?: string[];
         };
         /**
          * WarningCode
@@ -10619,6 +10625,7 @@ export interface operations {
                 limit?: number;
                 source?: string | null;
                 vendor?: string | null;
+                case_id?: string | null;
                 enabled?: boolean | null;
             };
             header?: never;

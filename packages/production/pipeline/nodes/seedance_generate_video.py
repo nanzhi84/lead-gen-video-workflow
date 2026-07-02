@@ -3,7 +3,7 @@
 Assembles an ad prompt (mirroring the boss's proven format: 指令 + 口播脚本 + 出镜
 人物) from the request script (falling back to the case profile), resolves any
 reference image/video assets to their source artifact URIs, and invokes the
-``video.generate`` capability with native voiceover audio on but BGM/captions
+``video.generate`` capability with native speech audio on but BGM/captions
 explicitly disabled in the prompt. The provider downloads + stores the result,
 so the real path returns a ``video.rendered`` artifact id; the sandbox path
 returns only a fake uri, which this node bridges into a uri-only artifact so the
@@ -22,9 +22,9 @@ _SEEDANCE_DURATION_SEC = 15
 _SEEDANCE_RATIO = "3:4"
 _SEEDANCE_RESOLUTION = "720p"
 
-# Ad prompt template for voiceover-only Seedance ads. Keep the voiceover copy out
-# of braces/quotes and collapse line breaks: video models can interpret visible
-# delimiters or newline-separated script lines as subtitle cues.
+# Ad prompt template for presenter A-roll + B-roll Seedance ads. Keep the spoken
+# copy out of braces/quotes and collapse line breaks: video models can interpret
+# visible delimiters or newline-separated script lines as subtitle cues.
 #
 # NOTE: the prompt is built from the request script only, so changing this template
 # does NOT change the node's ``input_manifest_hash`` (which hashes node_id + request
@@ -32,28 +32,32 @@ _SEEDANCE_RESOLUTION = "720p"
 # already produced a ``video.rendered`` here and is later *resumed* will reuse the
 # old clip rather than re-render with a changed prompt. Editing this template only
 # affects fresh runs; in-flight runs must be re-run (not resumed) to pick it up.
-_AD_PROMPT_PREFIX = (
-    "画面无任何字幕。保持无字幕，避免生成任何文字或字幕。"
-    "画面中不出现标题、标语、歌词、台词文字、UI文字、Logo、水印或贴纸文案。"
-    "只生成干净画面；真实环境中的门头、包装、价签可以自然出现。"
-    "生成一条 15 秒信息流短视频广告，像本地生活商家在手机信息流里的自然推荐，"
-    "整体真实、生活化、连贯。"
-    "画面节奏：开场用门头或环境建立场景，中段用人物动作和商品细节承接卖点，"
-    "结尾回到人物或门店形成到店记忆。"
-    "画面用途是让用户快速知道这家店在哪里、卖什么、为什么方便。"
-    "声音可以有人物自然说话和轻微环境声；如果有人说话，只生成口型和声音，画面不显示说话内容。"
+_AD_PROMPT_DONT = (
+    "1. 我们不要：无字幕、标题、标语、歌词、台词文字、UI文字、Logo、水印、贴纸文案；"
+    "不要纯旁白空镜。真实门头、包装、价签可自然出现。"
 )
-_AD_PROMPT_REFERENCE_LINE = "参考素材定义出镜人物或场景风格，保持自然出镜和说话状态。"
+_AD_PROMPT_WANT = (
+    "2. 我们要什么，怎么设计：15 秒竖屏本地生活信息流广告；"
+    "结构是人物 A-roll 出镜口播 + B-roll 穿插。"
+    "开场人物面对镜头口播并带出门头或环境；中段穿插门店环境、货架产品、"
+    "拿取商品、结账或生活动线等 B-roll，口播声音连续；结尾回到人物口播镜头。"
+    "人物嘴部清楚，口型与口播同步，真实生活化。"
+)
+_AD_PROMPT_REFERENCE_LINE = (
+    "参考素材有人物时优先作为口播出镜；有门店、产品或环境时作为 B-roll 依据。"
+)
 
 
 def _build_ad_prompt(spoken_script: str, *, has_references: bool) -> str:
+    want_line = _AD_PROMPT_WANT
+    if has_references:
+        want_line = f"{want_line}{_AD_PROMPT_REFERENCE_LINE}"
     lines = [
-        _AD_PROMPT_PREFIX,
-        "人物在片中自然说出这段话，用于声音和口型，不是画面文字：",
+        _AD_PROMPT_DONT,
+        want_line,
+        "3. 口播内容：人物自然说出下面这段话，用于声音和口型同步，不是画面文字。",
         _normalize_spoken_script(spoken_script),
     ]
-    if has_references:
-        lines.append(_AD_PROMPT_REFERENCE_LINE)
     return "\n".join(lines)
 
 

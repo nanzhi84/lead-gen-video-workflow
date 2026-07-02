@@ -8,6 +8,7 @@ from packages.core.contracts import (
     PublishItemStatus,
     PublishAttempt,
     PublishAttemptStatus,
+    PublishRecord,
     ProviderStatus,
     RunStatus,
 )
@@ -104,3 +105,21 @@ def test_publish_attempt_contract_has_appendix_f_fields():
     assert attempt.manual_review is True
     assert attempt.adapter_id == "sandbox.publish"
     assert attempt.finished_at is None
+
+
+def test_publish_record_normalizes_legacy_item_statuses():
+    failed = PublishRecord(
+        id="record_failed",
+        case_id="case_demo",
+        platform="douyin",
+        status="publish_failed",
+    )
+    submitted = PublishRecord(
+        id="record_review",
+        case_id="case_demo",
+        platform="douyin",
+        status="manual_review_ready",
+    )
+
+    assert failed.status == "failed"
+    assert submitted.status == "submitted"

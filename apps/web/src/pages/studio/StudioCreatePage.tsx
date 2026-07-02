@@ -67,8 +67,9 @@ export default function StudioCreatePage() {
     enabled: Boolean(caseId),
   });
   const voices = useQuery({
-    queryKey: ["voices"],
-    queryFn: () => api.voices.list(),
+    queryKey: ["voices", caseId],
+    queryFn: () => api.voices.list({ case_id: caseId, enabled: true, limit: 200 }),
+    enabled: Boolean(caseId),
   });
   const generationDefaults = useQuery({
     queryKey: ["me", "generation-defaults"],
@@ -97,7 +98,9 @@ export default function StudioCreatePage() {
   });
 
   const voiceOptions = useMemo(() => voices.data?.items.filter((voice) => voice.enabled) ?? [], [voices.data?.items]);
-  const selectedVoice = form.voiceId || voiceOptions[0]?.id || "";
+  const selectedVoice = voiceOptions.some((voice) => voice.id === form.voiceId)
+    ? form.voiceId
+    : voiceOptions[0]?.id || "";
   const selectedVoiceOption = voiceOptions.find((voice) => voice.id === selectedVoice);
   const selectedVoiceLabel = selectedVoiceOption ? voiceDisplayLabel(selectedVoiceOption) : selectedVoice;
   const scriptCount = form.script.trim().length;
@@ -128,10 +131,16 @@ export default function StudioCreatePage() {
   }, [adoptedAgentScript, toast]);
 
   useEffect(() => {
-    if (!voices.data || voiceOptions.length === 0) return;
+    if (!voices.data) return;
+    if (voiceOptions.length === 0) {
+      if (form.voiceId) {
+        setForm((current) => ({ ...current, voiceId: "" }));
+      }
+      return;
+    }
     if (!voiceOptions.some((voice) => voice.id === form.voiceId)) {
       setForm((current) => ({ ...current, voiceId: voiceOptions[0].id }));
-      toast.warning("已恢复默认声音", "上次选择的声音不可用或已删除");
+      toast.warning("已切换到当前案例音色", "原声音未绑定到此案例或已停用");
     }
   }, [form.voiceId, toast, voiceOptions, voices.data]);
 

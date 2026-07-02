@@ -46,15 +46,25 @@ def _vendor_from_provider_id(provider_id: str | None) -> str:
     return "" if head == "sandbox" else head
 
 
+def _clean_case_ids(case_ids: list[str] | None) -> list[str]:
+    cleaned: list[str] = []
+    for raw in case_ids or []:
+        value = raw.strip()
+        if value and value not in cleaned:
+            cleaned.append(value)
+    return cleaned
+
+
 def list_voices(
     request: Request,
     limit: int = 50,
     source: str | None = None,
     vendor: str | None = None,
+    case_id: str | None = None,
     enabled: bool | None = None,
 ) -> c.PageResponse[c.VoiceProfile]:
     values = media_repository(request).list_voices(
-        source=source, vendor=vendor, enabled=enabled, limit=limit
+        source=source, vendor=vendor, case_id=case_id, enabled=enabled, limit=limit
     )
     return c.PageResponse(items=values, total_hint=len(values), request_id=request_id())
 
@@ -160,6 +170,7 @@ def clone_voice(payload: c.CloneVoiceRequest, request: Request) -> c.VoiceProfil
         display_name=payload.display_name,
         source="cloned",
         input_payload={"reference_upload_session_id": payload.reference_upload_session_id},
+        case_ids=payload.case_ids,
         before_invoke=lambda repo: hydrate_voice_reference_upload(
             media_repo, repo, payload.reference_upload_session_id
         ),
@@ -178,6 +189,7 @@ def _provider_voice_build(
     display_name: str,
     source: str,
     input_payload: dict,
+    case_ids: list[str] | None = None,
     before_invoke=None,
 ) -> c.VoiceProfile | None:
     if not provider_profile_id:
@@ -187,7 +199,9 @@ def _provider_voice_build(
     if profile is None:
         return None
     if profile.capability != "tts.speech":
-        raise NodeExecutionError(c.ErrorCode.provider_unsupported_option, "Voice provider profile is invalid.")
+        raise NodeExecutionError(
+            c.ErrorCode.provider_unsupported_option, "Voice provider profile is invalid."
+        )
     if before_invoke is not None:
         before_invoke(repo)
     invocation, result = request.app.state.provider_gateway.invoke(
@@ -205,7 +219,11 @@ def _provider_voice_build(
     voice_id = str(result.output.get("voice_id") or new_id("voice"))
     preview_artifact_id = result.output.get("preview_audio_artifact_id")
     raw_status = str(result.output.get("status") or "")
-    status = "training" if raw_status == "training" else ("failed" if raw_status == "failed" else "ready")
+    status = (
+        "training"
+        if raw_status == "training"
+        else ("failed" if raw_status == "failed" else "ready")
+    )
     voice = c.VoiceProfile(
         id=voice_id,
         display_name=display_name,
@@ -214,17 +232,22 @@ def _provider_voice_build(
         provider_profile_id=profile.id,
         preview_artifact_id=preview_artifact_id if isinstance(preview_artifact_id, str) else None,
         status=status,
+        case_ids=_clean_case_ids(case_ids),
     )
     repo.voices[voice.id] = voice
     return voice
 
 
-def voice_preview(voice_id: str, payload: c.VoicePreviewRequest, request: Request) -> c.VoicePreviewResponse:
+def voice_preview(
+    voice_id: str, payload: c.VoicePreviewRequest, request: Request
+) -> c.VoicePreviewResponse:
     response = _resolve_voice_preview(voice_id, payload, request)
     return _sign_preview_audio(response, request)
 
 
-def _sign_preview_audio(response: c.VoicePreviewResponse, request: Request) -> c.VoicePreviewResponse:
+def _sign_preview_audio(
+    response: c.VoicePreviewResponse, request: Request
+) -> c.VoicePreviewResponse:
     """Replace a storage URI (s3://, oss://, local://) with a browser-playable
     presigned HTTPS URL so the library试听 player can load the audio directly."""
     uri = response.audio_artifact.uri
@@ -239,7 +262,9 @@ def _sign_preview_audio(response: c.VoicePreviewResponse, request: Request) -> c
     )
 
 
-def _resolve_voice_preview(voice_id: str, payload: c.VoicePreviewRequest, request: Request) -> c.VoicePreviewResponse:
+def _resolve_voice_preview(
+    voice_id: str, payload: c.VoicePreviewRequest, request: Request
+) -> c.VoicePreviewResponse:
     media_repo = media_repository(request)
     voice = load_voice(media_repo, voice_id)
     if voice is not None:
@@ -315,9 +340,13 @@ def _tts_provider_profile(provider_profile_id: str | None, request: Request, *, 
     if profile is None:
         if missing_ok:
             return None
-        raise NodeExecutionError(c.ErrorCode.provider_unsupported_option, "Voice provider profile is invalid.")
+        raise NodeExecutionError(
+            c.ErrorCode.provider_unsupported_option, "Voice provider profile is invalid."
+        )
     if profile.capability != "tts.speech":
-        raise NodeExecutionError(c.ErrorCode.provider_unsupported_option, "Voice provider profile is invalid.")
+        raise NodeExecutionError(
+            c.ErrorCode.provider_unsupported_option, "Voice provider profile is invalid."
+        )
     if not profile.enabled:
         return None
     if profile.provider_id not in gateway.plugins:

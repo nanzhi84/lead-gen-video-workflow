@@ -21,9 +21,12 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from apps.api.services import jobs_runs
 from packages.core import contracts as c
 from packages.core.storage.repository import Repository, new_id
+from packages.core.workflow import NodeExecutionError
 from packages.production.pipeline._run_state import RunState
 from packages.production.pipeline.nodes import export_finished_video
 
@@ -56,6 +59,25 @@ def _request(case_id: str, script_version_id: str | None) -> c.DigitalHumanVideo
         title="Script-linked video",
         script_version_id=script_version_id,
         voice=c.VoiceOptions(voice_id="voice_sandbox"),
+    )
+
+
+def _seedance_request(case_id: str, reference_asset_ids: list[str]) -> c.DigitalHumanVideoRequest:
+    return _request(case_id, None).model_copy(
+        update={
+            "workflow_template_id": "seedance_t2v_v1",
+            "reference_asset_ids": reference_asset_ids,
+        }
+    )
+
+
+def _source_artifact(artifact_id: str = "art_source") -> c.Artifact:
+    return c.Artifact(
+        id=artifact_id,
+        kind=c.ArtifactKind.uploaded_file,
+        uri="local://cutagent-local/references/ref.png",
+        payload_schema="uploaded_file.v1",
+        payload={},
     )
 
 
@@ -117,6 +139,74 @@ def test_link_adopted_script_hydrates_from_production_repo() -> None:
 
     assert prod.requested == [script.id]
     assert repo.scripts[script.id].adopted_from_draft_id == "draft_seed_001"
+
+
+# --- _validate_seedance_reference_assets (job-creation seam) ------------------
+
+
+def test_validate_seedance_reference_assets_rejects_missing_asset() -> None:
+    repo = Repository()
+    payload = _seedance_request("case_demo", ["asset_missing"])
+
+    with pytest.raises(NodeExecutionError) as exc:
+        jobs_runs._validate_seedance_reference_assets(_fake_request(repo), payload)
+
+    assert exc.value.error.code == c.ErrorCode.validation_invalid_options
+    assert "asset_missing" in exc.value.error.message
+
+
+def test_validate_seedance_reference_assets_rejects_cross_case_asset() -> None:
+    repo = Repository()
+    artifact = _source_artifact()
+    repo.artifacts[artifact.id] = artifact
+    repo.media_assets["asset_other"] = c.MediaAssetRecord(
+        id="asset_other",
+        case_id="case_other",
+        title="Foreign reference",
+        kind="image",
+        source_artifact_id=artifact.id,
+    )
+    payload = _seedance_request("case_demo", ["asset_other"])
+
+    with pytest.raises(NodeExecutionError) as exc:
+        jobs_runs._validate_seedance_reference_assets(_fake_request(repo), payload)
+
+    assert exc.value.error.code == c.ErrorCode.validation_invalid_options
+    assert "does not belong" in exc.value.error.message
+
+
+def test_validate_seedance_reference_assets_accepts_loaded_asset_source() -> None:
+    repo = Repository()
+    artifact = _source_artifact()
+    repo.artifacts[artifact.id] = artifact
+    repo.media_assets["asset_ref"] = c.MediaAssetRecord(
+        id="asset_ref",
+        case_id="case_demo",
+        title="Valid reference",
+        kind="image",
+        source_artifact_id=artifact.id,
+    )
+    payload = _seedance_request("case_demo", ["asset_ref"])
+
+    jobs_runs._validate_seedance_reference_assets(_fake_request(repo), payload)
+
+
+def test_validate_job_request_before_start_rejects_stale_seedance_request() -> None:
+    repo = Repository()
+    payload = _seedance_request("case_demo", ["asset_missing"])
+    repo.jobs["job_seedance"] = c.Job(
+        id="job_seedance",
+        type=c.JobType.digital_human_video,
+        case_id="case_demo",
+        request_schema=payload.schema_version,
+        request=payload,
+    )
+
+    with pytest.raises(NodeExecutionError) as exc:
+        jobs_runs._validate_job_request_before_start(_fake_request(repo), "job_seedance")
+
+    assert exc.value.error.code == c.ErrorCode.validation_invalid_options
+    assert "asset_missing" in exc.value.error.message
 
 
 # --- _resolve_script_version (run-completion seam) ----------------------------

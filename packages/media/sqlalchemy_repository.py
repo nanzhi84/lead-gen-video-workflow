@@ -113,6 +113,15 @@ def _vendor_from_profile_id(provider_profile_id: str | None) -> str:
     return "" if head == "sandbox" else head
 
 
+def _clean_case_ids(case_ids: list[str] | None) -> list[str]:
+    cleaned: list[str] = []
+    for raw in case_ids or []:
+        value = raw.strip()
+        if value and value not in cleaned:
+            cleaned.append(value)
+    return cleaned
+
+
 def voice_row_to_contract(row: VoiceProfileRow) -> VoiceProfile:
     return VoiceProfile(
         id=row.id,
@@ -123,6 +132,7 @@ def voice_row_to_contract(row: VoiceProfileRow) -> VoiceProfile:
         preview_artifact_id=row.preview_artifact_id,
         enabled=row.enabled,
         status=row.status or "ready",
+        case_ids=list(row.case_ids or []),
         schema_version=row.schema_version,
         created_at=row.created_at,
         updated_at=row.updated_at,
@@ -265,12 +275,18 @@ class SqlAlchemyMediaRepository(BaseRepository):
                 )
                 for row in rows
             ]
-            assets = {
-                row.id: media_asset_row_to_contract(row)
-                for row in session.scalars(
-                    select(MediaAssetRow).where(MediaAssetRow.id.in_({entry.asset_id for entry in entries}))
-                )
-            } if entries else {}
+            assets = (
+                {
+                    row.id: media_asset_row_to_contract(row)
+                    for row in session.scalars(
+                        select(MediaAssetRow).where(
+                            MediaAssetRow.id.in_({entry.asset_id for entry in entries})
+                        )
+                    )
+                }
+                if entries
+                else {}
+            )
         return material_usage_ranking_from_entries(
             entries=entries,
             assets=assets,
@@ -279,11 +295,15 @@ class SqlAlchemyMediaRepository(BaseRepository):
             top_n=top_n,
         )
 
-    def create_asset_from_upload(self, payload: CreateMediaAssetFromUploadRequest) -> MediaAssetRecord:
+    def create_asset_from_upload(
+        self, payload: CreateMediaAssetFromUploadRequest
+    ) -> MediaAssetRecord:
         with self.session_factory() as session:
             upload = session.get(UploadSessionRow, payload.upload_session_id)
             if upload is None or upload.status != "completed":
-                raise NodeExecutionError(ErrorCode.upload_invalid_state, "Upload must be completed first.")
+                raise NodeExecutionError(
+                    ErrorCode.upload_invalid_state, "Upload must be completed first."
+                )
             artifact = session.scalar(
                 select(ArtifactRow)
                 .where(ArtifactRow.kind == ArtifactKind.uploaded_file.value)
@@ -292,7 +312,9 @@ class SqlAlchemyMediaRepository(BaseRepository):
                 .limit(1)
             )
             if artifact is None:
-                raise NodeExecutionError(ErrorCode.artifact_missing, "Completed upload artifact is missing.")
+                raise NodeExecutionError(
+                    ErrorCode.artifact_missing, "Completed upload artifact is missing."
+                )
             thumbnails = list(
                 session.scalars(
                     select(ArtifactRow)
@@ -366,14 +388,27 @@ class SqlAlchemyMediaRepository(BaseRepository):
             return artifact_ref_from_row(artifact) if artifact is not None else None
 
     def replace_asset_source_artifact(
-        self, asset_id: str, *, kind: ArtifactKind, uri: str, size_bytes: int, sha256: str, media_info: MediaInfo, payload: dict, tag: str | None = None
+        self,
+        asset_id: str,
+        *,
+        kind: ArtifactKind,
+        uri: str,
+        size_bytes: int,
+        sha256: str,
+        media_info: MediaInfo,
+        payload: dict,
+        tag: str | None = None,
     ) -> ArtifactRef | None:
         with self.session_factory() as session:
             asset = session.get(MediaAssetRow, asset_id)
             if asset is None:
                 return None
             artifact = ArtifactRow(
-                id=new_id("art"), kind=kind.value, uri=uri, size_bytes=size_bytes, sha256=sha256,
+                id=new_id("art"),
+                kind=kind.value,
+                uri=uri,
+                size_bytes=size_bytes,
+                sha256=sha256,
                 media_info=media_info.model_dump(mode="json"),
                 payload_schema="ProcessedMediaArtifact.v1",
                 payload=payload,
@@ -413,7 +448,9 @@ class SqlAlchemyMediaRepository(BaseRepository):
                 session.refresh(asset)
             return annotation_row_to_editor(row, asset, object_store=self.object_store)
 
-    def patch_annotation(self, asset_id: str, payload: PatchAnnotationRequest) -> AnnotationEditorVm | None:
+    def patch_annotation(
+        self, asset_id: str, payload: PatchAnnotationRequest
+    ) -> AnnotationEditorVm | None:
         # Import here to avoid an apps.api <-> packages.media import cycle at module load.
         from apps.api.services.annotation_patch import apply_patch
 
@@ -457,7 +494,9 @@ class SqlAlchemyMediaRepository(BaseRepository):
             session.refresh(asset)
             return annotation_row_to_editor(row, asset, object_store=self.object_store)
 
-    def rerun_annotation(self, asset_id: str, payload: RerunAnnotationRequest) -> AnnotationRunResponse | None:
+    def rerun_annotation(
+        self, asset_id: str, payload: RerunAnnotationRequest
+    ) -> AnnotationRunResponse | None:
         with self.session_factory() as session:
             asset = session.get(MediaAssetRow, asset_id)
             if asset is None:
@@ -609,6 +648,7 @@ class SqlAlchemyMediaRepository(BaseRepository):
         *,
         source: str | None = None,
         vendor: str | None = None,
+        case_id: str | None = None,
         enabled: bool | None = None,
         limit: int = 50,
     ) -> list[VoiceProfile]:
@@ -618,6 +658,8 @@ class SqlAlchemyMediaRepository(BaseRepository):
                 statement = statement.where(VoiceProfileRow.source == source)
             if vendor:
                 statement = statement.where(VoiceProfileRow.vendor == vendor)
+            if case_id:
+                statement = statement.where(VoiceProfileRow.case_ids.contains([case_id]))
             if enabled is not None:
                 statement = statement.where(VoiceProfileRow.enabled == enabled)
             statement = statement.order_by(VoiceProfileRow.updated_at.desc()).limit(limit)
@@ -627,7 +669,9 @@ class SqlAlchemyMediaRepository(BaseRepository):
         with self.session_factory() as session:
             upload = session.get(UploadSessionRow, payload.reference_upload_session_id)
             if upload is None or upload.status != "completed":
-                raise NodeExecutionError(ErrorCode.upload_invalid_state, "Reference upload must be completed first.")
+                raise NodeExecutionError(
+                    ErrorCode.upload_invalid_state, "Reference upload must be completed first."
+                )
             row = VoiceProfileRow(
                 id=new_id("voice"),
                 display_name=payload.display_name,
@@ -635,6 +679,7 @@ class SqlAlchemyMediaRepository(BaseRepository):
                 vendor=_vendor_from_profile_id(payload.provider_profile_id),
                 provider_profile_id=payload.provider_profile_id or "sandbox.tts.default",
                 enabled=True,
+                case_ids=_clean_case_ids(payload.case_ids),
             )
             session.add(row)
             session.commit()
@@ -657,7 +702,9 @@ class SqlAlchemyMediaRepository(BaseRepository):
         status are refreshed (when the provider now reports them) so a re-sync
         stays idempotent. ``vendor`` defaults to deriving from the profile id.
         """
-        resolved_vendor = vendor if vendor is not None else _vendor_from_profile_id(provider_profile_id)
+        resolved_vendor = (
+            vendor if vendor is not None else _vendor_from_profile_id(provider_profile_id)
+        )
         with self.session_factory() as session:
             row = session.get(VoiceProfileRow, voice_id)
             created = row is None
@@ -689,7 +736,9 @@ class SqlAlchemyMediaRepository(BaseRepository):
             session.refresh(row)
             return voice_row_to_contract(row), created
 
-    def preview_voice(self, voice_id: str, payload: VoicePreviewRequest) -> VoicePreviewResponse | None:
+    def preview_voice(
+        self, voice_id: str, payload: VoicePreviewRequest
+    ) -> VoicePreviewResponse | None:
         with self.session_factory() as session:
             voice = session.get(VoiceProfileRow, voice_id)
             if voice is None:
@@ -723,6 +772,8 @@ class SqlAlchemyMediaRepository(BaseRepository):
             if voice is None:
                 return None
             for key, value in payload.model_dump(exclude_none=True).items():
+                if key == "case_ids":
+                    value = _clean_case_ids(value)
                 setattr(voice, key, value)
             voice.updated_at = utcnow()
             session.commit()

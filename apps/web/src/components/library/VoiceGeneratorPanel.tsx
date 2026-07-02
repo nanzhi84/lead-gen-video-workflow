@@ -37,8 +37,14 @@ export function VoiceGeneratorPanel({
     if (!voiceId && selectedVoiceId) setVoiceId(selectedVoiceId);
   }, [selectedVoiceId, voiceId]);
 
+  useEffect(() => {
+    if (voiceId && !voices.some((voice) => voice.id === voiceId)) {
+      setVoiceId(selectedVoiceId || voices[0]?.id || "");
+    }
+  }, [selectedVoiceId, voiceId, voices]);
+
   return (
-    <aside className="card grid content-start gap-4">
+    <aside className="card grid min-w-0 content-start gap-4">
       <div>
         <h2 className="text-lg font-semibold text-text-primary">生成音频</h2>
         <p className="mt-1 text-sm text-text-secondary">使用音色绑定的 provider 配置生成试听。</p>
@@ -49,7 +55,8 @@ export function VoiceGeneratorPanel({
       </label>
       <label>
         <span>音色</span>
-        <select value={voiceId} onChange={(event) => setVoiceId(event.target.value)}>
+        <select value={voiceId} onChange={(event) => setVoiceId(event.target.value)} disabled={voices.length === 0}>
+          {voices.length === 0 ? <option value="">暂无可试听音色</option> : null}
           {groupedVoices.map(([vendor, group]) => (
             <optgroup key={vendor || "unknown"} label={vendorLabel(vendor)}>
               {group.map((voice) => (

@@ -52,16 +52,25 @@ def test_sqlalchemy_voice_profile_flow_persists_profiles_and_preview_artifact():
 
         cloned = client.post(
             "/api/voices/clone",
-            json={"display_name": "Cloned DB Voice", "reference_upload_session_id": reference_upload_id},
+            json={
+                "display_name": "Cloned DB Voice",
+                "reference_upload_session_id": reference_upload_id,
+                "case_ids": ["case_demo"],
+            },
         )
         assert cloned.status_code == 202, cloned.text
         cloned_voice = cloned.json()
         assert cloned_voice["source"] == "cloned"
+        assert cloned_voice["case_ids"] == ["case_demo"]
 
         listed = client.get("/api/voices")
         assert listed.status_code == 200, listed.text
         listed_ids = {item["id"] for item in listed.json()["items"]}
         assert cloned_voice["id"] in listed_ids
+
+        listed_by_case = client.get("/api/voices", params={"case_id": "case_demo"})
+        assert listed_by_case.status_code == 200, listed_by_case.text
+        assert cloned_voice["id"] in {item["id"] for item in listed_by_case.json()["items"]}
 
         preview = client.post(
             f"/api/voices/{cloned_voice['id']}/preview",
@@ -81,7 +90,10 @@ def test_sqlalchemy_voice_profile_flow_persists_profiles_and_preview_artifact():
         filtered = client.get("/api/voices", params={"source": "cloned", "enabled": False})
         assert filtered.status_code == 200, filtered.text
         assert any(item["id"] == cloned_voice["id"] for item in filtered.json()["items"])
-        assert all(item["source"] == "cloned" and item["enabled"] is False for item in filtered.json()["items"])
+        assert all(
+            item["source"] == "cloned" and item["enabled"] is False
+            for item in filtered.json()["items"]
+        )
 
         deleted = client.delete(f"/api/voices/{cloned_voice['id']}")
         assert deleted.status_code == 200, deleted.text

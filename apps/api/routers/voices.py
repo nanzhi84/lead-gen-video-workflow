@@ -9,15 +9,17 @@ from packages.core import contracts as c
 
 router = APIRouter()
 
+
 @router.get("/api/voices", response_model=c.PageResponse[c.VoiceProfile])
 def list_voices(
     request: Request,
     limit: int = 50,
     source: str | None = None,
     vendor: str | None = None,
+    case_id: str | None = None,
     enabled: bool | None = None,
 ) -> c.PageResponse[c.VoiceProfile]:
-    return service.list_voices(request, limit, source, vendor, enabled)
+    return service.list_voices(request, limit, source, vendor, case_id, enabled)
 
 
 @router.post("/api/voices/sync", response_model=c.SyncVoicesResponse)
@@ -33,7 +35,9 @@ def clone_voice(payload: c.CloneVoiceRequest, request: Request) -> c.VoiceProfil
 
 
 @router.post("/api/voices/{voice_id}/preview", response_model=c.VoicePreviewResponse)
-def voice_preview(voice_id: str, payload: c.VoicePreviewRequest, request: Request) -> c.VoicePreviewResponse:
+def voice_preview(
+    voice_id: str, payload: c.VoicePreviewRequest, request: Request
+) -> c.VoicePreviewResponse:
     require_role(request, c.UserRole.operator)
     return service.voice_preview(voice_id, payload, request)
 

@@ -26,7 +26,9 @@ def _login_admin() -> None:
     assert response.status_code == 200, response.text
 
 
-def _insert_voice(*, source: str, vendor: str, enabled: bool, display_name: str) -> str:
+def _insert_voice(
+    *, source: str, vendor: str, enabled: bool, display_name: str, case_ids: list[str] | None = None
+) -> str:
     voice_id = new_id("voice")
     with app.state.sqlalchemy_session_factory() as session:
         session.add(
@@ -37,6 +39,7 @@ def _insert_voice(*, source: str, vendor: str, enabled: bool, display_name: str)
                 vendor=vendor,
                 provider_profile_id="sandbox.tts.default",
                 enabled=enabled,
+                case_ids=case_ids or [],
             )
         )
         session.commit()
@@ -45,8 +48,12 @@ def _insert_voice(*, source: str, vendor: str, enabled: bool, display_name: str)
 
 def test_list_voices_filters_by_source_vendor_enabled():
     _login_admin()
-    cloned_id = _insert_voice(source="cloned", vendor="pintest_volc", enabled=True, display_name="A")
-    builtin_id = _insert_voice(source="builtin", vendor="pintest_mmx", enabled=False, display_name="B")
+    cloned_id = _insert_voice(
+        source="cloned", vendor="pintest_volc", enabled=True, display_name="A"
+    )
+    builtin_id = _insert_voice(
+        source="builtin", vendor="pintest_mmx", enabled=False, display_name="B"
+    )
 
     by_source = client.get("/api/voices", params={"source": "cloned"})
     assert by_source.status_code == 200, by_source.text
@@ -65,9 +72,47 @@ def test_list_voices_filters_by_source_vendor_enabled():
     assert all(v["enabled"] is False for v in disabled_items)
 
 
+def test_list_and_patch_voices_by_case_binding():
+    _login_admin()
+    case_id = "case_voice_bind_pin"
+    bound_id = _insert_voice(
+        source="cloned",
+        vendor="pintest_case",
+        enabled=True,
+        display_name="Bound",
+        case_ids=[case_id],
+    )
+    other_id = _insert_voice(
+        source="cloned",
+        vendor="pintest_case",
+        enabled=True,
+        display_name="Other",
+        case_ids=["case_other"],
+    )
+
+    by_case = client.get("/api/voices", params={"case_id": case_id, "vendor": "pintest_case"})
+    assert by_case.status_code == 200, by_case.text
+    case_ids = [v["id"] for v in by_case.json()["items"]]
+    assert bound_id in case_ids
+    assert other_id not in case_ids
+    assert all(case_id in v["case_ids"] for v in by_case.json()["items"])
+
+    patched = client.patch(f"/api/voices/{other_id}", json={"case_ids": [case_id, case_id, ""]})
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["case_ids"] == [case_id]
+
+    by_case_after_patch = client.get(
+        "/api/voices", params={"case_id": case_id, "vendor": "pintest_case"}
+    )
+    assert by_case_after_patch.status_code == 200, by_case_after_patch.text
+    assert other_id in {v["id"] for v in by_case_after_patch.json()["items"]}
+
+
 def test_patch_voice_updates_existing_and_rejects_missing():
     _login_admin()
-    voice_id = _insert_voice(source="cloned", vendor="pintest_volc", enabled=True, display_name="Before")
+    voice_id = _insert_voice(
+        source="cloned", vendor="pintest_volc", enabled=True, display_name="Before"
+    )
 
     patched = client.patch(
         f"/api/voices/{voice_id}", json={"display_name": "After", "enabled": False}
@@ -84,7 +129,9 @@ def test_patch_voice_updates_existing_and_rejects_missing():
 
 def test_delete_voice_returns_ok():
     _login_admin()
-    voice_id = _insert_voice(source="cloned", vendor="pintest_volc", enabled=True, display_name="Del")
+    voice_id = _insert_voice(
+        source="cloned", vendor="pintest_volc", enabled=True, display_name="Del"
+    )
 
     deleted = client.delete(f"/api/voices/{voice_id}")
     assert deleted.status_code == 200, deleted.text

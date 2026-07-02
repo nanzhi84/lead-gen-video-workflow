@@ -8,6 +8,8 @@ submit never pins a pooled connection for the duration of a publish.
 
 from __future__ import annotations
 
+from sqlalchemy import select
+
 from packages.core.contracts import (
     ArtifactKind,
     ArtifactRef,
@@ -18,6 +20,7 @@ from packages.core.storage.database import (
     PublishBatchItemRow,
     PublishBatchRow,
     PublishPackageRow,
+    PublishRecordRow,
 )
 from packages.core.storage.repository import new_id
 from packages.publishing.platform_adapter import PublishOutcome
@@ -131,3 +134,8 @@ def test_submit_batch_marks_item_failed_when_runner_raises(db_session_factory):
     assert result.status == "partial_failed"
     statuses = {item.id: item.status for item in result.items}
     assert statuses[item_id] == "publish_failed"
+    with db_session_factory() as session:
+        record_status = session.scalar(
+            select(PublishRecordRow.status).where(PublishRecordRow.publish_batch_id == batch_id)
+        )
+    assert record_status == "failed"

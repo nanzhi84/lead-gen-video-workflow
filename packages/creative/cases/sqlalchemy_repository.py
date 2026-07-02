@@ -17,6 +17,7 @@ from packages.core.storage.database import (
     JobRow,
     MediaAssetRow,
     ScriptVersionRow,
+    VoiceProfileRow,
     WorkflowRunRow,
 )
 from packages.core.storage.base_repository import BaseRepository
@@ -97,7 +98,7 @@ class SqlAlchemyCaseRepository(BaseRepository):
 
         FKs are uneven across the schema, so counts are derived per R6:
         - material_count: media assets whose kind is a reusable library kind.
-        - voice_count: media assets whose kind == 'voice' (VoiceProfileRow has no case_id).
+        - voice_count: voices explicitly bound to the case, plus legacy media voice assets.
         - script_count: ScriptVersionRow rows for the case.
         - quality_count: QC'd finished videos — a terminal FinishedVideoRow.qc_status
           (passed/failed/warning); ``pending`` videos are not yet QC'd and excluded.
@@ -129,6 +130,14 @@ class SqlAlchemyCaseRepository(BaseRepository):
         for case_id, count in voice_rows:
             if case_id in counts:
                 counts[case_id]["voice_count"] = int(count)
+
+        case_id_set = set(case_ids)
+        bound_voice_rows = session.execute(
+            select(VoiceProfileRow.case_ids).where(VoiceProfileRow.case_ids.overlap(case_ids))
+        )
+        for (bound_case_ids,) in bound_voice_rows:
+            for case_id in set(bound_case_ids or []) & case_id_set:
+                counts[case_id]["voice_count"] += 1
 
         script_rows = session.execute(
             select(ScriptVersionRow.case_id, func.count())
@@ -195,7 +204,9 @@ class SqlAlchemyCaseRepository(BaseRepository):
     def _has_blocking_reference(self, session: Session, case_id: str) -> bool:
         active_run = session.scalar(
             select(WorkflowRunRow.id)
-            .where(WorkflowRunRow.case_id == case_id, WorkflowRunRow.status.in_(ACTIVE_RUN_STATUSES))
+            .where(
+                WorkflowRunRow.case_id == case_id, WorkflowRunRow.status.in_(ACTIVE_RUN_STATUSES)
+            )
             .limit(1)
         )
         active_job = session.scalar(

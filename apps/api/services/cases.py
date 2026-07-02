@@ -50,6 +50,9 @@ def _with_counts(repo, case: c.CaseDetail) -> c.CaseListItem:
     voice_count = sum(
         1 for asset in repo.media_assets.values() if asset.case_id == case_id and asset.kind == "voice"
     )
+    voice_count += sum(
+        1 for voice in getattr(repo, "voices", {}).values() if case_id in getattr(voice, "case_ids", [])
+    )
     script_count = sum(1 for script in repo.scripts.values() if script.case_id == case_id)
     quality_count = sum(
         1

@@ -50,6 +50,10 @@ def test_material_count_includes_unified_video_assets():
             "asset_voice": SimpleNamespace(case_id="case_video_count", kind="voice"),
             "asset_other_case": SimpleNamespace(case_id="case_other", kind="video"),
         },
+        voices={
+            "voice_bound": SimpleNamespace(case_ids=["case_video_count"]),
+            "voice_other": SimpleNamespace(case_ids=["case_other"]),
+        },
         scripts={},
         finished_videos={},
     )
@@ -57,7 +61,7 @@ def test_material_count_includes_unified_video_assets():
     item = _with_counts(repo, case)
 
     assert item.material_count == 2
-    assert item.voice_count == 1
+    assert item.voice_count == 2
 
 
 def test_case_count_material_kind_allowlists_include_unified_video_assets():

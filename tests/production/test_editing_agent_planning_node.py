@@ -376,6 +376,83 @@ def test_llm_path_repairs_reused_portrait_asset(monkeypatch, tmp_path):
     assert [seg["asset_id"] for seg in portrait["segments"]] == ["portrait_b", "portrait_a"]
 
 
+def _make_portrait_scarce(state: RunState) -> None:
+    # Shrink the portrait pool to a single distinct asset: 1 asset for 2 slots
+    # (A < S), which drives the relaxed-uniqueness path in both selection modes.
+    material = state.artifacts[ArtifactKind.plan_material_pack].payload
+    material["portrait_candidates"] = material["portrait_candidates"][:1]
+
+
+def test_fallback_relaxes_uniqueness_and_covers_all_slots_when_assets_scarce(tmp_path):
+    state = _state()
+    _make_portrait_scarce(state)
+
+    output = _run_node(_adapter(tmp_path), state)
+
+    # Portrait main track is fully covered (no hole) by reusing the one asset.
+    portrait = _payload(output, ArtifactKind.plan_portrait)
+    assert len(portrait["segments"]) == 2
+    assert portrait["segments"][0]["timeline_start_frame"] == 0
+    assert portrait["segments"][-1]["timeline_end_frame"] == 360
+    assert {seg["asset_id"] for seg in portrait["segments"]} == {"portrait_a"}
+
+    # The relaxation is surfaced as a graded degradation, never silent.
+    assert output.status == NodeStatus.degraded
+    assert WarningCode.portrait_asset_reuse_relaxed in output.warnings
+    assert any(
+        d.code == WarningCode.portrait_asset_reuse_relaxed for d in output.degradations
+    )
+    diagnostics = _payload(output, ArtifactKind.plan_editing_diagnostics)
+    assert diagnostics["portrait_asset_reuse_cap"] == 2
+
+
+def test_llm_path_accepts_reused_asset_when_scarce_without_burning_repairs(monkeypatch, tmp_path):
+    adapter = _adapter(tmp_path)
+    fake_profile = SimpleNamespace(id="dashscope.llm.prod")
+    monkeypatch.setattr(
+        adapter.provider_profiles,
+        "first_available",
+        lambda capability, *, include_sandbox=True: fake_profile,
+    )
+    state = _state()
+    _make_portrait_scarce(state)  # only pc_000 (portrait_a) remains; cap relaxes to 2
+
+    selection = {
+        "portrait_plan": [
+            {"slot_id": "pslot_000", "window_id": "pc_000"},
+            {"slot_id": "pslot_001", "window_id": "pc_000"},
+        ],
+        "broll_plan": [],
+        "font_plan": {"font_id": "font_yst"},
+        "bgm_plan": {"bgm_id": "bgm_001"},
+        "analysis": "素材有限，复用同一人像",
+    }
+    calls = []
+
+    def fake_invoke(call):
+        calls.append(call)
+        return (
+            SimpleNamespace(id="inv_1", error=None),
+            SimpleNamespace(output={"content": "...", "intent": selection}),
+        )
+
+    monkeypatch.setattr(adapter.provider_gateway, "invoke", fake_invoke)
+
+    output = _run_node(adapter, state)
+
+    # Reuse is legal under the relaxed cap -> accepted on the first attempt.
+    assert len(calls) == 1
+    assert output.provider_invocation_ids == ["inv_1"]
+    # Still surfaced as a graded degradation.
+    assert output.status == NodeStatus.degraded
+    assert WarningCode.portrait_asset_reuse_relaxed in output.warnings
+    portrait = _payload(output, ArtifactKind.plan_portrait)
+    assert [seg["asset_id"] for seg in portrait["segments"]] == ["portrait_a", "portrait_a"]
+    diagnostics = _payload(output, ArtifactKind.plan_editing_diagnostics)
+    assert diagnostics["mode"] == "llm"
+    assert diagnostics["portrait_asset_reuse_cap"] == 2
+
+
 def test_llm_invalid_selection_records_raw_artifacts_before_fail_fast(tmp_path):
     adapter = _adapter(tmp_path)
     _seed_fake_llm_profile(adapter)

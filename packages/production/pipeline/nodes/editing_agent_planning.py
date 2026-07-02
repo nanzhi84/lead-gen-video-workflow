@@ -40,6 +40,7 @@ from packages.production.pipeline._editing_agent import (
     materialize_broll,
     materialize_portrait,
     materialize_style,
+    portrait_asset_reuse_cap,
     portrait_cut_frames,
     select_with_repair,
 )
@@ -170,6 +171,7 @@ def run(ctx: NodeContext) -> NodeOutput:
         narration_units=raw_units,
         duration=duration,
     )
+    reuse_cap = portrait_asset_reuse_cap(boundary=boundary, candidates=candidates)
 
     profile = ctx.first_available_provider_profile("llm.chat", include_sandbox=False)
     degradations: list[DegradationNotice] = []
@@ -278,6 +280,21 @@ def run(ctx: NodeContext) -> NodeOutput:
                 + "；".join(errors[:5]),
             )
 
+    # Portrait sources are scarcer than slots: the one-slot-per-asset uniqueness
+    # rule was relaxed to a balanced reuse budget (both the prompt and the local
+    # validator/fallback agree on it). Surface it as a graded degradation — never
+    # a silent downgrade — regardless of the LLM vs deterministic path taken.
+    if reuse_cap > 1:
+        degradations.append(
+            degradation_notice(
+                WarningCode.portrait_asset_reuse_relaxed,
+                f"人像可用素材数少于人像插槽数，已放松唯一性约束：同一素材最多复用 {reuse_cap} 个片段。",
+                node_id=node_run.node_id,
+                affects_true_yield=False,
+            )
+        )
+        warnings.append(WarningCode.portrait_asset_reuse_relaxed)
+
     overlay_events = _derive_overlay_events(load_creative_intent(state).emphasis, raw_units)
     portrait_payload = materialize_portrait(
         selection=selection, boundary=boundary, candidates=candidates
@@ -312,6 +329,7 @@ def run(ctx: NodeContext) -> NodeOutput:
         ],
         "font_id": selection.font_id,
         "bgm_id": selection.bgm_id,
+        "portrait_asset_reuse_cap": reuse_cap,
         "candidate_counts": {
             "portrait": len(candidates.portrait_by_id),
             "broll": len(candidates.broll_by_id),

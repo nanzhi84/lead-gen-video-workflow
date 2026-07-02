@@ -56,7 +56,7 @@ def upgrade() -> None:
                 or content not like '%legal_window_ids%'
                 or content not like '%available_frames%'
                 or content like '%允许重复使用同一素材%'
-                or content not like '%同一个 asset_id 最多只能%'
+                or content not like '%{portrait_uniqueness_rule}%'
               )
             """
         ),

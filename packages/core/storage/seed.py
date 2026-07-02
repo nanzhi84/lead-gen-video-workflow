@@ -362,6 +362,6 @@ def _needs_prompt_version_sync(existing: PromptVersionRow) -> bool:
             or "legal_window_ids" not in content
             or "available_frames" not in content
             or "允许重复使用同一素材" in content
-            or "同一个 asset_id 最多只能" not in content
+            or "{portrait_uniqueness_rule}" not in content
         )
     return False

@@ -85,6 +85,7 @@ class WarningCode(str, Enum):
     font_resolution_failed = "font.resolution_failed"
     subtitle_burn_skipped = "subtitle.burn_skipped"
     editing_agent_deterministic_fallback = "editing_agent.deterministic_fallback"
+    portrait_asset_reuse_relaxed = "portrait.asset_reuse_relaxed"
 
 
 class DegradationCode(str, Enum):

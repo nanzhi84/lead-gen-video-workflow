@@ -267,7 +267,7 @@ export default function PublishOpsPage() {
         <div>
           <h1>发布运维</h1>
           <p className="mt-2 text-sm text-text-secondary">
-            统一管理所有客户的发布账号与登录会话，失效账号可直接扫码重新登录。
+            统一管理所有客户的发布账号与登录会话，失效账号可后台连接小V猫扫码重新登录。
           </p>
         </div>
       </header>
@@ -277,7 +277,7 @@ export default function PublishOpsPage() {
           <div className="flex items-center gap-2">
             <RadioTower className="h-5 w-5 text-accent" />
             <h2 className="text-lg font-semibold text-text-primary">登录健康</h2>
-            <span className="text-xs text-text-tertiary">登录态实时来自小V猫</span>
+            <span className="text-xs text-text-tertiary">登录态实时来自小V猫，登录会自动尝试后台连接</span>
           </div>
           {loginCounts.logged_out > 0 ? (
             <span className="inline-flex items-center gap-1.5 rounded-full bg-status-error/10 px-3 py-1 text-sm font-medium text-status-error">

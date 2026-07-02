@@ -79,6 +79,14 @@ def _env_bool_optional(name: str) -> bool | None:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    """Parse a boolean env var, or ``default`` when unset / blank."""
+    value = os.getenv(name)
+    if value is None or value.strip() == "":
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _env_positive_int(name: str, default: int) -> int:
     """Parse a positive int env var; unset / non-integer / non-positive -> default.
 
@@ -479,6 +487,9 @@ class PublishingSettings(BaseModel):
     # fail while building a snapshot; actual 小V猫 call sites still parse strictly
     # through the property below, matching the old int(os.getenv(...)) behavior.
     xiaovmao_cdp_port_raw: str = Field("9222", exclude=True)
+    # CUTAGENT_XIAOVMAO_AUTO_LAUNCH: best-effort macOS local launch before CDP
+    # connect/probe/publish attempts. Non-macOS or non-local hosts are ignored.
+    xiaovmao_auto_launch: bool = True
 
     @property
     def xiaovmao_cdp_port(self) -> int:
@@ -643,6 +654,7 @@ def build_publishing_settings() -> PublishingSettings:
     return PublishingSettings(
         xiaovmao_cdp_host=_env_str("CUTAGENT_XIAOVMAO_CDP_HOST", "127.0.0.1"),
         xiaovmao_cdp_port_raw=_env_str("CUTAGENT_XIAOVMAO_CDP_PORT", "9222"),
+        xiaovmao_auto_launch=_env_bool("CUTAGENT_XIAOVMAO_AUTO_LAUNCH", True),
     )
 
 

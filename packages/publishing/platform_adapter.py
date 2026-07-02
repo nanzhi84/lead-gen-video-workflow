@@ -153,9 +153,9 @@ class XiaoVmaoPublishAdapter:
 
     adapter_id: str = XIAOVMAO_ADAPTER_ID
 
-    def _host_port(self) -> tuple[str, int]:
+    def _settings(self):
         publishing = build_publishing_settings()
-        return publishing.xiaovmao_cdp_host, publishing.xiaovmao_cdp_port
+        return publishing
 
     def probe_accounts(
         self,
@@ -165,17 +165,26 @@ class XiaoVmaoPublishAdapter:
     ) -> tuple[list[PlatformAccount], bool, str | None]:
         from packages.publishing.connectors.xiaovmao_cdp import probe_xiaovmao_accounts
 
-        host, port = self._host_port()
+        publishing = self._settings()
         return probe_xiaovmao_accounts(
-            host=host, port=port, account_group=account_group, case_name=case_name
+            host=publishing.xiaovmao_cdp_host,
+            port=publishing.xiaovmao_cdp_port,
+            auto_launch=publishing.xiaovmao_auto_launch,
+            account_group=account_group,
+            case_name=case_name,
         )
 
     def publish(self, payload: PublishPayload) -> PublishOutcome:
         from packages.publishing.connectors.xiaovmao_cdp import publish_via_xiaovmao
 
         try:
-            host, port = self._host_port()
-            return publish_via_xiaovmao(payload, host=host, port=port)
+            publishing = self._settings()
+            return publish_via_xiaovmao(
+                payload,
+                host=publishing.xiaovmao_cdp_host,
+                port=publishing.xiaovmao_cdp_port,
+                auto_launch=publishing.xiaovmao_auto_launch,
+            )
         except Exception as exc:
             # 任何 CDP/小V猫错误（不可达、会话断连、JS 异常等）都降级为诚实失败，
             # 绝不伪造成功，也不让异常冒泡 crash 发布流水线。

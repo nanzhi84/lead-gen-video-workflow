@@ -202,7 +202,7 @@ export function SourceStep({
             <span>{isCreating ? "创建中" : "创建批次"}</span>
           </button>
           <p className="rounded-2xl border border-status-info/25 bg-status-info/10 p-3 text-xs leading-5 text-status-info">
-            发布动作仅生成内部发布记录，不会触达真实外部平台。
+            创建批次后先编辑草稿；最终发布会在确认步骤选择小V猫账号后提交。
           </p>
         </div>
       </aside>
